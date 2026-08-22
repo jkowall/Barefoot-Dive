@@ -1,0 +1,53 @@
+{
+  "name": "barefoot-dive",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "playwright test --project=smoke-desktop",
+    "test:visual": "playwright test tests/ui/visual.spec.ts",
+    "test:visual:update": "playwright test tests/ui/visual.spec.ts --update-snapshots=all",
+    "verify:deco": "vitest run src/engine",
+    "verify:gas": "vitest run src/gas src/calculations",
+    "verify:exposure": "vitest run src/domain src/engine/tissues.test.ts",
+    "verify:cave": "vitest run src/cave",
+    "check": "npm run lint && npm run test && npm run build",
+    "check:deploy": "wrangler deploy --dry-run",
+    "mobile:sync": "npm run build && cap sync ios && cap sync android",
+    "build:mobile": "npm run mobile:sync",
+    "mobile:ios": "npm run mobile:sync && cap open ios",
+    "mobile:android": "npm run mobile:sync && cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.4.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.4.2",
+    "@capacitor/cli": "8.4.2",
+    "@capacitor/ios": "8.4.2",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.9.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.5",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.10",
+    "wrangler": "4.125.0"
+  }
+}

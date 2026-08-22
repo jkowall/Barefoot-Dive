@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Barefoot Dive</string>
+    <string name="title_activity_main">Barefoot Dive</string>
+    <string name="package_name">com.trimixblender.barefootdive</string>
+    <string name="custom_url_scheme">com.trimixblender.barefootdive</string>
+</resources>

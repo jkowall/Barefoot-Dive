@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "barefoot-dive",
+  "compatibility_date": "2026-08-22",
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [
+    {
+      "pattern": "barefootdive.app",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.barefootdive.app",
+      "custom_domain": true
+    }
+  ]
+}
