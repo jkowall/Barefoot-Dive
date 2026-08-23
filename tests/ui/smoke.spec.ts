@@ -145,6 +145,34 @@ test("scrolls a newly added deco gas editor into view", async ({ page }) => {
   expect(editorBox!.y).toBeGreaterThanOrEqual(topbarBox!.y + topbarBox!.height - 1);
 });
 
+test("keeps the calculated safety status inside its metric card", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+
+  const safetyMetric = page.locator(".bf-metric", { hasText: "Safety status" });
+  await expect(safetyMetric.getByText("Calculated", { exact: true })).toBeVisible();
+  const bounds = await safetyMetric.evaluate((element) => {
+    const value = element.querySelector("strong");
+    if (!value) return null;
+    const cardBox = element.getBoundingClientRect();
+    const valueRange = document.createRange();
+    valueRange.selectNodeContents(value);
+    const valueBox = valueRange.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return {
+      contentLeft: cardBox.left + Number.parseFloat(style.paddingLeft),
+      contentRight: cardBox.right - Number.parseFloat(style.paddingRight),
+      valueLeft: valueBox.left,
+      valueRight: valueBox.right,
+    };
+  });
+
+  expect(bounds).not.toBeNull();
+  expect(bounds!.valueLeft).toBeGreaterThanOrEqual(bounds!.contentLeft - 1);
+  expect(bounds!.valueRight).toBeLessThanOrEqual(bounds!.contentRight + 1);
+});
+
 test("calculates and saves an OC plan, then keeps the snapshot immutable in the library", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Calculate plan" }).click();

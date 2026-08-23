@@ -18,6 +18,7 @@
 - Required explicit END oxygen, OC Emergency team size, and cylinder reserve; routed Emergency segments through the shared planner gas-integration primitive and exposed exact Best Mix active constraints.
 - Fixed Tank Bank card actions so multiple cylinders keep their Delete controls separated and clickable across responsive layouts.
 - Scrolled newly added deco and bailout gas editors into view without hiding them behind the sticky application header.
+- Kept long result metric values, including the calculated safety status, inside their cards at intermediate viewport widths.
 
 ## [0.1.0] - 2026-08-21
 
