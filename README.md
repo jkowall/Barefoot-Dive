@@ -36,3 +36,7 @@ The app runs calculations locally in the browser or native WebView and stores Ta
 Outputs are decision support. Analyze gases with appropriate equipment, verify assumptions and final readings, and have a qualified diver review the plan. Public web availability does not establish decompression, CNS, bailout, reserve, or cave-procedure safety or parity with a computer/planner. See [`documentation/reference-validation.md`](documentation/reference-validation.md) for the current evidence boundary.
 
 See [`ROADMAP.md`](ROADMAP.md) for sequenced validation and product work. See [`design.md`](design.md) and [`documentation/`](documentation/) for product and implementation detail.
+
+## License
+
+Copyright 2026 Jonah Kowall. Licensed under the [Apache License 2.0](LICENSE).

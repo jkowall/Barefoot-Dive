@@ -2,6 +2,12 @@
 
 Barefoot Dive is a planning-first sibling product to Barefoot Blender for technical OC and CCR divers. The current client-only implementation is an offline PWA plus Capacitor shells. Calculations stay local and pure; there is no remote calculation path.
 
+## Brand identity
+
+The Barefoot Dive mark uses the illustrated rope-badge language of Barefoot Blender while depicting technical dive planning: a barefoot diver with twin open-circuit cylinders reviews a stepped profile in a cave. The full warm-white artwork is stored at `assets/logo.png`; `assets/logo-transparent.png` is the background-free production cutout used to create dark-field launcher and splash variants.
+
+Browser and PWA derivatives live in `public/` at 32, 64, 180, 192, and 512 pixels, with a separately padded 512-pixel maskable icon. The iOS app icon, Android legacy and adaptive launchers, and native splash images use the same cutout on the application navy (`#08111f`). Native icons retain the platform mask rather than baking rounded corners into the artwork.
+
 ## Current implemented product
 
 The planner supports square open-water OC and constant-setpoint CCR profiles, travel and deco gas selection, diluent and bailout semantics, GF-based decompression, and integrated gas/reserve accounting. CCR bailout is calculated from the exact tissue/depth/runtime trigger state selected by the user. The same production calculation functions power all 11 tools: MOD, Best Mix, END, gas density, PPO2, SAC/RMV, gas duration, rock bottom, cylinder gas, CNS, and simplified bailout.

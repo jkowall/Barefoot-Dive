@@ -32,7 +32,7 @@ export function AppShell({ children, activeRoute, navigation = defaultNavigation
     </nav>
   );
   return <div className="bf-app-shell">
-    <aside className="bf-rail"><div className="bf-brand"><span aria-hidden="true" className="bf-brand__mark">◉</span><span><small>BAREFOOT</small><strong>Dive</strong></span></div>{navigationButtons("rail")}</aside>
+    <aside className="bf-rail"><div className="bf-brand"><img alt="" aria-hidden="true" className="bf-brand__mark" src="/logo-64.png" /><span><small>BAREFOOT</small><strong>Dive</strong></span></div>{navigationButtons("rail")}</aside>
     <div className="bf-workspace"><header className="bf-topbar"><div className="bf-topbar__title">{title}</div><button aria-label="Open settings" className="bf-icon-button" onClick={onOpenSettings} type="button">⚙</button></header><main className="bf-content">{children}</main></div>
     {navigationButtons("bottom")}
   </div>;

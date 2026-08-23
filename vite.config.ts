@@ -13,7 +13,15 @@ export default defineConfig({
     VitePWA({
       injectRegister: null,
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg", "icon-maskable.svg"],
+      includeAssets: [
+        "logo.png",
+        "logo-32.png",
+        "logo-64.png",
+        "logo-180.png",
+        "logo-192.png",
+        "logo-512.png",
+        "logo-512-maskable.png",
+      ],
       manifest: {
         name: "Barefoot Dive",
         short_name: "Dive",
@@ -22,8 +30,9 @@ export default defineConfig({
         background_color: "#08111f",
         display: "standalone",
         icons: [
-          { src: "icon.svg", sizes: "any", type: "image/svg+xml" },
-          { src: "icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }
+          { src: "logo-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "logo-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "logo-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ]
       }
     })

@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
-const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chrome = process.env.PLAYWRIGHT_CHROME_EXECUTABLE
+  ?? (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : undefined);
 
 export default defineConfig({
   testDir: "./tests/ui",
@@ -17,7 +18,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4173",
     browserName: "chromium",
-    launchOptions: { executablePath: chrome },
+    launchOptions: chrome ? { executablePath: chrome } : undefined,
     locale: "en-US",
     timezoneId: "America/New_York",
     colorScheme: "dark",

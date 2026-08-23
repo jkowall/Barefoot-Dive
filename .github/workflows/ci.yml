@@ -6,13 +6,16 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   web:
-    name: Web checks
+    name: Web and scientific checks
     runs-on: ubuntu-latest
 
     steps:
@@ -28,8 +31,105 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint, tests, and production build
+      - name: Run repository gate
         run: npm run check
+
+      - name: Verify decompression
+        run: npm run verify:deco
+
+      - name: Verify gas and calculators
+        run: npm run verify:gas
+
+      - name: Verify exposure
+        run: npm run verify:exposure
+
+      - name: Verify cave planning
+        run: npm run verify:cave
 
       - name: Validate Cloudflare deployment package
         run: npm run check:deploy
+
+  browser-smoke:
+    name: Browser and offline smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build production PWA
+        run: npm run build
+
+      - name: Run browser smoke tests
+        run: npm run test:ui
+
+  android-native:
+    name: Android native smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Android project
+        run: npx cap sync android
+
+      - name: Run Android unit and compile gates
+        working-directory: android
+        run: ./gradlew testDebugUnitTest assembleDebug :app:assembleDebugAndroidTest
+
+  ios-compile:
+    name: iOS compile smoke
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync iOS project
+        run: npx cap sync ios
+
+      - name: Build iOS app without signing
+        run: xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
