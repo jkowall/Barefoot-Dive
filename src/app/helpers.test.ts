@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capacityInputValue, formatPressure, pressureFromCanonical, pressureInputStep, pressureInputToCanonical, pressureInputValue, pressureToCanonical, ratedCapacityFromCanonical, waterVolumeFromRatedCapacity } from "./helpers";
+import { capacityInputValue, formatPressure, formatSurfaceGas, formatSurfaceGasRate, pressureFromCanonical, pressureInputStep, pressureInputToCanonical, pressureInputValue, pressureToCanonical, ratedCapacityFromCanonical, surfaceGasInputStep, surfaceGasInputToCanonical, surfaceGasInputValue, surfaceGasRateInputStep, surfaceGasRateInputToCanonical, surfaceGasRateInputValue, surfaceGasRateUnit, surfaceGasUnit, waterVolumeFromRatedCapacity } from "./helpers";
 
 describe("rated cylinder capacity conversions", () => {
   it("round-trips imperial rated cubic feet using working pressure", () => {
@@ -41,5 +41,36 @@ describe("pressure presentation", () => {
     expect(pressureInputToCanonical(3000.5, "psi")).toBeCloseTo(pressureToCanonical(3001, "psi"), 12);
     expect(pressureInputToCanonical(232.04, "bar")).toBe(232);
     expect(pressureInputToCanonical(232.06, "bar")).toBe(232.1);
+  });
+});
+
+describe("surface gas presentation", () => {
+  it("uses capacity preferences for volume units and rounded input values", () => {
+    expect(surfaceGasUnit("imperial")).toBe("ft³");
+    expect(surfaceGasUnit("metric")).toBe("L");
+    expect(surfaceGasInputValue(100, "imperial")).toBe(3.5);
+    expect(surfaceGasInputValue(100, "metric")).toBe(100);
+    expect(surfaceGasInputStep("imperial")).toBe(0.1);
+    expect(surfaceGasInputStep("metric")).toBe(1);
+    expect(formatSurfaceGas(100, "imperial")).toBe("3.5 ft³");
+    expect(formatSurfaceGas(100, "metric")).toBe("100 L");
+  });
+
+  it("preserves an equivalent canonical volume when rounded input is re-entered", () => {
+    expect(surfaceGasInputToCanonical(3.5, "imperial", [100])).toBe(100);
+    expect(surfaceGasInputToCanonical(3.56, "imperial")).toBeCloseTo(3.6 * 28.316846592, 10);
+    expect(surfaceGasInputToCanonical(100.4, "metric")).toBe(100);
+  });
+
+  it("formats and round-trips rates using the same capacity preference", () => {
+    expect(surfaceGasRateUnit("imperial")).toBe("ft³/min");
+    expect(surfaceGasRateUnit("metric")).toBe("L/min");
+    expect(surfaceGasRateInputValue(20, "imperial")).toBe(0.7);
+    expect(surfaceGasRateInputValue(20, "metric")).toBe(20);
+    expect(surfaceGasRateInputStep()).toBe(0.1);
+    expect(formatSurfaceGasRate(20, "imperial")).toBe("0.7 ft³/min");
+    expect(formatSurfaceGasRate(20, "metric")).toBe("20.0 L/min");
+    expect(surfaceGasRateInputToCanonical(0.7, "imperial", [20])).toBe(20);
+    expect(surfaceGasRateInputToCanonical(20.04, "metric")).toBe(20);
   });
 });

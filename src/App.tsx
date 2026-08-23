@@ -23,6 +23,7 @@ import {
 } from "./ui";
 import CavePage from "./app/CavePage";
 import { collectCaveDiagnostics } from "./app/caveDiagnostics";
+import { createInitialCaveWorkspaceSession, type CaveWorkspaceSession } from "./app/caveWorkspace";
 import { ActionButton } from "./app/controls";
 import { DEFAULT_PREFERENCES, type UnitPreferences } from "./app/helpers";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./app/planning";
@@ -142,6 +143,7 @@ function SettingsDialog({
         />
       </div>
       <p>Canonical calculations remain meters, seconds, ambient bar absolute, cylinder bar gauge, surface liters, and gas fractions. Display preferences are independent.</p>
+      <p className="bf-field-group__hint">App {__APP_VERSION__} · Engine {ENGINE_VERSION}</p>
       <div className="bf-dialog__actions"><button className="bf-button" onClick={onClose} ref={closeRef} type="button">Done</button></div>
     </section>
   </div>;
@@ -252,6 +254,7 @@ export default function App() {
   const [openedRecord, setOpenedRecord] = useState<SavedPlanRecord>();
   const [planDraft, setPlanDraft] = useState<PlanDraft>(() => structuredClone(DEFAULT_PLAN_DRAFT));
   const [planSession, setPlanSession] = useState<PlanWorkspaceSession>(createInitialPlanWorkspaceSession);
+  const [caveSession, setCaveSession] = useState<CaveWorkspaceSession>(createInitialCaveWorkspaceSession);
   const [pendingToolPatch, setPendingToolPatch] = useState<ToolPlanPatch>();
   const [planNotice, setPlanNotice] = useState<{ readonly revision: number; readonly label: string; readonly description: string }>();
   const [toolsSession, setToolsSession] = useState<ToolsSessionState>(createInitialToolsSessionState);
@@ -338,7 +341,15 @@ export default function App() {
       tanks={stores.tankBank}
     />;
   } else if (route === "cave") {
-    content = <CavePage onStorageChange={refreshData} plans={stores.savedPlans} preferences={preferences} tanks={stores.tankBank} />;
+    content = <CavePage
+      onSessionChange={setCaveSession}
+      onStorageChange={refreshData}
+      plans={stores.savedPlans}
+      preferences={preferences}
+      session={caveSession}
+      tankRevision={dataRevision}
+      tanks={stores.tankBank}
+    />;
   } else if (route === "tools") {
     content = <ToolsPage
       onError={reportError}
@@ -394,11 +405,11 @@ export default function App() {
     <ConfirmDialog
       cancelLabel="Keep checking"
       confirmLabel="Apply to current Plan"
-      description={pendingToolPatch ? describeToolPlanPatch(planDraft, pendingToolPatch) : ""}
+      description={pendingToolPatch ? describeToolPlanPatch(planDraft, pendingToolPatch, preferences.cylinderCapacity) : ""}
       onCancel={() => setPendingToolPatch(undefined)}
       onConfirm={() => {
         if (!pendingToolPatch) return;
-        const description = describeToolPlanPatch(planDraft, pendingToolPatch);
+        const description = describeToolPlanPatch(planDraft, pendingToolPatch, preferences.cylinderCapacity);
         setPlanDraft((current) => applyToolPlanPatch(current, pendingToolPatch));
         setPlanSession((current) => ({ ...current, view: "setup" }));
         setPendingToolPatch(undefined);

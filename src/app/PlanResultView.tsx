@@ -7,8 +7,9 @@ import {
   ResultMetric,
   RuntimeSchedule,
   WarningList,
+  type ChartSegmentInput,
   type GasLedgerRow,
-  type ProfilePoint,
+  type ReserveCrossingInput,
   type RuntimeRow,
   type WarningItem,
 } from "../ui";
@@ -30,13 +31,34 @@ function warningsFor(plan: DivePlan): readonly WarningItem[] {
   }));
 }
 
-function profilePoints(plan: DivePlan, preferences: UnitPreferences): readonly ProfilePoint[] {
+function profileSegments(plan: DivePlan, preferences: UnitPreferences): readonly ChartSegmentInput[] {
   return plan.segments.map((segment) => ({
-    runtime: formatDuration(segment.startRuntimeSeconds),
-    depth: Number(depthFromCanonical(segment.endDepthM, preferences.depth).toFixed(1)),
-    ceiling: Number(depthFromCanonical(segment.ceilingDepthM, preferences.depth).toFixed(1)),
-    label: segment.kind,
+    id: segment.id,
+    kind: segment.kind,
+    startRuntimeSeconds: segment.startRuntimeSeconds,
+    endRuntimeSeconds: segment.startRuntimeSeconds + segment.durationSeconds,
+    startDepth: depthFromCanonical(segment.startDepthM, preferences.depth),
+    endDepth: depthFromCanonical(segment.endDepthM, preferences.depth),
+    endpointCeiling: depthFromCanonical(segment.ceilingDepthM, preferences.depth),
+    breathingLabel: segment.gasName,
+    planMode: plan.mode === "oc" ? "Open circuit" : "CCR",
+    ...(segment.setpointBar === undefined ? {} : { setpoint: segment.setpointBar }),
   }));
+}
+
+function profileReserveCrossings(plan: DivePlan, preferences: UnitPreferences): readonly ReserveCrossingInput[] {
+  return plan.gasLedger.flatMap((entry, index) => {
+    if (!entry.reserveCrossing) return [];
+    const crossing = entry.reserveCrossing;
+    return [{
+      id: `reserve-${entry.cylinderId ?? entry.gasId}-${index}`,
+      runtimeSeconds: crossing.runtimeSeconds,
+      depth: depthFromCanonical(crossing.depthM, preferences.depth),
+      label: `${entry.cylinderName ?? entry.gasName} reserve crossing`,
+      detail: `Expected ${formatPressure(crossing.expectedPressureBar, preferences.pressure)} · required ${formatPressure(crossing.requiredPressureBar, preferences.pressure)}`,
+      tone: entry.sufficient ? "warning" as const : "danger" as const,
+    }];
+  });
 }
 
 function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly RuntimeRow[] {
@@ -78,8 +100,10 @@ function ScheduleAndLedger({ plan, preferences, title }: {
   return <>
     <Panel title={`${title} profile`}>
       <ProfileChart
-        points={profilePoints(plan, preferences)}
-        title={`${title} profile`}
+        key={`${plan.id}-${preferences.depth}`}
+        reserveCrossings={profileReserveCrossings(plan, preferences)}
+        segments={profileSegments(plan, preferences)}
+        title={`${title} profile timeline`}
         unit={depthUnit(preferences.depth)}
       />
     </Panel>

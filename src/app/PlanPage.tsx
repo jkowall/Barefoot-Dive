@@ -33,6 +33,7 @@ import {
 } from "./helpers";
 import {
   resolvePlanInput,
+  tankSourceSignature,
   type GasDraft,
   type PlanDraft,
   type ReserveDraft,
@@ -49,17 +50,6 @@ const diagnosticItems = (diagnostics: readonly Diagnostic[]): readonly WarningIt
 function activeTanks(store?: TankBankStore): readonly TankRecord[] {
   const result = store?.list({ archived: false });
   return result?.ok ? result.value : [];
-}
-
-function tankSourceSignature(draft: PlanDraft, tanks: readonly TankRecord[]): string {
-  const selectedDrafts = draft.mode === "oc"
-    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases]
-    : [draft.diluent, ...draft.bailoutGases];
-  return JSON.stringify(selectedDrafts.flatMap((gas) => {
-    if (!gas.cylinderId) return [];
-    const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
-    return [{ gasKey: gas.key, tankId: gas.cylinderId, revision: tank?.revision ?? null }];
-  }));
 }
 
 function GasEditor({

@@ -1,6 +1,6 @@
 # Tools library and workspace
 
-The Tools redesign is implemented in the `0.1.0` checkout as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
+The `0.2.0` checkout implements Tools as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
 
 ## Library
 
@@ -38,9 +38,9 @@ Other tool results remain informational until a separately specified plan action
 
 ## Conventions and units
 
-Best Mix and END use versioned policy identifiers for PPO2 and narcotic assumptions. END requires both actual oxygen and helium fractions. Best Mix returns every active constraint so boundary cases are not mislabeled. They are live calculations, so a policy change immediately replaces the result. SAC / RMV supports both a direct measured-surface-gas input and a cylinder gauge-pressure-drop input; the mode and all source values remain visible in the result.
+Best Mix and END use versioned policy identifiers for PPO2 and narcotic assumptions. END requires both actual oxygen and helium fractions. Best Mix returns every active constraint so boundary cases are not mislabeled. They are live calculations, so a policy change immediately replaces the result. SAC / RMV supports both a direct measured-surface-gas input and a cylinder gauge-pressure-drop input; the mode and all source values remain visible in the result. The cylinder-capacity preference also selects surface-gas and RMV presentation: rated ft³ and ft³/min for imperial, or litres and L/min for metric. Switching display units does not rewrite the canonical Tool draft or result.
 
-Pressure semantics are explicit: ambient pressure is absolute bar, cylinder pressure is gauge bar, and gas consumption/reserve calculations use pressure deltas. PSI is a display/input conversion for gauge cylinder pressure; PPO2 and ambient calculations remain absolute. Canonical storage retains the distinction even in imperial display mode.
+Pressure semantics are explicit: ambient pressure is absolute bar, cylinder pressure is gauge bar, and gas consumption/reserve calculations use pressure deltas. PSI is a display/input conversion for gauge cylinder pressure; PPO2 and ambient calculations remain absolute bar. MOD, Best Mix, PPO2, END, Gas Density, SAC / RMV, Gas Duration, and Emergency Gas depth values follow the Feet/Meters preference. Canonical storage retains every unit distinction even in imperial display mode.
 
 ## Evidence boundary
 

@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DivePlan, PlanEnvironment, PlanningMode } from "../domain/types";
+import { ENGINE_VERSION } from "../engine/planner";
 import { ConfirmDialog, EmptyState, FieldGroup, PageHeader, Panel, ResultMetric, SegmentedControl, WarningList } from "../ui";
 import type { SavedPlansStore } from "../storage/savedPlans";
 import type { SavedPlanDraft, SavedPlanRecord, StorageDiagnostic } from "../storage/types";
@@ -8,7 +9,6 @@ import { collectCaveDiagnostics } from "./caveDiagnostics";
 
 type ButtonProps = { readonly children: ReactNode; readonly onClick?: () => void; readonly quiet?: boolean; readonly danger?: boolean };
 function Button({ children, onClick, quiet, danger }: ButtonProps) { return <button className={`bf-button ${quiet ? "bf-button--quiet" : ""} ${danger ? "bf-button--danger" : ""}`} onClick={onClick} type="button">{children}</button>; }
-const ENGINE_VERSION = "barefoot-dive-engine-0.1.0";
 function failureMessage(error: StorageDiagnostic): string { return `${error.message} (${error.code})`; }
 function dateLabel(iso: string): string { return new Date(iso).toLocaleString(); }
 

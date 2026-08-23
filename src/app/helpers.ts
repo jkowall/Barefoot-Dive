@@ -22,6 +22,38 @@ export const waterVolumeFromRatedCapacity = (capacity: number, workingPressureBa
 };
 export const surfaceGasFromCanonical = (litersValue: number, units: UnitPreferences["cylinderCapacity"]): number => units === "imperial" ? litersValue / CUFT_LITERS : litersValue;
 export const surfaceGasUnit = (units: UnitPreferences["cylinderCapacity"]): "ft³" | "L" => capacityUnit(units);
+export const surfaceGasInputValue = (litersValue: number, units: UnitPreferences["cylinderCapacity"]): number =>
+  Number(surfaceGasFromCanonical(litersValue, units).toFixed(units === "imperial" ? 1 : 0));
+export const surfaceGasInputToCanonical = (
+  value: number,
+  units: UnitPreferences["cylinderCapacity"],
+  equivalentValuesL: readonly number[] = [],
+): number => {
+  const displayValue = Number(value.toFixed(units === "imperial" ? 1 : 0));
+  const equivalent = equivalentValuesL.find((candidate) => surfaceGasInputValue(candidate, units) === displayValue);
+  return equivalent === undefined ? (units === "imperial" ? displayValue * CUFT_LITERS : displayValue) : equivalent;
+};
+export const surfaceGasInputStep = (units: UnitPreferences["cylinderCapacity"]): number => units === "imperial" ? 0.1 : 1;
+export const surfaceGasRateFromCanonical = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"]): number =>
+  surfaceGasFromCanonical(litersPerMinute, units);
+export const surfaceGasRateInputValue = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"]): number =>
+  Number(surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(1));
+export const surfaceGasRateInputToCanonical = (
+  value: number,
+  units: UnitPreferences["cylinderCapacity"],
+  equivalentValuesLpm: readonly number[] = [],
+): number => {
+  const displayValue = Number(value.toFixed(1));
+  const equivalent = equivalentValuesLpm.find((candidate) => surfaceGasRateInputValue(candidate, units) === displayValue);
+  return equivalent === undefined ? (units === "imperial" ? displayValue * CUFT_LITERS : displayValue) : equivalent;
+};
+export const surfaceGasRateInputStep = (): number => 0.1;
+export const surfaceGasRateUnit = (units: UnitPreferences["cylinderCapacity"]): "ft³/min" | "L/min" =>
+  units === "imperial" ? "ft³/min" : "L/min";
+export const formatSurfaceGas = (litersValue: number, units: UnitPreferences["cylinderCapacity"], digits?: number): string =>
+  `${surfaceGasFromCanonical(litersValue, units).toFixed(digits ?? (units === "imperial" ? 1 : 0))} ${surfaceGasUnit(units)}`;
+export const formatSurfaceGasRate = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"], digits = 1): string =>
+  `${surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(digits)} ${surfaceGasRateUnit(units)}`;
 export const depthToCanonical = (value: number, units: UnitPreferences["depth"]): Meters => meters(units === "imperial" ? value / 3.280839895 : value);
 export const depthFromCanonical = (value: number, units: UnitPreferences["depth"]): number => units === "imperial" ? value * 3.280839895 : value;
 export const pressureToCanonical = (value: number, units: UnitPreferences["pressure"]): BarGauge => barGauge(units === "psi" ? value / 14.5037738 : value);

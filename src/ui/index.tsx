@@ -1,4 +1,7 @@
-import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useId, useMemo, useRef } from "react";
+import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
+
+export { ProfileChart, type ProfileChartProps } from "./ProfileChart";
+export type { ChartSegmentInput, ReserveCrossingInput } from "./profileChartModel";
 
 export type RouteKey = "plan" | "cave" | "tools" | "tanks" | "plans";
 
@@ -151,16 +154,6 @@ export function SavePlanDialog({ open, defaultName = "", onSave, onCancel }: { r
   const onKeyDown = useModalKeyboard(open, onCancel, dialogRef);
   if (!open) return null;
   return <div className="bf-dialog-backdrop" role="presentation"><form aria-describedby={descriptionId} aria-labelledby={titleId} aria-modal="true" className="bf-dialog" onKeyDown={onKeyDown} onSubmit={(event) => { event.preventDefault(); const name = new FormData(event.currentTarget).get("name"); if (typeof name === "string" && name.trim()) onSave?.(name.trim()); }} ref={dialogRef} role="dialog"><h2 id={titleId}>Save dive plan</h2><p id={descriptionId}>Store this immutable plan snapshot locally on this device.</p><label className="bf-dialog__input" htmlFor={id}>Plan name<input data-initial-focus defaultValue={defaultName} id={id} name="name" required type="text" /></label><div className="bf-dialog__actions"><button className="bf-button bf-button--quiet" onClick={onCancel} type="button">Cancel</button><button className="bf-button" type="submit">Save plan</button></div></form></div>;
-}
-
-export type ProfilePoint = { readonly runtime: string; readonly depth: number; readonly ceiling?: number; readonly label?: string };
-export function ProfileChart({ points, title = "Dive profile", unit = "m" }: { readonly points: readonly ProfilePoint[]; readonly title?: string; readonly unit?: string }) {
-  const { line, ceiling, maximum } = useMemo(() => {
-    const maximum = Math.max(1, ...points.map((point) => Math.max(point.depth, point.ceiling ?? 0)));
-    const mapped = (accessor: (point: ProfilePoint) => number | undefined) => points.map((point, index) => { const value = accessor(point); return value === undefined ? "" : `${(index / Math.max(1, points.length - 1)) * 100},${(value / maximum) * 100}`; }).filter(Boolean).join(" ");
-    return { line: mapped((point) => point.depth), ceiling: mapped((point) => point.ceiling), maximum };
-  }, [points]);
-  return <section className="bf-profile" aria-labelledby="profile-title"><header><h2 id="profile-title">{title}</h2><span>Depth · {unit}</span></header><svg aria-label={`${title}; maximum depth ${maximum} ${unit}`} role="img" viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" x2="100" y1="0" y2="0" /><line x1="0" x2="100" y1="50" y2="50" /><line x1="0" x2="100" y1="100" y2="100" />{ceiling && <polyline className="bf-profile__ceiling" points={ceiling} />}{line && <polyline className="bf-profile__line" points={line} />}</svg><div className="bf-scroll-table"><table><caption className="bf-sr-only">Dive profile data</caption><thead><tr><th>Runtime</th><th>Depth ({unit})</th><th>Ceiling ({unit})</th><th>Event</th></tr></thead><tbody>{points.map((point, index) => <tr key={`${point.runtime}-${index}`}><td>{point.runtime}</td><td>{point.depth}</td><td>{point.ceiling ?? "—"}</td><td>{point.label ?? "—"}</td></tr>)}</tbody></table></div></section>;
 }
 
 export type RuntimeRow = { readonly runtime: string; readonly depth: string; readonly duration: string; readonly gas?: ReactNode; readonly event: string };

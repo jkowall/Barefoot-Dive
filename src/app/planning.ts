@@ -67,6 +67,17 @@ export type ResolvedPlanInput = {
   readonly cylinders: readonly Cylinder[];
 };
 
+export function tankSourceSignature(draft: PlanDraft, tanks: readonly TankRecord[]): string {
+  const selectedDrafts = draft.mode === "oc"
+    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases]
+    : [draft.diluent, ...draft.bailoutGases];
+  return JSON.stringify(selectedDrafts.flatMap((gas) => {
+    if (!gas.cylinderId) return [];
+    const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
+    return [{ gasKey: gas.key, tankId: gas.cylinderId, revision: tank?.revision ?? null }];
+  }));
+}
+
 const gasDraft = (
   key: string,
   name: string,

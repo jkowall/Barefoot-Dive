@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.0] - 2026-08-23
+
 - Licensed the project under the Apache License 2.0 and added SPDX package metadata.
 - Added the illustrated Barefoot Dive identity across the in-app brand, browser icons, PWA install assets, iOS and Android launchers, and native splash screens.
 - Added Cloudflare Workers static-asset hosting for `barefootdive.app` and `www.barefootdive.app`, automated `main` deployments through Workers Builds, deploy-package validation, and security headers.
@@ -10,15 +12,20 @@
 - Added clearer Tools section hierarchy, live/updating/invalid status cues, active-navigation indicators, restrained page/result transitions, and reduced-motion behavior.
 - Refined the shared visual system with layered workspace depth, stronger page and panel hierarchy, clearer result metrics, richer navigation and controls, and visible keyboard focus for segmented choices.
 - Added one-shot border completion cues for Plan and Cave calculations, local snapshot and cylinder saves, and confirmed Tool-to-Plan transfers without animating safety-critical values; successful calculations bring the completed result into view.
-- Split the single top-level Plan workspace into Setup and Review, with an explicit first calculation, debounced recalculation after later valid edits, and suppression of superseded results and saving while inputs are updating or invalid.
-- Kept the current Plan draft and matching result across primary-workspace navigation for the app session, surfaced Tank Bank source revisions for explicit Plan updates, retained display/local preferences in Settings, and made edited Cave results require an explicit `Update cave plan` before output or saving returns.
+- Split the top-level Plan and Cave workspaces into Setup and Review, with an explicit first calculation, debounced recalculation after later valid edits, and suppression of superseded results and saving while inputs are updating or invalid.
+- Kept the current Plan and Cave drafts and matching results across primary-workspace navigation for the app session, surfaced Tank Bank source revisions for explicit Plan or Cave updates, and retained display/local preferences in Settings.
+- Made Cave Review show one aggregate status and diagnostic list across the base plan and every enabled failure scenario, so an unsafe unselected scenario cannot sit behind a positive overall summary before saving.
 - Added exact, confirmed Plan patches for Best Mix, one selected SAC/RMV target, and OC rock-bottom assumptions; unsupported calculators remain display-only.
 - Added versioned trimix Best Mix and END narcotic policies, dual-input SAC/RMV, entered-schedule Emergency Gas, and distinct absolute, gauge, and pressure-delta types.
 - Added source-backed literal Tools fixtures from NOAA, U.S. Navy, SSI, and the documented Subsurface convention option; these establish formula arithmetic only, not procedure or planner parity.
 - Required explicit END oxygen, OC Emergency team size, and cylinder reserve; routed Emergency segments through the shared planner gas-integration primitive and exposed exact Best Mix active constraints.
+- Made Tools depth, cylinder pressure, surface-gas volume, and RMV presentation follow Settings while retaining canonical metres, bar, litres, and L/min; strengthened the MOD Feet/Meters regression.
 - Fixed Tank Bank card actions so multiple cylinders keep their Delete controls separated and clickable across responsive layouts.
-- Scrolled newly added deco and bailout gas editors into view without hiding them behind the sticky application header.
+- Scrolled newly added deco and bailout gas editors and Cave route legs into view without hiding them behind sticky workspace controls, and kept rapid route additions uniquely numbered.
 - Kept long result metric values, including the calculated safety status, inside their cards at intermediate viewport widths.
+- Added time-accurate interactive profile graphs with labeled runtime and depth measures, decompression bands, subdued endpoint ceiling checkpoints with a plain-language explanation, numbered and selectable gas/setpoint-switch and reserve-crossing details, a docked non-overlapping scrub readout, and accessible mouse, touch, and keyboard inspection across primary, CCR bailout, Cave base/scenario, and stored base-plan results.
+- Displayed the app release and calculation-engine identifiers together in Settings so support reports can distinguish product changes from scientific engine changes.
+- Used the planner's canonical engine identifier for Saved Plan stale-version checks.
 
 ## [0.1.0] - 2026-08-21
 

@@ -1,4 +1,5 @@
 import type { TankRecord } from "../storage";
+import { formatSurfaceGasRate, type UnitPreferences } from "./helpers";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./planning";
 
 export type RmvPlanTarget =
@@ -108,7 +109,11 @@ const rmvLabel: Record<RmvPlanTarget, string> = {
   bailoutDecoRmvLpm: "Bailout deco RMV",
 };
 
-export function describeToolPlanPatch(currentDraft: PlanDraft, patch: ToolPlanPatch): string {
+export function describeToolPlanPatch(
+  currentDraft: PlanDraft,
+  patch: ToolPlanPatch,
+  capacityUnits: UnitPreferences["cylinderCapacity"],
+): string {
   switch (patch.kind) {
     case "best-mix": {
       const before = gasLabel(
@@ -123,12 +128,12 @@ export function describeToolPlanPatch(currentDraft: PlanDraft, patch: ToolPlanPa
       return `Bottom gas: ${before} → ${after}.${cylinder} No other plan fields will change.`;
     }
     case "rmv":
-      return `${rmvLabel[patch.target]}: ${currentDraft[patch.target].toFixed(1)} → ${patch.valueLpm.toFixed(1)} L/min. No other plan fields will change.`;
+      return `${rmvLabel[patch.target]}: ${formatSurfaceGasRate(currentDraft[patch.target], capacityUnits)} → ${formatSurfaceGasRate(patch.valueLpm, capacityUnits)}. No other plan fields will change.`;
     case "rock-bottom": {
       const before = currentDraft.reserve.kind === "rock-bottom"
-        ? `team ${currentDraft.reserve.teamSize}, ${currentDraft.reserve.stressedRmvLpm.toFixed(1)} L/min stressed RMV`
+        ? `team ${currentDraft.reserve.teamSize}, ${formatSurfaceGasRate(currentDraft.reserve.stressedRmvLpm, capacityUnits)} stressed RMV`
         : currentDraft.reserve.kind;
-      return `Reserve policy: ${before} → rock bottom, team ${patch.teamSize}, ${patch.stressedRmvLpm.toFixed(1)} L/min stressed RMV. The entered emergency segments and calculated pressure are not copied.`;
+      return `Reserve policy: ${before} → rock bottom, team ${patch.teamSize}, ${formatSurfaceGasRate(patch.stressedRmvLpm, capacityUnits)} stressed RMV. The entered emergency segments and calculated pressure are not copied.`;
     }
   }
 }

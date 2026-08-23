@@ -6,6 +6,7 @@ async function prepareLongCapture(page: Page) {
     : "";
   await page.addStyleTag({ content: `
     .bf-topbar { position: static !important; }
+    .bf-plan-context { position: static !important; }
     ${mobileStyles}
   ` });
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -29,6 +30,22 @@ test("calculated plan output visual baseline", async ({ page }, testInfo) => {
   await expect(results).toHaveScreenshot(`plan-results-${testInfo.project.name}.png`);
 });
 
+test("selected profile scrubber visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const graph = page.getByRole("slider", { name: "Primary profile timeline" });
+  await expect(graph).toBeVisible();
+  await prepareLongCapture(page);
+  await graph.scrollIntoViewIfNeeded();
+  const bounds = await graph.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width * .68, bounds!.y + bounds!.height * .5);
+  await expect.poll(async () => Number(await graph.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
+  const panel = graph.locator("xpath=ancestor::section[contains(@class, 'bf-panel')][1]");
+  await expect(panel).toHaveScreenshot(`profile-selected-${testInfo.project.name}.png`);
+});
+
 test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
   await page.goto("/");
@@ -36,6 +53,17 @@ test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
   await prepareLongCapture(page);
   await expect(page).toHaveScreenshot(`cave-${testInfo.project.name}.png`, { fullPage: true });
+});
+
+test("calculated cave output visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(results).toBeVisible();
+  await prepareLongCapture(page);
+  await expect(results).toHaveScreenshot(`cave-results-${testInfo.project.name}.png`);
 });
 
 test("Tools library visual baseline", async ({ page }, testInfo) => {

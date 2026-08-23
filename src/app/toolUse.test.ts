@@ -42,7 +42,7 @@ describe("exact Tools plan patches", () => {
       cylinderId: undefined,
     });
     expect({ ...after, bottomGas: before.bottomGas }).toEqual(before);
-    expect(describeToolPlanPatch(before, patch)).toContain("will be cleared");
+    expect(describeToolPlanPatch(before, patch, "imperial")).toContain("will be cleared");
   });
 
   it("preserves a cylinder only when App resolves an exact Tank Bank match", () => {
@@ -69,6 +69,15 @@ describe("exact Tools plan patches", () => {
     expect({ ...after, [target]: before[target] }).toEqual(before);
   });
 
+  it("describes RMV changes in the selected display units", () => {
+    const before = customizedDraft();
+    const patch = { kind: "rmv", target: "bottomRmvLpm", valueLpm: 28.316846592 } as const;
+
+    expect(describeToolPlanPatch(before, patch, "imperial")).toContain("0.6 ft³/min → 1.0 ft³/min");
+    expect(describeToolPlanPatch(before, patch, "metric")).toContain("18.0 L/min → 28.3 L/min");
+    expect(patch.valueLpm).toBe(28.316846592);
+  });
+
   it("copies only rock-bottom assumptions, not a calculated pressure or schedule", () => {
     const before = customizedDraft();
     const after = applyToolPlanPatch(before, {
@@ -78,7 +87,7 @@ describe("exact Tools plan patches", () => {
     });
     expect(after.reserve).toEqual({ kind: "rock-bottom", teamSize: 3, stressedRmvLpm: 42 });
     expect({ ...after, reserve: before.reserve }).toEqual(before);
-    expect(describeToolPlanPatch(before, { kind: "rock-bottom", teamSize: 3, stressedRmvLpm: 42 })).toContain("not copied");
+    expect(describeToolPlanPatch(before, { kind: "rock-bottom", teamSize: 3, stressedRmvLpm: 42 }, "metric")).toContain("not copied");
   });
 
   it("rejects patches that do not map exactly to the current mode", () => {

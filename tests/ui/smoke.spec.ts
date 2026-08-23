@@ -60,6 +60,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
+  await expect(settings.getByText("App 0.2.0 · Engine barefoot-dive-engine-0.1.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 });
@@ -145,6 +146,43 @@ test("scrolls a newly added deco gas editor into view", async ({ page }) => {
   expect(editorBox!.y).toBeGreaterThanOrEqual(topbarBox!.y + topbarBox!.height - 1);
 });
 
+test("scrolls a newly added Cave route leg into view", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.evaluate(() => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(options) {
+      if (this instanceof HTMLElement && this.matches(".bf-route-editor") && typeof options === "object") {
+        (window as Window & { __barefootRouteScroll?: { name: string; behavior?: ScrollBehavior; block?: ScrollLogicalPosition } }).__barefootRouteScroll = {
+          name: this.querySelector("h3")?.textContent ?? "",
+          behavior: options.behavior,
+          block: options.block,
+        };
+      }
+      originalScrollIntoView.call(this, options);
+    };
+  });
+
+  const editors = page.locator("article.bf-route-editor");
+  await page.getByRole("button", { name: "Add route leg", exact: true }).evaluate((button) => {
+    button.click();
+    button.click();
+  });
+
+  await expect(editors).toHaveCount(3);
+  await expect(editors.locator("h3")).toHaveText(["route-1", "route-2", "route-3"]);
+  const latestEditor = editors.filter({ has: page.getByRole("heading", { name: "route-3", exact: true }) });
+  await expect(latestEditor).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __barefootRouteScroll?: { name: string; behavior?: ScrollBehavior; block?: ScrollLogicalPosition } }).__barefootRouteScroll)).toEqual({
+    name: "route-3",
+    behavior: "auto",
+    block: "start",
+  });
+  await expect(latestEditor).toBeInViewport();
+});
+
 test("keeps the calculated safety status inside its metric card", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
   await page.getByRole("button", { name: /understand and accept/i }).click();
@@ -171,6 +209,141 @@ test("keeps the calculated safety status inside its metric card", async ({ page 
   expect(bounds).not.toBeNull();
   expect(bounds!.valueLeft).toBeGreaterThanOrEqual(bounds!.contentLeft - 1);
   expect(bounds!.valueRight).toBeLessThanOrEqual(bounds!.contentRight + 1);
+});
+
+test("scrubs the planned profile with mouse, touch pointer, and keyboard input", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("spinbutton", { name: "Starting pressure (psi)" }).first().fill("1400");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+
+  const graph = page.getByRole("slider", { name: "Primary profile timeline" });
+  const profile = page.locator(".bf-profile").filter({ has: graph });
+  await expect(graph).toBeVisible();
+  await expect(graph).toHaveCSS("touch-action", "pan-y");
+  await expect(graph).toHaveAttribute("aria-valuenow", "0");
+  await expect(graph).toHaveAttribute("aria-valuetext", /0:00, 0 ft, Descent, plan Open circuit, Open circuit, Tx18\/45/i);
+  await expect(profile.getByTestId("profile-readout")).toContainText("Active gas / loop");
+  await expect(profile.locator(".bf-profile__marker--reserve")).not.toHaveCount(0);
+  await expect(profile.getByText(/A decompression ceiling is the model’s calculated shallow limit/i)).toBeVisible();
+  await expect(profile.getByText(/not dive events or a continuous ceiling trace/i)).toBeVisible();
+  const events = profile.getByRole("list", { name: "Profile events" });
+  await expect(events).toBeVisible();
+  const reserveEvent = events.getByRole("button", { name: /inspect .* reserve crossing/i }).first();
+  await expect(reserveEvent).toBeVisible();
+  await reserveEvent.click();
+  await expect(graph).toHaveAttribute("aria-valuetext", /reserve crossing/i);
+  await expect(reserveEvent.locator(".bf-profile__event-number")).toHaveText(/^\d+$/);
+
+  await graph.scrollIntoViewIfNeeded();
+  const bounds = await graph.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width * .62, bounds!.y + bounds!.height * .5);
+  await expect.poll(async () => Number(await graph.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
+
+  await graph.focus();
+  await page.keyboard.press("Home");
+  await expect(graph).toHaveAttribute("aria-valuenow", "0");
+  await page.keyboard.press("ArrowRight");
+  const firstBoundary = Number(await graph.getAttribute("aria-valuenow"));
+  expect(firstBoundary).toBeGreaterThan(0);
+  await page.keyboard.press("End");
+  const maximum = Number(await graph.getAttribute("aria-valuemax"));
+  await expect(graph).toHaveAttribute("aria-valuenow", String(maximum));
+
+  await graph.dispatchEvent("pointerdown", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: bounds!.x + bounds!.width * .25,
+    clientY: bounds!.y + bounds!.height * .5,
+  });
+  await graph.dispatchEvent("pointermove", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: bounds!.x + bounds!.width * .45,
+    clientY: bounds!.y + bounds!.height * .5,
+  });
+  await graph.dispatchEvent("pointerup", {
+    pointerId: 41,
+    pointerType: "touch",
+    clientX: bounds!.x + bounds!.width * .45,
+    clientY: bounds!.y + bounds!.height * .5,
+  });
+  const touchRuntime = Number(await graph.getAttribute("aria-valuenow"));
+  expect(touchRuntime).toBeGreaterThan(maximum * .25);
+  expect(touchRuntime).toBeLessThan(maximum * .6);
+
+  const touchSession = await page.context().newCDPSession(page);
+  await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  const scrollStart = await page.evaluate(() => window.scrollY);
+  const touchX = bounds!.x + bounds!.width * .5;
+  const touchStartY = bounds!.y + bounds!.height * .7;
+  await touchSession.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x: touchX, y: touchStartY }],
+  });
+  for (let distance = 24; distance <= 120; distance += 24) {
+    await touchSession.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: touchX, y: touchStartY - distance }],
+    });
+  }
+  await touchSession.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(scrollStart);
+  await touchSession.detach();
+
+  await profile.getByText("Profile data", { exact: false }).click();
+  await expect(profile.getByRole("table", { name: "Profile segment data" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByText("Meters", { exact: true }).click();
+  await settings.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("slider", { name: "Primary profile timeline" })).toHaveAttribute("aria-valuetext", /\bm\b/);
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  const chartShell = profile.locator(".bf-profile__chart-shell");
+  const readout = profile.getByTestId("profile-readout");
+  const plotFrame = profile.locator(".bf-profile__plot-frame");
+  await graph.scrollIntoViewIfNeeded();
+  const containment = await Promise.all([
+    chartShell.boundingBox(),
+    readout.boundingBox(),
+    plotFrame.boundingBox(),
+  ]);
+  expect(containment[0]).not.toBeNull();
+  expect(containment[1]).not.toBeNull();
+  expect(containment[2]).not.toBeNull();
+  expect(containment[1]!.x).toBeGreaterThanOrEqual(containment[0]!.x);
+  expect(containment[1]!.x + containment[1]!.width).toBeLessThanOrEqual(
+    containment[0]!.x + containment[0]!.width,
+  );
+  expect(containment[1]!.y + containment[1]!.height).toBeLessThanOrEqual(containment[2]!.y);
+});
+
+test("exposes distinct CCR primary and bailout profile scrubbers", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByText("CCR", { exact: true }).first().click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+
+  const primary = page.getByRole("slider", { name: "Primary profile timeline" });
+  const bailout = page.getByRole("slider", { name: "Bailout profile timeline" });
+  await expect(primary).toBeVisible();
+  await expect(bailout).toBeVisible();
+  const labelledIds = await page.locator("section.bf-profile").evaluateAll((profiles) =>
+    profiles.map((profile) => profile.getAttribute("aria-labelledby")),
+  );
+  expect(new Set(labelledIds).size).toBe(labelledIds.length);
+
+  await primary.focus();
+  let setpointText = await primary.getAttribute("aria-valuetext") ?? "";
+  for (let index = 0; index < 12 && !setpointText.includes("setpoint 1.30 bar"); index += 1) {
+    await page.keyboard.press("ArrowRight");
+    setpointText = await primary.getAttribute("aria-valuetext") ?? "";
+  }
+  expect(setpointText).toContain("plan CCR");
+  expect(setpointText).toContain("setpoint 1.30 bar");
+  await expect(bailout).toHaveAttribute("aria-valuetext", /plan CCR/i);
 });
 
 test("calculates and saves an OC plan, then keeps the snapshot immutable in the library", async ({ page }) => {
@@ -238,7 +411,7 @@ test("keeps the active Plan result current through edits and workspace navigatio
   await page.getByRole("button", { name: "Plan", exact: true }).first().click();
   await expect(planWorkspace.getByRole("radio", { name: "Review" })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
-  await expect(calculatedPlan.getByText(updatedRuntime, { exact: true })).toBeVisible();
+  await expect(runtimeMetric).toHaveText(updatedRuntime);
   await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
 });
 
@@ -295,7 +468,7 @@ test("calculates CCR, cave, and the Tools library without a remote dependency", 
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
   await expect(page.getByRole("heading", { name: "Cave summary" })).toBeVisible();
-  const caveCompletion = page.getByRole("status").filter({ hasText: "Cave calculation complete" });
+  const caveCompletion = page.getByRole("status").filter({ hasText: "Cave calculation contains safety errors" });
   await expect(caveCompletion).toBeVisible();
   await expect(caveCompletion).toBeInViewport();
 
@@ -311,25 +484,109 @@ test("calculates CCR, cave, and the Tools library without a remote dependency", 
   await expect(page.getByText(/Simplified Bailout/)).toBeVisible();
 });
 
-test("suppresses a changed Cave result until the user updates the plan", async ({ page }) => {
+test("keeps the active Cave result current through edits and workspace navigation", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+
+  const caveWorkspace = page.getByRole("radiogroup", { name: "Cave workspace" });
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+  await expect(caveWorkspace.getByRole("radio", { name: "Setup" })).toBeChecked();
+
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(caveWorkspace.getByRole("radio", { name: "Review" })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(calculatedCave).toBeVisible();
 
   const caveSummary = page.getByRole("heading", { name: "Cave summary" });
   await expect(caveSummary).toBeVisible();
-  await page.locator(".bf-route-editor").first().getByRole("spinbutton", { name: "Duration (min)" }).fill("6");
-  await expect(page.getByText("Inputs changed", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Update cave plan" })).toBeVisible();
-  const updateNow = page.getByRole("button", { name: "Update now" });
-  await expect(page.getByRole("heading", { name: "Previous cave results hidden" })).toBeVisible();
-  await expect(updateNow).toBeVisible();
-  await expect(caveSummary).toBeHidden();
-  await expect(page.getByRole("region", { name: "Base cave plan" })).toBeHidden();
+  const penetrationTime = calculatedCave.locator(".bf-metric").filter({ hasText: "Penetration time" }).locator("strong");
+  const initialTime = await penetrationTime.innerText();
 
-  await updateNow.click();
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await expect(caveWorkspace.getByRole("radio", { name: "Setup" })).toBeChecked();
+  await page.locator(".bf-route-editor").first().getByRole("spinbutton", { name: "Duration (min)" }).fill("6");
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(calculatedCave).toBeHidden();
+  await expect(caveWorkspace.getByRole("radio", { name: "Review" })).toBeDisabled();
+
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await caveWorkspace.getByText("Review", { exact: true }).click();
   await expect(caveSummary).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save cave snapshot" })).toBeEnabled();
+  await expect(calculatedCave.getByRole("button", { name: "Save cave snapshot" })).toBeEnabled();
+  const updatedTime = await penetrationTime.innerText();
+  expect(updatedTime).not.toBe(initialTime);
+
+  const scenarioResults = page.getByRole("radiogroup", { name: "Scenario result" });
+  await scenarioResults.getByText("Lost buddy", { exact: true }).click();
+  await expect(scenarioResults.getByRole("radio", { name: "Lost buddy" })).toBeChecked();
+  const baseTimeline = calculatedCave.getByRole("region", { name: "Base cave plan" }).getByRole("slider", { name: "Primary profile timeline" });
+  const scenarioTimeline = calculatedCave.getByRole("region", { name: "Lost buddy plan" }).getByRole("slider", { name: "Primary profile timeline" });
+  await expect(baseTimeline).toBeVisible();
+  await expect(scenarioTimeline).toBeVisible();
+  await scenarioTimeline.focus();
+  await page.keyboard.press("End");
+  await expect(scenarioTimeline).toHaveAttribute("aria-valuenow", await scenarioTimeline.getAttribute("aria-valuemax") ?? "");
+
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await expect(caveWorkspace.getByRole("radio", { name: "Review" })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(penetrationTime).toHaveText(updatedTime);
+  await expect(scenarioResults.getByRole("radio", { name: "Lost buddy" })).toBeChecked();
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await page.locator(".bf-route-editor").first().getByRole("spinbutton", { name: "Duration (min)" }).fill("0");
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Needs attention$/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cave calculation diagnostics" })).toBeVisible();
+  await expect(caveWorkspace.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save cave snapshot" })).toBeHidden();
+
+  await page.locator(".bf-route-editor").first().getByRole("spinbutton", { name: "Duration (min)" }).fill("6");
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await caveWorkspace.getByText("Review", { exact: true }).click();
+  await expect(calculatedCave).toBeVisible();
+});
+
+test("requires an explicit Cave update after a selected Tank Bank record changes", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Gas name" }).fill("Air revised");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  const review = page.getByRole("radio", { name: "Review" });
+  const updateCave = page.getByRole("button", { name: "Update cave plan" });
+  await expect(sourceChanged).toBeVisible();
+  await expect(calculatedCave).toBeHidden();
+  await expect(page.getByRole("button", { name: "Save cave snapshot" })).toBeHidden();
+  await expect(review).toBeDisabled();
+
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+  await expect(calculatedCave).toBeHidden();
+  await expect(updateCave).toBeVisible();
+
+  await updateCave.click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(review).toBeChecked();
+  await expect(calculatedCave).toContainText("Air revised");
+  await expect(calculatedCave.getByRole("button", { name: "Save cave snapshot" })).toBeEnabled();
 });
 
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {
@@ -355,6 +612,11 @@ test("marks a saved cave snapshot unsafe when a nested failure scenario is inval
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(calculatedCave.getByText("Aggregate cave status", { exact: true })).toBeVisible();
+  await expect(calculatedCave.getByText("Unsafe or unavailable", { exact: true }).first()).toBeVisible();
+  await expect(calculatedCave.getByRole("heading", { name: "Aggregate cave diagnostics" })).toBeVisible();
+  await expect(calculatedCave.getByText(/scooter failure: Scooter failure must target a scooter-propelled leg/)).toBeVisible();
   await page.getByRole("button", { name: "Save cave snapshot" }).click();
   await page.getByLabel("Plan name").fill("Unsafe cave scenario regression");
   await page.getByRole("button", { name: "Save plan" }).click();
@@ -513,19 +775,57 @@ test("changes Tool presentation units without rewriting canonical inputs", async
   const oxygen = page.getByRole("spinbutton", { name: "O₂ fraction (%)" });
   await oxygen.fill("32");
   const depthMetric = page.getByText("Maximum operating depth").locator("..");
-  await expect(depthMetric.getByText(/ft$/)).toBeVisible();
+  await expect(depthMetric.getByText("111 ft", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("radiogroup", { name: "Depth and distance" }).getByText("Meters", { exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(oxygen).toHaveValue("32");
-  await expect(depthMetric.getByText(/m$/)).toBeVisible();
+  await expect(depthMetric.getByText("34 m", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("radiogroup", { name: "Depth and distance" }).getByText("Feet", { exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(oxygen).toHaveValue("32");
-  await expect(depthMetric.getByText(/ft$/)).toBeVisible();
+  await expect(depthMetric.getByText("111 ft", { exact: true })).toBeVisible();
+});
+
+test("uses the configured surface-gas units throughout Tools without rewriting canonical values", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: /^SAC \/ RMV/ }).click();
+
+  const imperialGasUsed = page.getByRole("spinbutton", { name: "Gas used (ft³)" });
+  const sacMetric = page.locator(".bf-metric").filter({ hasText: "SAC / RMV" });
+  await expect(imperialGasUsed).toHaveValue("21.2");
+  await expect(imperialGasUsed).toHaveAttribute("step", "0.1");
+  await expect(sacMetric.getByText("0.5 ft³/min", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("radiogroup", { name: "Cylinder capacity" }).getByText("Water-volume L", { exact: true }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  const metricGasUsed = page.getByRole("spinbutton", { name: "Gas used (L)" });
+  await expect(metricGasUsed).toHaveValue("600");
+  await expect(metricGasUsed).toHaveAttribute("step", "1");
+  await expect(sacMetric.getByText("15.0 L/min", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.getByRole("radiogroup", { name: "Cylinder capacity" }).getByText("Rated ft³", { exact: true }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(imperialGasUsed).toHaveValue("21.2");
+  await expect(sacMetric.getByText("0.5 ft³/min", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Apply OC bottom RMV" }).click();
+  const confirmation = page.getByRole("dialog", { name: "Apply this exact change?" });
+  await expect(confirmation).toContainText("ft³/min");
+  await expect(confirmation).not.toContainText("L/min");
+  await confirmation.getByRole("button", { name: "Keep checking" }).click();
+
+  await page.getByRole("button", { name: "All tools" }).click();
+  await page.getByRole("button", { name: /^Gas Duration/ }).click();
+  const rmv = page.getByRole("spinbutton", { name: "RMV (ft³/min)" });
+  await expect(rmv).toHaveValue("0.7");
+  await expect(rmv).toHaveAttribute("step", "0.1");
 });
 
 test("offers Tank Bank only when the active Tool mode uses cylinder context", async ({ page }) => {
@@ -600,16 +900,16 @@ test("keeps Emergency Gas live while never pairing edited inputs with an old res
   await page.getByRole("button", { name: /^Emergency Gas/ }).click();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByText("Calculated assumptions", { exact: true }).click();
-  await expect(page.getByText("Stressed RMV: 20.0 L/min", { exact: false })).toBeVisible();
+  await expect(page.getByText("Stressed RMV: 0.7 ft³/min", { exact: false })).toBeVisible();
   const apply = page.getByRole("button", { name: "Apply reserve assumptions" });
   await expect(apply).toBeEnabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (L/min)" }).fill("25");
+  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0.9");
   await expect(page.getByText("Updating", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stressed RMV: 20.0 L/min", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Stressed RMV: 0.7 ft³/min", { exact: false })).toHaveCount(0);
   await expect(apply).toBeDisabled();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByText("Calculated assumptions", { exact: true }).click();
-  await expect(page.getByText("Stressed RMV: 25.0 L/min", { exact: false })).toBeVisible();
+  await expect(page.getByText("Stressed RMV: 0.9 ft³/min", { exact: false })).toBeVisible();
   await expect(apply).toBeEnabled();
   const calculatedAssumptions = page.locator("details.bf-tool-details--nested");
   const afterRmv = await calculatedAssumptions.innerText();
@@ -627,11 +927,11 @@ test("keeps Emergency Gas live while never pairing edited inputs with an old res
   await expect(apply).toBeDisabled();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await expect(apply).toBeEnabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (L/min)" }).fill("0");
+  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0");
   await expect(page.getByText("Check inputs", { exact: true })).toBeVisible();
   await expect(page.getByText("Fix the highlighted inputs to restore the live result.", { exact: true })).toBeVisible();
   await expect(apply).toBeDisabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (L/min)" }).fill("25");
+  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0.9");
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByRole("radiogroup", { name: "Emergency mode" }).getByText("Simplified Bailout", { exact: true }).click();
   await expect(page.getByText("Updating", { exact: true })).toBeVisible();

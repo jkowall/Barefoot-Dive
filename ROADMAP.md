@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the `0.1.0` build candidate. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.2.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,7 +11,7 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: `0.1.0` initial goal
+## Current: `0.2.0` evaluation build
 
 - Unit-safe ZH-L16C/GF engine, OC planning, constant-setpoint CCR decompression/exposure, exact-trigger-state CCR bailout to open circuit, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
 - Experimental cave route context with accessible cylinders, stage drop/recovery, gas-derived OC turn constraints, CCR bailout-derived limits, and required failure scenarios.
@@ -19,6 +19,7 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - Representative DecoTengu and pinned Abysner comparison coverage with known input and schedule-distribution differences documented.
 - Experimental compatibility presets for Barefoot, Shearwater Petrel 3, and MultiDeco conventions.
 - Task-oriented Gas & depth, Consumption & cylinders, and Emergency & exposure Tools categories; focused responsive workspaces; ephemeral per-session inputs; Tank Bank snapshot/manual-detachment; and narrow, explicit Plan patches. Emergency Gas remains an entered-schedule check, not a generated decompression/bailout plan; OC cylinder context is optional and CCR bailout-cylinder context is required.
+- Time-accurate interactive profile graphs across primary, CCR bailout, Cave base/scenario, and stored base-plan results, with runtime/depth axes, emitted phase/decompression bands, switch and reserve markers, endpoint ceiling checkpoints, and mouse, touch, and keyboard scrubbing.
 
 The current build is not a field-validated planner. Its web deployment is an experimental build for evaluation; cave planning and named compatibility presets remain experimental.
 
@@ -47,7 +48,7 @@ These items are listed in priority order and take precedence over adding planner
 2. Repetitive dives and explicit surface intervals with serializable tissue-state lineage.
 3. General `+5 minutes` and lost-gas comparison plans.
 4. Constraint-driven maximum-bottom-time solver outside cave mode.
-5. Runtime profile scrubbing with depth, active gas, expected OC or bailout-cylinder pressure, ceiling, GF state, and tissue state at each point. Onboard CCR oxygen or diluent pressure appears only if that capability is separately approved and implemented.
+5. Extend the delivered emitted-data profile scrubber with separately calculated continuous cylinder-pressure, GF, tissue, PPO₂, CNS, or other exposure traces. This requires versioned production contracts and independent scientific review; onboard CCR oxygen or diluent pressure appears only if that capability is separately approved and implemented.
 
 Entry gate: qualified evaluation shows that current square-profile planning is understood and that at least one candidate addresses a repeated planning need. Every edited or derived profile must be deterministic, unit-safe, snapshot-compatible, and covered by planner/Tool parity and migration tests.
 
