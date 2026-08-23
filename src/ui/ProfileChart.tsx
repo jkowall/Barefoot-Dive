@@ -11,6 +11,7 @@ import {
   findActiveSegment,
   interpolatePlannedDepth,
   phaseLabel,
+  summarizeTimelinePhases,
   type ChartMarker,
   type ChartSegmentInput,
   type ReserveCrossingInput,
@@ -139,7 +140,20 @@ export function ProfileChart({
     : endpointCeiling <= EPSILON
       ? `None at ${formatRuntime(selectedSegment.endRuntimeSeconds)}`
       : `${depthNumber.format(endpointCeiling)} ${unit} at ${formatRuntime(selectedSegment.endRuntimeSeconds)}`;
-  const hasEndpointCeiling = endpointCeiling !== undefined && endpointCeiling > EPSILON;
+  const selectedCeilingValue = endpointCeiling !== undefined && endpointCeiling > EPSILON
+    ? endpointCeiling
+    : undefined;
+  const hasEndpointCeiling = selectedCeilingValue !== undefined;
+  const selectedCeilingX = xForRuntime(selectedSegment.endRuntimeSeconds);
+  const selectedCeilingY = selectedCeilingValue === undefined
+    ? undefined
+    : yForDepth(selectedCeilingValue);
+  const ceilingLabelAnchor = selectedCeilingX > PLOT_LEFT + plotWidth * .62 ? "end" : "start";
+  const ceilingLabelX = selectedCeilingX + (ceilingLabelAnchor === "start" ? 9 : -9);
+  const ceilingLabelY = selectedCeilingY === undefined
+    ? undefined
+    : selectedCeilingY < PLOT_TOP + 22 ? selectedCeilingY + 17 : selectedCeilingY - 10;
+  const timelinePhases = summarizeTimelinePhases(segments);
   const markerText = selectedMarkers.map((marker) => marker.label).join("; ");
   const valueText = selectedSegment
     ? [
@@ -268,11 +282,17 @@ export function ProfileChart({
             y={PLOT_TOP}
           />)}
           {areaPath && <path className="bf-profile__area" d={areaPath} fill={`url(#${svgId}-area)`} />}
-          {model.ceilingPoints.filter((point) => point.depth > EPSILON).map((point, index) => <circle className="bf-profile__ceiling-point" cx={xForRuntime(point.runtimeSeconds)} cy={yForDepth(point.depth)} key={`ceiling-${point.runtimeSeconds}-${index}`} r="2.1">
-            <title>Segment-end ceiling: {depthNumber.format(point.depth)} {unit} at {formatRuntime(point.runtimeSeconds)}. Calculated shallow limit at this checkpoint; not an event.</title>
-          </circle>)}
           {depthPolyline && <polyline className="bf-profile__line" points={depthPolyline} />}
           {model.markers.map((marker, index) => <g key={marker.id}>{markerShape(marker, xForRuntime(marker.runtimeSeconds), yForDepth(marker.depth), index + 1)}</g>)}
+          {selectedCeilingValue !== undefined && selectedCeilingY !== undefined && <g aria-hidden="true" className="bf-profile__selected-ceiling">
+            <circle className="bf-profile__ceiling-current" cx={selectedCeilingX} cy={selectedCeilingY} r="5" />
+            <text
+              className="bf-profile__ceiling-label"
+              textAnchor={ceilingLabelAnchor}
+              x={ceilingLabelX}
+              y={ceilingLabelY}
+            >Ceiling {depthNumber.format(selectedCeilingValue)} {unit} · {formatRuntime(selectedSegment.endRuntimeSeconds)}</text>
+          </g>}
           <line className="bf-profile__crosshair" x1={selectedX} x2={selectedX} y1={PLOT_TOP} y2={PLOT_BOTTOM} />
           <circle className="bf-profile__current" cx={selectedX} cy={selectedY} r="5.5" />
         </g>
@@ -284,7 +304,7 @@ export function ProfileChart({
             width={Math.max(1, xForRuntime(segment.endRuntimeSeconds) - xForRuntime(segment.startRuntimeSeconds))}
             x={xForRuntime(segment.startRuntimeSeconds)}
             y={PHASE_TOP}
-          />)}
+          ><title>{phaseLabel(segment.kind)} · {formatRuntime(segment.endRuntimeSeconds - segment.startRuntimeSeconds)}</title></rect>)}
         </g>
         <text className="bf-profile__axis-title" textAnchor="middle" x={(PLOT_LEFT + PLOT_RIGHT) / 2} y={VIEW_HEIGHT - 4}>Runtime</text>
       </svg>
@@ -295,11 +315,18 @@ export function ProfileChart({
       <li><span className="bf-profile__legend-block bf-profile__legend-block--deco" />Deco stop</li>
       <li><span className="bf-profile__legend-marker bf-profile__legend-marker--switch" />Numbered gas / setpoint event</li>
       <li><span className="bf-profile__legend-marker bf-profile__legend-marker--reserve" />Numbered reserve event</li>
-      <li><span className="bf-profile__legend-block bf-profile__legend-block--phase" />Phase strip</li>
     </ul>
+    <section aria-label="Timeline durations" className="bf-profile__phase-summary">
+      <div className="bf-profile__phase-summary-heading"><strong>Timeline durations</strong><span>Colors match the strip below the graph.</span></div>
+      <ul>{timelinePhases.map((phase) => <li key={phase.key}>
+        <span aria-hidden="true" className={`bf-profile__phase-key bf-profile__phase-key--${phaseClass(phase.kind)}`} />
+        <span>{phase.label}</span>
+        <strong>{formatRuntime(phase.durationSeconds)}</strong>
+      </li>)}</ul>
+    </section>
     <aside className="bf-profile__ceiling-note">
       <span aria-hidden="true" className="bf-profile__legend-marker bf-profile__legend-marker--ceiling" />
-      <p><strong>Segment-end ceiling checkpoints.</strong> A decompression ceiling is the model’s calculated shallow limit. Each hollow circle shows that limit at the end of one profile segment; circles are checkpoints, not dive events or a continuous ceiling trace.</p>
+      <p><strong>Selected segment’s decompression ceiling.</strong> The labeled amber marker uses horizontal position for segment-end time and vertical position for the model’s calculated shallow limit. No marker means no ceiling at that segment’s end; it jumps between exact checkpoints rather than drawing a continuous trace.</p>
     </aside>
     {model.markers.length > 0 && <section aria-labelledby={`${markersId}-title`} className="bf-profile__events">
       <div className="bf-profile__events-heading">

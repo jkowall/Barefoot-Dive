@@ -60,7 +60,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.2.0 · Engine barefoot-dive-engine-0.1.0")).toBeVisible();
+  await expect(settings.getByText("App 0.2.1 · Calculation engine barefoot-dive-engine-0.1.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 });
@@ -225,8 +225,13 @@ test("scrubs the planned profile with mouse, touch pointer, and keyboard input",
   await expect(graph).toHaveAttribute("aria-valuetext", /0:00, 0 ft, Descent, plan Open circuit, Open circuit, Tx18\/45/i);
   await expect(profile.getByTestId("profile-readout")).toContainText("Active gas / loop");
   await expect(profile.locator(".bf-profile__marker--reserve")).not.toHaveCount(0);
-  await expect(profile.getByText(/A decompression ceiling is the model’s calculated shallow limit/i)).toBeVisible();
-  await expect(profile.getByText(/not dive events or a continuous ceiling trace/i)).toBeVisible();
+  await expect(profile.getByText(/horizontal position for segment-end time/i)).toBeVisible();
+  await expect(profile.getByText(/No marker means no ceiling at that segment’s end/i)).toBeVisible();
+  const timelineDurations = profile.getByRole("region", { name: "Timeline durations" });
+  await expect(timelineDurations).toContainText("Descent travel");
+  await expect(timelineDurations).toContainText("Bottom time");
+  await expect(timelineDurations).toContainText("Ascent travel");
+  await expect(timelineDurations).toContainText("Deco stops");
   const events = profile.getByRole("list", { name: "Profile events" });
   await expect(events).toBeVisible();
   const reserveEvent = events.getByRole("button", { name: /inspect .* reserve crossing/i }).first();
@@ -240,6 +245,9 @@ test("scrubs the planned profile with mouse, touch pointer, and keyboard input",
   expect(bounds).not.toBeNull();
   await page.mouse.move(bounds!.x + bounds!.width * .62, bounds!.y + bounds!.height * .5);
   await expect.poll(async () => Number(await graph.getAttribute("aria-valuenow"))).toBeGreaterThan(0);
+  await expect(profile.locator(".bf-profile__ceiling-current")).toBeVisible();
+  await expect(profile.locator(".bf-profile__ceiling-label")).toContainText(/Ceiling .+ · \d+:/);
+  await expect(profile.locator(".bf-profile__ceiling-label")).toHaveCSS("font-size", "17px");
 
   await graph.focus();
   await page.keyboard.press("Home");
@@ -524,6 +532,12 @@ test("keeps the active Cave result current through edits and workspace navigatio
   const scenarioTimeline = calculatedCave.getByRole("region", { name: "Lost buddy plan" }).getByRole("slider", { name: "Primary profile timeline" });
   await expect(baseTimeline).toBeVisible();
   await expect(scenarioTimeline).toBeVisible();
+  const baseDurations = calculatedCave.getByRole("region", { name: "Base cave plan" }).getByRole("region", { name: "Timeline durations" });
+  const scenarioDurations = calculatedCave.getByRole("region", { name: "Lost buddy plan" }).getByRole("region", { name: "Timeline durations" });
+  await expect(baseDurations).toContainText("Penetration travel");
+  await expect(baseDurations).toContainText("Exit travel");
+  await expect(scenarioDurations).toContainText("Penetration travel");
+  await expect(scenarioDurations).toContainText("Exit travel");
   await scenarioTimeline.focus();
   await page.keyboard.press("End");
   await expect(scenarioTimeline).toHaveAttribute("aria-valuenow", await scenarioTimeline.getAttribute("aria-valuemax") ?? "");

@@ -134,7 +134,8 @@ h1, h2, h3 { letter-spacing: -.025em; }
 .bf-profile__area, .bf-profile__line { pointer-events: none; }
 .bf-profile__line { fill: none; vector-effect: non-scaling-stroke; }
 .bf-profile__line { stroke: #79d8ec; stroke-width: 2.2; filter: drop-shadow(0 0 3px rgb(121 216 236 / 22%)); }
-.bf-profile__ceiling-point { fill: #071724; stroke: #b9a275; stroke-width: 1; opacity: .72; vector-effect: non-scaling-stroke; }
+.bf-profile__ceiling-current { fill: #ffd07a; stroke: #2d210e; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.bf-profile__ceiling-label { fill: #ffe0a0; stroke: #071724; stroke-width: 3px; paint-order: stroke; font-size: 9px; font-weight: 900; letter-spacing: .02em; pointer-events: none; }
 .bf-profile__deco-window { fill: rgb(240 189 101 / 8%); }
 .bf-profile__phase-strip { stroke: #091722; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .bf-profile__phase { fill: #3b7188; }
@@ -159,10 +160,25 @@ h1, h2, h3 { letter-spacing: -.025em; }
 .bf-profile__legend-line { width: 1.25rem; height: 0; border-top: 2px solid #79d8ec; }
 .bf-profile__legend-block { width: 1rem; height: .45rem; border-radius: 2px; background: #3b7188; }
 .bf-profile__legend-block--deco { background: #d19a42; }
-.bf-profile__legend-block--phase { background: linear-gradient(90deg, #3d829c 0 25%, #315e76 25% 50%, #d19a42 50% 75%, #b46f48 75%); }
 .bf-profile__legend-marker { width: .62rem; height: .62rem; transform: rotate(45deg); border: 1px solid #092031; background: #b8eaf3; }
-.bf-profile__legend-marker--ceiling { width: .48rem; height: .48rem; transform: none; border-color: #b9a275; border-radius: 50%; background: #071724; }
+.bf-profile__legend-marker--ceiling { width: .58rem; height: .58rem; transform: none; border-color: #2d210e; border-radius: 50%; background: #ffd07a; }
 .bf-profile__legend-marker--reserve { clip-path: polygon(50% 0, 0 100%, 100% 100%); transform: none; border: 0; background: #ff9b8d; }
+.bf-profile__phase-summary { margin-top: .75rem; padding: .65rem .75rem; border: 1px solid #294357; border-radius: 7px; background: #081824; }
+.bf-profile__phase-summary-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .35rem 1rem; }
+.bf-profile__phase-summary-heading strong { color: #e0edf1; font-size: .76rem; }
+.bf-profile__phase-summary-heading span { color: #829eaa; font-size: .66rem; }
+.bf-profile__phase-summary ul { display: flex; flex-wrap: wrap; gap: .45rem 1rem; margin: .55rem 0 0; padding: 0; list-style: none; }
+.bf-profile__phase-summary li { display: grid; grid-template-columns: .75rem auto auto; align-items: center; gap: .35rem; color: #a9bec7; font-size: .68rem; }
+.bf-profile__phase-summary li strong { color: #e0edf1; font-variant-numeric: tabular-nums; }
+.bf-profile__phase-key { width: .7rem; height: .5rem; border-radius: 2px; background: #3b7188; }
+.bf-profile__phase-key--descent { background: #3d829c; }
+.bf-profile__phase-key--bottom { background: #315e76; }
+.bf-profile__phase-key--ascent { background: #4c8390; }
+.bf-profile__phase-key--stop { background: #d19a42; }
+.bf-profile__phase-key--gas-switch, .bf-profile__phase-key--setpoint-switch { background: #9c7ac0; }
+.bf-profile__phase-key--penetration { background: #286d68; }
+.bf-profile__phase-key--exit { background: #4a806c; }
+.bf-profile__phase-key--bailout { background: #b46f48; }
 .bf-profile__ceiling-note { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .6rem; margin-top: .75rem; padding: .65rem .75rem; border-left: 2px solid #9c895f; color: #9fb3bb; background: rgb(75 62 38 / 13%); }
 .bf-profile__ceiling-note .bf-profile__legend-marker { margin-top: .22rem; }
 .bf-profile__ceiling-note p { font-size: .69rem; line-height: 1.45; }
@@ -300,7 +316,7 @@ h1, h2, h3 { letter-spacing: -.025em; }
 @media (min-width: 900px) { .bf-rail { border-right-color: rgb(59 99 123 / 66%); background: radial-gradient(circle at 30% 0%, rgb(33 92 119 / 24%), transparent 16rem), linear-gradient(180deg, #0a1c2b, #071521 70%); box-shadow: inset -1px 0 0 rgb(121 216 236 / 4%), 14px 0 42px rgb(0 0 0 / 12%); }.bf-brand__mark { border-color: #47778e; box-shadow: 0 8px 22px rgb(0 0 0 / 28%), 0 0 18px rgb(121 216 236 / 8%); }.bf-nav--rail { gap: .32rem; }.bf-nav--rail .bf-nav__item { border-radius: 8px; }.bf-nav--rail .bf-nav__item[data-active] { box-shadow: inset 0 0 0 1px rgb(121 216 236 / 10%), 0 10px 24px rgb(0 0 0 / 16%); } }
 @media (max-width: 480px) { .bf-page-header { align-items: start; flex-direction: column; }.bf-page-header__actions { width: 100%; }.bf-page-header__actions > * { flex: 1; }.bf-cylinder dl { width: 100%; justify-content: space-between; }.bf-dialog__actions { flex-direction: column-reverse; }.bf-dialog__actions .bf-button { width: 100%; }.bf-panel__header { align-items: flex-start; flex-direction: column; }.bf-panel__header > :last-child { width: 100%; }.bf-panel__header .bf-button { flex: 1; }.bf-tool-result-actions { width: 100%; justify-content: space-between; }.bf-tool-result-actions .bf-button { flex: 1 1 100%; }.bf-row-header { align-items: flex-start; }.bf-card-grid .bf-page-header__actions { width: 100%; }.bf-card-grid .bf-page-header__actions .bf-button { flex: 1 1 45%; }.bf-completion-notice { grid-template-columns: minmax(0, 1fr); }.bf-completion-notice__actions { grid-column: 1 / -1; }.bf-completion-notice__actions .bf-button { width: 100%; } }
 @media (max-width: 899px) { .bf-profile__plot { min-height: 15rem; } }
-@media (max-width: 480px) { .bf-profile__intro { flex-direction: column; }.bf-profile__intro p { text-align: left; }.bf-profile__readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }.bf-profile__readout-gas { grid-column: 1 / -1; }.bf-profile__axis text, .bf-profile__axis-title { font-size: 18px; }.bf-profile__axis-title { font-size: 17px; }.bf-profile__legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.bf-profile__events-heading { display: grid; }.bf-profile__plot { min-height: 13rem; } }
+@media (max-width: 480px) { .bf-profile__intro { flex-direction: column; }.bf-profile__intro p { text-align: left; }.bf-profile__readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }.bf-profile__readout-gas { grid-column: 1 / -1; }.bf-profile__axis text, .bf-profile__axis-title { font-size: 18px; }.bf-profile__axis-title, .bf-profile__ceiling-label { font-size: 17px; }.bf-profile__ceiling-label { stroke-width: 4px; }.bf-profile__legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }.bf-profile__phase-summary-heading, .bf-profile__events-heading { display: grid; }.bf-profile__plot { min-height: 13rem; } }
 @media (max-width: 720px) { .bf-plan-context { grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; padding: .7rem .75rem; }.bf-plan-context__summary { grid-column: 1 / -1; grid-row: 2; }.bf-plan-context__summary > span, .bf-plan-context__summary small { display: none; }.bf-plan-context__summary strong { font-size: .76rem; }.bf-plan-context__actions { align-self: end; flex-direction: column; align-items: stretch; }.bf-plan-context__actions .bf-button { min-height: 38px; padding: .45rem .65rem; font-size: .76rem; }.bf-plan-status { justify-content: center; } }
 @media (min-width: 900px) { .bf-plan-context { top: 4rem; } }
 @media (prefers-reduced-motion: reduce) { .bf-page-header, .bf-tool-status[data-state="updating"] .bf-tool-status__dot, .bf-plan-status[data-state="updating"] .bf-plan-status__dot, .bf-tool-result--debounced[data-state="ready"] > :first-child, .bf-completion-notice, .bf-completion-notice__edge, .bf-completion-notice__copy { animation: none; }.bf-completion-notice__edge--top, .bf-completion-notice__edge--bottom { transform: scaleX(1); }.bf-completion-notice__edge--right, .bf-completion-notice__edge--left { transform: scaleY(1); }.bf-completion-notice__copy { opacity: 1; transform: none; }.bf-nav__item, .bf-nav__item::after, .bf-button, .bf-icon-button, .bf-tool-card, .bf-panel, .bf-tool-workspace > .bf-panel, .bf-tool-result, .bf-tool-details, .bf-tool-details summary, .bf-emergency-assumption, .bf-segmented label, .bf-cylinder, .bf-toggle, .bf-field-group__control > input, .bf-field-group__control > select, .bf-field-group__control > textarea { transition: none; } }

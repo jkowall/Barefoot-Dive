@@ -34,7 +34,7 @@ Browser coverage includes:
 - retention of the current Plan and Cave drafts and matching results while navigating among primary workspaces during the app session;
 - explicit Tank Bank source-revision update actions, with no silent replacement of either calculated snapshot;
 - an aggregate Cave Review status and diagnostics list that remains unsafe when any enabled, unselected failure scenario contains an error;
-- time-accurate runtime/depth axes and emitted phase, decompression, switch, reserve-crossing, and endpoint ceiling markers in primary, CCR bailout, Cave base/scenario, and stored base-plan contexts;
+- time-accurate runtime/depth axes, color-matched phase and travel-duration summaries, emitted phase/decompression/switch/reserve-crossing visuals, and one directly labeled selected endpoint ceiling checkpoint in primary, CCR bailout, Cave base/scenario, and stored base-plan contexts;
 - mouse, touch, and keyboard timeline scrubbing with an accessible docked current-value readout, selectable numbered event details, graph/readout non-overlap, and touch scrolling preserved;
 - Settings remaining limited to display and local preferences while exposing distinct app and calculation-engine identifiers; and
 - Cave route-leg insertion scrolling and current scenario/result selection behavior.

@@ -57,6 +57,13 @@ export type ProfileChartModel = {
   readonly markers: readonly ChartMarker[];
 };
 
+export type TimelinePhaseSummary = {
+  readonly key: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly durationSeconds: number;
+};
+
 export type ChartModelOptions = {
   readonly runtimeTickCount?: number;
   readonly depthTickCount?: number;
@@ -108,6 +115,38 @@ export function phaseLabel(kind: string): string {
   if (known[kind]) return known[kind];
   const words = kind.replaceAll("-", " ").trim();
   return words ? `${words[0].toUpperCase()}${words.slice(1)}` : "Profile event";
+}
+
+function timelinePhaseIdentity(kind: string): Pick<TimelinePhaseSummary, "key" | "kind" | "label"> {
+  const known: Readonly<Record<string, Pick<TimelinePhaseSummary, "key" | "kind" | "label">>> = {
+    descent: { key: "descent", kind: "descent", label: "Descent travel" },
+    bottom: { key: "bottom", kind: "bottom", label: "Bottom time" },
+    ascent: { key: "ascent", kind: "ascent", label: "Ascent travel" },
+    stop: { key: "stop", kind: "stop", label: "Deco stops" },
+    penetration: { key: "penetration", kind: "penetration", label: "Penetration travel" },
+    exit: { key: "exit", kind: "exit", label: "Exit travel" },
+    bailout: { key: "bailout", kind: "bailout", label: "Bailout travel" },
+    "gas-switch": { key: "switch", kind: "gas-switch", label: "Switch time" },
+    "setpoint-switch": { key: "switch", kind: "gas-switch", label: "Switch time" },
+  };
+  return known[kind] ?? { key: kind, kind, label: phaseLabel(kind) };
+}
+
+export function summarizeTimelinePhases(
+  segments: readonly ChartSegmentInput[],
+): readonly TimelinePhaseSummary[] {
+  const summaries = new Map<string, TimelinePhaseSummary>();
+  for (const segment of segments) {
+    const durationSeconds = Math.max(0, segment.endRuntimeSeconds - segment.startRuntimeSeconds);
+    if (durationSeconds <= EPSILON) continue;
+    const identity = timelinePhaseIdentity(segment.kind);
+    const existing = summaries.get(identity.key);
+    summaries.set(identity.key, {
+      ...identity,
+      durationSeconds: (existing?.durationSeconds ?? 0) + durationSeconds,
+    });
+  }
+  return [...summaries.values()];
 }
 
 /**

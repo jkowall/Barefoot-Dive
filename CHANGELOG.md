@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.2.1] - 2026-08-23
+
+- Labeled the independently versioned scientific component as the “Calculation engine” in Settings so its identifier is not confused with the app release.
+- Replaced the profile's unexplained ceiling-dot field with one directly labeled checkpoint for the inspected segment and added color-matched phase/travel-duration summaries across Plan, CCR bailout, Cave base/scenario, and reopened Saved Plan graphs.
+
 ## [0.2.0] - 2026-08-23
 
 - Licensed the project under the Apache License 2.0 and added SPDX package metadata.

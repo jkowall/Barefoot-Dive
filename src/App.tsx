@@ -143,7 +143,7 @@ function SettingsDialog({
         />
       </div>
       <p>Canonical calculations remain meters, seconds, ambient bar absolute, cylinder bar gauge, surface liters, and gas fractions. Display preferences are independent.</p>
-      <p className="bf-field-group__hint">App {__APP_VERSION__} · Engine {ENGINE_VERSION}</p>
+      <p className="bf-field-group__hint">App {__APP_VERSION__} · Calculation engine {ENGINE_VERSION}</p>
       <div className="bf-dialog__actions"><button className="bf-button" onClick={onClose} ref={closeRef} type="button">Done</button></div>
     </section>
   </div>;

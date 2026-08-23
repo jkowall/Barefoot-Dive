@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the `0.2.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.2.1` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,7 +11,7 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: `0.2.0` evaluation build
+## Current: `0.2.1` evaluation build
 
 - Unit-safe ZH-L16C/GF engine, OC planning, constant-setpoint CCR decompression/exposure, exact-trigger-state CCR bailout to open circuit, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
 - Experimental cave route context with accessible cylinders, stage drop/recovery, gas-derived OC turn constraints, CCR bailout-derived limits, and required failure scenarios.

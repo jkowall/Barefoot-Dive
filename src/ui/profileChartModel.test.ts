@@ -6,6 +6,7 @@ import {
   niceTicks,
   phaseLabel,
   runtimeToPercent,
+  summarizeTimelinePhases,
   type ChartSegmentInput,
 } from "./profileChartModel";
 
@@ -100,5 +101,26 @@ describe("profile chart model", () => {
   it("provides readable labels for known and custom phases", () => {
     expect(phaseLabel("stop")).toBe("Deco stop");
     expect(phaseLabel("lost-gas-exit")).toBe("Lost gas exit");
+  });
+
+  it("sums emitted timeline durations by meaningful travel and hold phases", () => {
+    const summaries = summarizeTimelinePhases([
+      ...segments,
+      { id: "penetration", kind: "penetration", startRuntimeSeconds: 900, endRuntimeSeconds: 1_200, startDepth: 0, endDepth: 20, breathingLabel: "Air", planMode: "OC" },
+      { id: "exit", kind: "exit", startRuntimeSeconds: 1_200, endRuntimeSeconds: 1_500, startDepth: 20, endDepth: 0, breathingLabel: "Air", planMode: "OC" },
+      { id: "bailout", kind: "bailout", startRuntimeSeconds: 1_500, endRuntimeSeconds: 1_620, startDepth: 20, endDepth: 10, breathingLabel: "EAN50", planMode: "CCR" },
+      { id: "stop", kind: "stop", startRuntimeSeconds: 1_620, endRuntimeSeconds: 1_680, startDepth: 10, endDepth: 10, breathingLabel: "EAN50", planMode: "CCR" },
+      { id: "stop-2", kind: "stop", startRuntimeSeconds: 1_680, endRuntimeSeconds: 1_740, startDepth: 6, endDepth: 6, breathingLabel: "Oxygen", planMode: "CCR" },
+    ]);
+
+    expect(summaries).toEqual([
+      { key: "descent", kind: "descent", label: "Descent travel", durationSeconds: 60 },
+      { key: "bottom", kind: "bottom", label: "Bottom time", durationSeconds: 540 },
+      { key: "ascent", kind: "ascent", label: "Ascent travel", durationSeconds: 300 },
+      { key: "penetration", kind: "penetration", label: "Penetration travel", durationSeconds: 300 },
+      { key: "exit", kind: "exit", label: "Exit travel", durationSeconds: 300 },
+      { key: "bailout", kind: "bailout", label: "Bailout travel", durationSeconds: 120 },
+      { key: "stop", kind: "stop", label: "Deco stops", durationSeconds: 120 },
+    ]);
   });
 });
