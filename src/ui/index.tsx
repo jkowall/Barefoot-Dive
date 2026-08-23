@@ -79,6 +79,27 @@ export function EmptyState({ title, description, action }: { readonly title: str
   return <section className="bf-empty-state"><span aria-hidden="true">⌁</span><h2>{title}</h2><p>{description}</p>{action}</section>;
 }
 
+export function CompletionNotice({ label, description, actions, containerRef }: {
+  readonly label: string;
+  readonly description?: string;
+  readonly actions?: ReactNode;
+  readonly containerRef?: RefObject<HTMLDivElement | null>;
+}) {
+  return <div className="bf-completion-notice" ref={containerRef}>
+    <span aria-hidden="true" className="bf-completion-notice__perimeter">
+      <span className="bf-completion-notice__edge bf-completion-notice__edge--top" />
+      <span className="bf-completion-notice__edge bf-completion-notice__edge--right" />
+      <span className="bf-completion-notice__edge bf-completion-notice__edge--bottom" />
+      <span className="bf-completion-notice__edge bf-completion-notice__edge--left" />
+    </span>
+    <span aria-atomic="true" aria-live="polite" className="bf-completion-notice__copy" role="status">
+      <strong>{label}</strong>
+      {description && <span>{description}</span>}
+    </span>
+    {actions && <div className="bf-completion-notice__actions">{actions}</div>}
+  </div>;
+}
+
 function useModalKeyboard<T extends HTMLElement>(open: boolean, onCancel: (() => void) | undefined, ref: RefObject<T | null>) {
   useEffect(() => {
     if (!open) return;

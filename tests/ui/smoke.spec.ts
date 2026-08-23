@@ -35,6 +35,10 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
     await expect(navigation.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
 
+  const ccrMode = page.getByRole("radio", { name: "CCR", exact: true }).first();
+  await ccrMode.focus();
+  await expect(ccrMode.locator("..")).toHaveCSS("outline-style", "solid");
+
   const unnamedControls = await page.locator("button:visible, input:visible, select:visible, textarea:visible, [role='button']:visible, [role='link']:visible").evaluateAll((controls) => controls.filter((control) => {
     const element = control as HTMLElement;
     const labelledBy = element.getAttribute("aria-labelledby");
@@ -60,18 +64,198 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings).toBeHidden();
 });
 
+test("traces a completion border once and removes its motion when requested", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.evaluate(() => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(options) {
+      if (typeof options === "object") {
+        (window as Window & { __barefootLastScrollBehavior?: ScrollBehavior }).__barefootLastScrollBehavior = options.behavior;
+      }
+      originalScrollIntoView.call(this, options);
+    };
+  });
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+
+  const notice = page.locator(".bf-completion-notice");
+  await expect(notice.getByRole("status")).toContainText("Plan calculation complete");
+  await expect(notice).toBeInViewport();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __barefootLastScrollBehavior?: ScrollBehavior }).__barefootLastScrollBehavior)).toBe("smooth");
+  await expect(notice.locator("svg")).toHaveCount(0);
+  const topEdge = notice.locator(".bf-completion-notice__edge--top");
+  await expect(topEdge).toHaveCSS("animation-name", "bf-completion-border-x");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.evaluate(() => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(options) {
+      if (typeof options === "object") {
+        (window as Window & { __barefootLastScrollBehavior?: ScrollBehavior }).__barefootLastScrollBehavior = options.behavior;
+      }
+      originalScrollIntoView.call(this, options);
+    };
+  });
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __barefootLastScrollBehavior?: ScrollBehavior }).__barefootLastScrollBehavior)).toBe("auto");
+  await expect(topEdge).toHaveCSS("animation-name", "none");
+  await expect(topEdge).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+  await expect(notice.locator(".bf-completion-notice__copy")).toHaveCSS("opacity", "1");
+});
+
+test("scrolls a newly added deco gas editor into view", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.evaluate(() => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(options) {
+      if (this instanceof HTMLElement && this.matches(".bf-gas-editor") && typeof options === "object") {
+        (window as Window & { __barefootGasScroll?: { name: string; behavior?: ScrollBehavior; block?: ScrollLogicalPosition } }).__barefootGasScroll = {
+          name: this.querySelector("h3")?.textContent ?? "",
+          behavior: options.behavior,
+          block: options.block,
+        };
+      }
+      originalScrollIntoView.call(this, options);
+    };
+  });
+
+  const editors = page.locator("article.bf-gas-editor");
+  const editorCount = await editors.count();
+  await page.getByRole("button", { name: "Add deco gas", exact: true }).click();
+
+  await expect(editors).toHaveCount(editorCount + 1);
+  const addedEditor = page.locator("article.bf-gas-editor", { hasText: "New deco gas" });
+  await expect(addedEditor).toHaveCount(1);
+  await expect(addedEditor.getByRole("heading", { name: "New deco gas", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as Window & { __barefootGasScroll?: { name: string; behavior?: ScrollBehavior; block?: ScrollLogicalPosition } }).__barefootGasScroll)).toEqual({
+    name: "New deco gas",
+    behavior: "auto",
+    block: "start",
+  });
+  await expect(addedEditor).toBeInViewport();
+
+  const [topbarBox, editorBox] = await Promise.all([
+    page.locator(".bf-topbar").boundingBox(),
+    addedEditor.boundingBox(),
+  ]);
+  expect(topbarBox).not.toBeNull();
+  expect(editorBox).not.toBeNull();
+  expect(editorBox!.y).toBeGreaterThanOrEqual(topbarBox!.y + topbarBox!.height - 1);
+});
+
 test("calculates and saves an OC plan, then keeps the snapshot immutable in the library", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Calculate plan" }).click();
   await expect(page.getByRole("heading", { name: "Calculated plan" })).toBeVisible();
   await expect(page.getByText("Calculated", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Plan calculation complete" })).toBeVisible();
   await page.getByRole("button", { name: "Save snapshot" }).click();
   await page.getByLabel("Plan name").fill("OC regression plan");
   await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Snapshot saved locally" })).toBeVisible();
   await page.getByRole("button", { name: /^Saved plans/ }).first().click();
   await expect(page.getByRole("heading", { name: "OC regression plan" })).toBeVisible();
   await page.getByRole("button", { name: "Duplicate" }).click();
   await expect(page.getByRole("heading", { name: "OC regression plan copy" })).toBeVisible();
+});
+
+test("keeps the active Plan result current through edits and workspace navigation", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+
+  const planWorkspace = page.getByRole("radiogroup", { name: "Plan workspace" });
+  const calculatedPlan = page.getByRole("region", { name: "Calculated plan" });
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+  await expect(planWorkspace.getByRole("radio", { name: "Setup" })).toBeChecked();
+
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(planWorkspace.getByRole("radio", { name: "Review" })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(calculatedPlan).toBeVisible();
+  const runtimeMetric = calculatedPlan.locator(".bf-metric").filter({ hasText: "Runtime" }).first().locator("strong");
+  const initialRuntime = await runtimeMetric.innerText();
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await expect(planWorkspace.getByRole("radio", { name: "Setup" })).toBeChecked();
+  await page.getByRole("spinbutton", { name: "Time at target depth (min)" }).fill("26");
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await planWorkspace.getByText("Review", { exact: true }).click();
+  await expect(calculatedPlan).toBeVisible();
+  await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
+  const updatedRuntime = await runtimeMetric.innerText();
+  expect(updatedRuntime).not.toBe(initialRuntime);
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await page.getByRole("spinbutton", { name: "GF Low (%)" }).fill("80");
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+  await expect(page.getByRole("status").filter({ hasText: /^Needs attention$/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Calculation diagnostics" })).toBeVisible();
+  await expect(planWorkspace.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save snapshot" })).toBeHidden();
+
+  await page.getByRole("spinbutton", { name: "GF Low (%)" }).fill("30");
+  // Returning to the exact previously calculated input can restore that
+  // matching result immediately; no new calculation is necessary.
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await planWorkspace.getByText("Review", { exact: true }).click();
+  await expect(calculatedPlan).toBeVisible();
+
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Tools", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  await expect(planWorkspace.getByRole("radio", { name: "Review" })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(calculatedPlan.getByText(updatedRuntime, { exact: true })).toBeVisible();
+  await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
+});
+
+test("requires an explicit Plan update after a selected Tank Bank record changes", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Gas name" }).fill("Air revised");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  const calculatedPlan = page.getByRole("region", { name: "Calculated plan" });
+  const review = page.getByRole("radio", { name: "Review" });
+  const updatePlan = page.getByRole("button", { name: "Update plan" });
+  await expect(sourceChanged).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+  await expect(page.getByRole("button", { name: "Save snapshot" })).toBeHidden();
+  await expect(review).toBeDisabled();
+
+  // Ordinary Plan edits recalculate after 400 ms. A Tank Bank revision change
+  // must remain blocked even after that automatic-update window has elapsed.
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+  await expect(page.getByRole("button", { name: "Save snapshot" })).toBeHidden();
+  await expect(review).toBeDisabled();
+  await expect(updatePlan).toBeVisible();
+
+  await updatePlan.click();
+
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(review).toBeChecked();
+  await expect(calculatedPlan).toContainText("Air revised");
+  await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
 });
 
 test("calculates CCR, cave, and the Tools library without a remote dependency", async ({ page }) => {
@@ -83,6 +267,9 @@ test("calculates CCR, cave, and the Tools library without a remote dependency", 
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
   await expect(page.getByRole("heading", { name: "Cave summary" })).toBeVisible();
+  const caveCompletion = page.getByRole("status").filter({ hasText: "Cave calculation complete" });
+  await expect(caveCompletion).toBeVisible();
+  await expect(caveCompletion).toBeInViewport();
 
   await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   const tools = ["MOD", "Best Mix", "END", "Gas Density", "PPO₂", "SAC / RMV", "Gas Duration", "Cylinder Gas", "Emergency Gas", "CNS"];
@@ -96,6 +283,27 @@ test("calculates CCR, cave, and the Tools library without a remote dependency", 
   await expect(page.getByText(/Simplified Bailout/)).toBeVisible();
 });
 
+test("suppresses a changed Cave result until the user updates the plan", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+
+  const caveSummary = page.getByRole("heading", { name: "Cave summary" });
+  await expect(caveSummary).toBeVisible();
+  await page.locator(".bf-route-editor").first().getByRole("spinbutton", { name: "Duration (min)" }).fill("6");
+  await expect(page.getByText("Inputs changed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Update cave plan" })).toBeVisible();
+  const updateNow = page.getByRole("button", { name: "Update now" });
+  await expect(page.getByRole("heading", { name: "Previous cave results hidden" })).toBeVisible();
+  await expect(updateNow).toBeVisible();
+  await expect(caveSummary).toBeHidden();
+  await expect(page.getByRole("region", { name: "Base cave plan" })).toBeHidden();
+
+  await updateNow.click();
+  await expect(caveSummary).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save cave snapshot" })).toBeEnabled();
+});
+
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
@@ -105,6 +313,7 @@ test("retains cave-layer safety errors in an immutable saved snapshot", async ({
   await page.getByRole("button", { name: "Save cave snapshot" }).click();
   await page.getByLabel("Plan name").fill("Unsafe cave snapshot regression");
   await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Cave snapshot saved locally" })).toBeVisible();
 
   await page.getByRole("button", { name: /^Saved plans/ }).first().click();
   const record = page.getByRole("heading", { name: "Unsafe cave snapshot regression" }).locator("../..");
@@ -138,6 +347,7 @@ test("moves an applicable Tool result into the planner", async ({ page }) => {
   await page.getByRole("button", { name: "Copy mix to Plan" }).click();
   await page.getByRole("button", { name: "Apply to current Plan" }).click();
   await expect(page.getByRole("heading", { name: "Plan", exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Plan updated" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Gas name" }).first()).toHaveValue(/Tx/);
 });
 
@@ -159,6 +369,7 @@ test("keeps PSI cylinder fields whole-number while retaining canonical precision
   await currentPressure.fill("3365");
   await expect(currentPressure).toHaveValue("3365");
   await page.getByRole("button", { name: "Save cylinder" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Cylinder saved locally" })).toBeVisible();
   await expect(page.getByText("3365 psi", { exact: true })).toBeVisible();
   const storedCurrentPressure = await page.evaluate(() => {
     const raw = localStorage.getItem("barefoot-dive:tank-bank");
@@ -186,6 +397,33 @@ test("keeps PSI cylinder fields whole-number while retaining canonical precision
   await expect(toolStartingPressure).toHaveValue("3365");
   await toolStartingPressure.fill("3000.5");
   await expect(toolStartingPressure).toHaveValue("3001");
+});
+
+test("keeps every Tank Bank delete action inside its card and clickable", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Duplicate" }).click();
+
+  const cards = page.locator(".bf-tank-card");
+  await expect(cards).toHaveCount(2);
+  for (let index = 0; index < 2; index += 1) {
+    const card = cards.nth(index);
+    const deleteButton = card.getByRole("button", { name: "Delete", exact: true });
+    const cardBox = await card.boundingBox();
+    const buttonBox = await deleteButton.boundingBox();
+
+    expect(cardBox).not.toBeNull();
+    expect(buttonBox).not.toBeNull();
+    expect(buttonBox!.x).toBeGreaterThanOrEqual(cardBox!.x);
+    expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+
+    await deleteButton.click();
+    await expect(page.getByRole("dialog", { name: "Delete this cylinder?" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+  }
 });
 
 test("reloads the production PWA while offline after first load", async ({ page, context }) => {

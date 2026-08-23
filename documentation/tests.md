@@ -20,9 +20,23 @@
 
 ## Current suites
 
-Vitest covers domain units/validation, compile-time absolute/gauge/delta pressure separation, planner and tissue behavior, published reference-comparison envelopes, source-backed calculator fixtures, calculator/planner parity, gas ledger/reserves, cave routes/scenarios, app planning resolution, and storage schema/snapshot/revision behavior. Cave regressions include a stage-only route with zero back-gas use, finite input rejection, CCR bailout-cylinder limits, and a bound where longer exposure creates new decompression before gas is exhausted. Playwright covers safety-gate persistence, accessible control naming/focus, primary workflows, offline reload, stored cave-layer safety diagnostics, and committed phone/tablet/desktop visual snapshots. The exact pass baseline is the result of the commands above in the current checkout; this document does not convert a green test run into field validation or cave-procedure approval.
+Vitest covers domain units/validation, compile-time absolute/gauge/delta pressure separation, planner and tissue behavior, published reference-comparison envelopes, source-backed calculator fixtures, calculator/planner parity, gas ledger/reserves, cave routes/scenarios, app planning resolution, and storage schema/snapshot/revision behavior. Cave regressions include a stage-only route with zero back-gas use, finite input rejection, CCR bailout-cylinder limits, and a bound where longer exposure creates new decompression before gas is exhausted. Playwright covers safety-gate persistence, accessible control naming/focus, primary workflows, completion-border motion, successful-calculation and newly added gas-editor scrolling, reduced-motion fallback, offline reload, stored cave-layer safety diagnostics, and committed phone/tablet/desktop visual snapshots. The exact pass baseline is the result of the commands above in the current checkout; this document does not convert a green test run into field validation or cave-procedure approval.
 
 Native sync/build is a separate gate from web tests. Opening, signing, submitting, deploying, or publishing a native artifact is not performed by this repository.
+
+## Plan and Cave workflow coverage
+
+Browser coverage includes:
+
+- one top-level Plan workspace with accessible Setup and Review views;
+- an explicit first Plan calculation followed by debounced recalculation after direct valid edits;
+- immediate suppression of superseded numeric output and Save while Plan is updating or invalid, followed by restoration only when the result signature matches;
+- retention of the current Plan draft and matching result while navigating among primary workspaces during the app session;
+- an explicit Tank Bank source-revision update action, with no silent replacement of the Plan snapshot;
+- Settings remaining limited to display and local preferences; and
+- explicit Cave calculation, an `Update cave plan` action after edits, and suppression of stale Cave numeric output and saving.
+
+These workflow cases verify application state and rendering only. They do not establish decompression, gas, reserve, cave-procedure, safety, compatibility, or planner-parity validity.
 
 ## Tools redesign coverage
 
@@ -35,7 +49,7 @@ Calculator and application tests cover the eleven production functions and the r
 - exact `Use in Plan` patches and rejection of unrelated-field mutation;
 - versioned Best Mix/END narcotic policy, SAC / RMV direct-volume versus cylinder-pressure-drop modes, absolute/gauge/delta pressure semantics, display-unit changes that preserve canonical values, and context-specific Tank Bank availability.
 
-The current frozen browser baseline is 17 functional smoke cases plus 18 visual cases spanning phone, tablet, and desktop. The visual suite captures the Tools library, a simple live result, and the full live Emergency Gas workspace without a fixed calculation control competing with primary navigation.
+The browser suite contains functional smoke coverage plus committed visual cases spanning phone, tablet, and desktop. The visual suite captures the Plan Setup and Review states, the Tools library, a simple live result, and the full live Emergency Gas workspace without a fixed calculation control competing with primary navigation. Exact passing counts come from the current command output rather than this document.
 
 These cases prove deterministic arithmetic and application behavior only. No test result is independent safety validation or a compatibility/parity claim.
 

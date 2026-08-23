@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   calculateCavePlan,
   type CavePlanInput,
@@ -13,6 +13,7 @@ import type { Diagnostic } from "../domain/types";
 import { barGauge, meters, seconds } from "../domain/units";
 import type { SavedPlansStore, TankBankStore, TankRecord } from "../storage";
 import {
+  CompletionNotice,
   FieldGroup,
   PageHeader,
   Panel,
@@ -69,6 +70,12 @@ type CalculatedCave = {
   /** Includes cave-layer warnings/errors returned outside the base decompression plan. */
   readonly diagnostics: readonly Diagnostic[];
   readonly signature: string;
+};
+
+type CompletionEvent = {
+  readonly revision: number;
+  readonly label: string;
+  readonly description: string;
 };
 
 const initialRoute: readonly RouteDraft[] = [{
@@ -194,9 +201,11 @@ export default function CavePage({
   const [enabledScenarios, setEnabledScenarios] = useState<readonly CaveScenarioKind[]>(scenarioKinds("oc"));
   const [targetLegId, setTargetLegId] = useState("route-1");
   const [calculated, setCalculated] = useState<CalculatedCave>();
+  const [completion, setCompletion] = useState<CompletionEvent>();
   const [diagnostics, setDiagnostics] = useState<readonly Diagnostic[]>([]);
   const [selectedScenario, setSelectedScenario] = useState(0);
   const [saveOpen, setSaveOpen] = useState(false);
+  const completionRef = useRef<HTMLDivElement>(null);
   const tankRecords = useMemo(() => listTanks(tanks), [tanks]);
   const resolved = useMemo(() => resolvePlanInput(draft, tankRecords, "cave"), [draft, tankRecords]);
   const cylinders = resolved.cylinders.map((cylinder) => ({ id: cylinder.id, name: cylinder.name }));
@@ -230,6 +239,20 @@ export default function CavePage({
   };
   const signature = JSON.stringify(input);
   const stale = Boolean(calculated && calculated.signature !== signature);
+  const showCompletion = (label: string, description: string) => setCompletion((current) => ({
+    revision: (current?.revision ?? 0) + 1,
+    label,
+    description,
+  }));
+
+  useEffect(() => {
+    if (!calculated || !completion) return;
+    const frame = requestAnimationFrame(() => completionRef.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    }));
+    return () => cancelAnimationFrame(frame);
+  }, [calculated, completion]);
 
   const updateRoute = (index: number, next: RouteDraft) => {
     const updated = [...route];
@@ -263,12 +286,15 @@ export default function CavePage({
       ? [...result.warnings, ...(result.errors ?? [])]
       : [...result.warnings, ...result.errors];
     setDiagnostics(calculationDiagnostics);
-    if (result.ok) setCalculated({
-      input,
-      result: result.value,
-      diagnostics: collectCaveDiagnostics(calculationDiagnostics, result.value),
-      signature,
-    });
+    if (result.ok) {
+      setCalculated({
+        input,
+        result: result.value,
+        diagnostics: collectCaveDiagnostics(calculationDiagnostics, result.value),
+        signature,
+      });
+      showCompletion("Cave calculation complete", "Current route and scenarios match the displayed result; review all safety diagnostics.");
+    } else setCalculated(undefined);
   };
   const save = (title: string) => {
     if (!plans || !calculated || stale) return;
@@ -285,6 +311,7 @@ export default function CavePage({
     if (!saved.ok) setDiagnostics([{ code: saved.error.code, severity: "error", message: saved.error.message }]);
     else {
       setSaveOpen(false);
+      showCompletion("Cave snapshot saved locally", `${title} is now available in Saved plans.`);
       onStorageChange?.();
     }
   };
@@ -307,7 +334,7 @@ export default function CavePage({
   const limitingCylinderContext = cylinderContext(limitingCylinder);
   return <>
     <PageHeader
-      actions={<ActionButton onClick={run}>Calculate cave plan</ActionButton>}
+      actions={<ActionButton onClick={run}>{stale ? "Update cave plan" : calculated ? "Recalculate cave plan" : "Calculate cave plan"}</ActionButton>}
       description="Build a real penetration and reverse-exit timeline, then test accessible-gas, propulsion, team, stage, and CCR loop failures."
       eyebrow="EXPERIMENTAL · QUALIFIED REVIEW REQUIRED"
       title="Cave"
@@ -361,11 +388,19 @@ export default function CavePage({
         </div>
       </FieldGroup>
     </Panel>
-    <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />
-    {calculated && <>
+    {!stale && <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />}
+    {stale && <Panel
+      actions={<ActionButton onClick={run}>Update now</ActionButton>}
+      eyebrow="Inputs changed"
+      title="Previous cave results hidden"
+    >
+      <p>The route, scenario, or planning inputs no longer match the previous calculation. Update explicitly to review or save current cave results.</p>
+    </Panel>}
+    {calculated && !stale && <>
+      {completion && <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} />}
       <Panel
-        actions={<ActionButton disabled={stale} onClick={() => setSaveOpen(true)}>Save cave snapshot</ActionButton>}
-        eyebrow={stale ? "Inputs changed · recalculate" : "Calculated route and scenarios"}
+        actions={<ActionButton onClick={() => setSaveOpen(true)}>Save cave snapshot</ActionButton>}
+        eyebrow="Calculated route and scenarios"
         title="Cave summary"
       >
         <div className="bf-metric-grid">
@@ -409,7 +444,7 @@ export default function CavePage({
           <WarningList items={diagnosticsToItems(scenarioResult.diagnostics)} title={`${scenarioLabel(scenarioResult.kind)} diagnostics`} />
         </div> : <p>No failure scenarios selected.</p>}
       </Panel>
-      <PlanResultView plan={calculated.result.base} preferences={preferences} stale={stale} title="Base cave plan" />
+      <PlanResultView plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
       {scenarioResult?.plan && <PlanResultView plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}
     </>}
     <SavePlanDialog defaultName={`${draft.mode.toUpperCase()} cave · ${route.length} leg${route.length === 1 ? "" : "s"}`} onCancel={() => setSaveOpen(false)} onSave={save} open={saveOpen} />

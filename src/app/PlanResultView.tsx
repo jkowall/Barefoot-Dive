@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { DivePlan, GasLedgerEntry } from "../domain/types";
 import {
   GasLedger,
@@ -97,14 +98,17 @@ export function PlanResultView({
   stale = false,
   onSave,
   title = "Calculated plan",
+  completion,
 }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
   readonly stale?: boolean;
   readonly onSave?: () => void;
   readonly title?: string;
+  readonly completion?: ReactNode;
 }) {
   return <section className="bf-results" aria-label={title}>
+    {completion}
     <Panel
       actions={onSave ? <ActionButton disabled={stale} onClick={onSave}>Save snapshot</ActionButton> : undefined}
       eyebrow={stale ? "Inputs changed · recalculate before saving" : plan.metadata.validationStatus}

@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type Ref, type SetStateAction } from "react";
 import { calculateDivePlan } from "../engine/planner";
-import type { Diagnostic, DivePlan, GasRole, PlannerConventionId } from "../domain/types";
+import type { Diagnostic, GasRole, PlannerConventionId } from "../domain/types";
 import type { SavedPlansStore, TankBankStore, TankRecord } from "../storage";
 import {
+  CompletionNotice,
   FieldGroup,
   GasChip,
   PageHeader,
@@ -20,6 +21,7 @@ import {
   depthInputValue,
   depthToCanonical,
   depthUnit,
+  formatDepth,
   formatPressure,
   pressureInputStep,
   pressureInputToCanonical,
@@ -36,6 +38,7 @@ import {
   type ReserveDraft,
 } from "./planning";
 import { PlanResultView } from "./PlanResultView";
+import type { PlanWorkspaceSession, PlanWorkspaceView } from "./planWorkspace";
 
 const diagnosticItems = (diagnostics: readonly Diagnostic[]): readonly WarningItem[] => diagnostics.map((item, index) => ({
   id: `${item.code}-${index}`,
@@ -48,13 +51,26 @@ function activeTanks(store?: TankBankStore): readonly TankRecord[] {
   return result?.ok ? result.value : [];
 }
 
+function tankSourceSignature(draft: PlanDraft, tanks: readonly TankRecord[]): string {
+  const selectedDrafts = draft.mode === "oc"
+    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases]
+    : [draft.diluent, ...draft.bailoutGases];
+  return JSON.stringify(selectedDrafts.flatMap((gas) => {
+    if (!gas.cylinderId) return [];
+    const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
+    return [{ gasKey: gas.key, tankId: gas.cylinderId, revision: tank?.revision ?? null }];
+  }));
+}
+
 function GasEditor({
+  containerRef,
   value,
   tanks,
   preferences,
   onChange,
   onRemove,
 }: {
+  readonly containerRef?: Ref<HTMLElement>;
   readonly value: GasDraft;
   readonly tanks: readonly TankRecord[];
   readonly preferences: UnitPreferences;
@@ -64,7 +80,7 @@ function GasEditor({
   const selected = tanks.find((tank) => tank.id === value.cylinderId);
   const gas = selected?.gas;
   const change = <K extends keyof GasDraft>(key: K, next: GasDraft[K]) => onChange({ ...value, [key]: next });
-  return <article className="bf-gas-editor">
+  return <article className="bf-gas-editor" ref={containerRef}>
     <header className="bf-row-header">
       <div>
         <p className="bf-eyebrow">{value.role}</p>
@@ -210,12 +226,33 @@ export function PlannerEditor({
   readonly environment?: "open-water" | "cave";
   readonly showBottomTime?: boolean;
 }) {
+  const [pendingGasKey, setPendingGasKey] = useState<string>();
+  const pendingGasRef = useRef<HTMLElement>(null);
   const set = <K extends keyof PlanDraft>(key: K, value: PlanDraft[K]) => onChange({ ...draft, [key]: value });
   const updateArray = (key: "decoGases" | "bailoutGases", index: number, value: GasDraft) => {
     const next = [...draft[key]];
     next[index] = value;
     set(key, next);
   };
+  const addGas = (key: "decoGases" | "bailoutGases", role: "deco" | "bailout") => {
+    const gas = newGas(role);
+    setPendingGasKey(gas.key);
+    set(key, [...draft[key], gas]);
+  };
+
+  useEffect(() => {
+    const target = pendingGasRef.current;
+    if (!pendingGasKey || !target) return;
+    const frame = requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+      setPendingGasKey((current) => current === pendingGasKey ? undefined : current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [draft.bailoutGases, draft.decoGases, pendingGasKey]);
+
   return <>
     <Panel eyebrow={environment === "cave" ? "Overhead environment" : "Square profile"} title="Profile and breathing mode">
       <div className="bf-form-grid">
@@ -236,13 +273,14 @@ export function PlannerEditor({
     </Panel>
 
     {draft.mode === "oc" ? <Panel
-      actions={<ActionButton onClick={() => set("decoGases", [...draft.decoGases, newGas("deco")])} quiet>Add deco gas</ActionButton>}
+      actions={<ActionButton onClick={() => addGas("decoGases", "deco")} quiet>Add deco gas</ActionButton>}
       title="Open-circuit gases"
     >
       <GasEditor onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} tanks={tanks} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
       {draft.travelGasEnabled && <GasEditor onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} tanks={tanks} value={draft.travelGas} />}
       {draft.decoGases.map((gas, index) => <GasEditor
+        containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
         key={gas.key}
         onChange={(next) => updateArray("decoGases", index, next)}
         onRemove={() => set("decoGases", draft.decoGases.filter((_, gasIndex) => gasIndex !== index))}
@@ -271,10 +309,11 @@ export function PlannerEditor({
         <GasEditor onChange={(diluent) => set("diluent", diluent)} preferences={preferences} tanks={tanks} value={draft.diluent} />
       </Panel>
       <Panel
-        actions={<ActionButton onClick={() => set("bailoutGases", [...draft.bailoutGases, newGas("bailout")])} quiet>Add bailout gas</ActionButton>}
+        actions={<ActionButton onClick={() => addGas("bailoutGases", "bailout")} quiet>Add bailout gas</ActionButton>}
         title="Bailout gases"
       >
         {draft.bailoutGases.map((gas, index) => <GasEditor
+          containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
           key={gas.key}
           onChange={(next) => updateArray("bailoutGases", index, next)}
           onRemove={() => set("bailoutGases", draft.bailoutGases.filter((_, gasIndex) => gasIndex !== index))}
@@ -310,10 +349,30 @@ export function PlannerEditor({
   </>;
 }
 
-type CalculatedState = {
-  readonly input: ReturnType<typeof resolvePlanInput>["input"];
-  readonly plan: DivePlan;
-  readonly signature: string;
+type CompletionEvent = {
+  readonly revision: number;
+  readonly label: string;
+  readonly description: string;
+};
+
+type PlanWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed";
+
+const AUTO_RECALCULATE_MS = 400;
+
+const statusLabel: Record<PlanWorkspaceStatus, string> = {
+  draft: "Draft",
+  updating: "Updating",
+  current: "Current",
+  "needs-attention": "Needs attention",
+  "source-changed": "Source changed",
+};
+
+const statusDescription: Record<PlanWorkspaceStatus, string> = {
+  draft: "No calculation yet. Review the setup, then calculate once.",
+  updating: "Inputs changed. Recalculating automatically; previous results are hidden.",
+  current: "The calculated result matches every current input.",
+  "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics in Setup.",
+  "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the plan.",
 };
 
 export default function PlanPage({
@@ -322,6 +381,9 @@ export default function PlanPage({
   preferences,
   tanks,
   plans,
+  session,
+  tankRevision,
+  onSessionChange,
   onStorageChange,
 }: {
   readonly draft: PlanDraft;
@@ -329,51 +391,168 @@ export default function PlanPage({
   readonly preferences: UnitPreferences;
   readonly tanks?: TankBankStore;
   readonly plans?: SavedPlansStore;
+  readonly session: PlanWorkspaceSession;
+  readonly tankRevision: number;
+  readonly onSessionChange: Dispatch<SetStateAction<PlanWorkspaceSession>>;
   readonly onStorageChange?: () => void;
 }) {
-  const [calculated, setCalculated] = useState<CalculatedState>();
-  const [diagnostics, setDiagnostics] = useState<readonly Diagnostic[]>([]);
+  const [completion, setCompletion] = useState<CompletionEvent>();
   const [saveOpen, setSaveOpen] = useState(false);
-  const tankRecords = useMemo(() => activeTanks(tanks), [tanks]);
+  const completionRef = useRef<HTMLDivElement>(null);
+  const tankRecords = useMemo(() => {
+    void tankRevision;
+    return activeTanks(tanks);
+  }, [tanks, tankRevision]);
   const resolved = useMemo(() => resolvePlanInput(draft, tankRecords), [draft, tankRecords]);
-  const signature = JSON.stringify(resolved.input);
-  const stale = Boolean(calculated && calculated.signature !== signature);
+  const inputSignature = JSON.stringify(resolved.input);
+  const sourceSignature = tankSourceSignature(draft, tankRecords);
+  const calculatedIsCurrent = session.calculated?.inputSignature === inputSignature;
+  const attemptedCurrentInput = session.attemptedInputSignature === inputSignature;
+  const sourceChanged = Boolean(
+    session.calculated
+    && session.calculated.sourceSignature !== sourceSignature
+    && !calculatedIsCurrent,
+  );
+  const status: PlanWorkspaceStatus = calculatedIsCurrent
+    ? "current"
+    : attemptedCurrentInput
+      ? "needs-attention"
+      : sourceChanged
+        ? "source-changed"
+        : session.calculated
+          ? "updating"
+          : "draft";
+  const reviewAvailable = status === "current";
+  const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
+    revision: (current?.revision ?? 0) + 1,
+    label,
+    description,
+  })), []);
 
-  const run = () => {
+  useEffect(() => {
+    if (!completion || session.view !== "review") return;
+    const frame = requestAnimationFrame(() => completionRef.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    }));
+    return () => cancelAnimationFrame(frame);
+  }, [completion, session.view]);
+
+  const run = useCallback((switchToReview: boolean, announce: boolean) => {
     const result = calculateDivePlan(resolved.input);
-    setDiagnostics(result.ok ? [...result.warnings, ...(result.errors ?? [])] : [...result.warnings, ...result.errors]);
-    if (result.ok) setCalculated({ input: resolved.input, plan: result.value, signature });
+    const diagnostics = result.ok
+      ? [...result.warnings, ...(result.errors ?? [])]
+      : [...result.warnings, ...result.errors];
+    onSessionChange((current) => ({
+      ...current,
+      diagnostics,
+      attemptedInputSignature: inputSignature,
+      ...(result.ok ? {
+        calculated: {
+          input: resolved.input,
+          plan: result.value,
+          inputSignature,
+          sourceSignature,
+        },
+        ...(switchToReview ? { view: "review" as const } : {}),
+      } : {}),
+    }));
+    if (result.ok) {
+      if (announce) showCompletion("Plan calculation complete", "Current inputs match the displayed result; review all diagnostics before saving.");
+    }
+  }, [inputSignature, onSessionChange, resolved.input, showCompletion, sourceSignature]);
+
+  useEffect(() => {
+    if (status !== "updating") return;
+    const timer = window.setTimeout(() => run(false, false), AUTO_RECALCULATE_MS);
+    return () => window.clearTimeout(timer);
+  }, [run, status]);
+
+  useEffect(() => {
+    if (session.view !== "review" || reviewAvailable) return;
+    onSessionChange((current) => current.view === "review" ? { ...current, view: "setup" } : current);
+  }, [onSessionChange, reviewAvailable, session.view]);
+
+  const selectView = (view: PlanWorkspaceView) => {
+    if (view === "review" && !reviewAvailable) return;
+    if (view === "setup") setCompletion(undefined);
+    onSessionChange((current) => ({ ...current, view }));
   };
+
   const save = (title: string) => {
-    if (!plans || !calculated || stale) return;
+    if (!plans || !session.calculated || !calculatedIsCurrent) return;
     const result = plans.create({
       title,
-      normalizedInputSnapshot: calculated.input,
-      calculatedPlan: calculated.plan,
-      warnings: calculated.plan.diagnostics,
+      normalizedInputSnapshot: session.calculated.input,
+      calculatedPlan: session.calculated.plan,
+      warnings: session.calculated.plan.diagnostics,
     });
-    if (!result.ok) setDiagnostics([{ code: result.error.code, severity: "error", message: result.error.message }]);
+    if (!result.ok) onSessionChange((current) => ({
+      ...current,
+      diagnostics: [{ code: result.error.code, severity: "error", message: result.error.message }],
+    }));
     else {
       setSaveOpen(false);
+      showCompletion("Snapshot saved locally", `${title} is now available in Saved plans.`);
       onStorageChange?.();
     }
   };
 
+  const setupAction = status === "draft" || (status === "needs-attention" && !session.calculated)
+    ? <ActionButton onClick={() => run(true, true)}>Calculate plan</ActionButton>
+    : status === "current"
+      ? <ActionButton onClick={() => selectView("review")}>Review plan</ActionButton>
+      : status === "source-changed"
+        ? <ActionButton onClick={() => run(true, true)}>Update plan</ActionButton>
+        : status === "updating"
+          ? <ActionButton disabled>Updating plan…</ActionButton>
+          : <ActionButton disabled>Fix inputs</ActionButton>;
+  const action = session.view === "review" && reviewAvailable
+    ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
+    : setupAction;
+  const summaryGas = resolved.gases[0]?.name ?? (draft.mode === "oc" ? draft.bottomGas.name : draft.diluent.name);
+  const summary = `${draft.mode.toUpperCase()} · ${formatDepth(draft.depthM, preferences.depth)} · ${draft.bottomTimeMinutes} min · ${summaryGas} · GF ${draft.gfLowPercent}/${draft.gfHighPercent}`;
+
   return <>
     <PageHeader
-      actions={<ActionButton onClick={run}>Calculate plan</ActionButton>}
       description="Build a deterministic square-profile OC or constant-setpoint CCR plan with explicit gas, equipment, consumption, and reserve assumptions."
       eyebrow="OFFLINE · UNIT-SAFE"
       title="Plan"
     />
-    <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tanks={tankRecords} />
-    <WarningList items={diagnosticItems(diagnostics)} title="Calculation diagnostics" />
-    {calculated && <PlanResultView
+    <section aria-label="Current plan" className="bf-plan-context">
+      <SegmentedControl
+        label="Plan workspace"
+        onChange={selectView}
+        options={[
+          { value: "setup", label: "Setup" },
+          { value: "review", label: "Review", disabled: !reviewAvailable },
+        ]}
+        value={session.view}
+      />
+      <div className="bf-plan-context__summary">
+        <span>Current plan</span>
+        <strong>{summary}</strong>
+        <small>{statusDescription[status]}</small>
+      </div>
+      <div className="bf-plan-context__actions">
+        <span aria-atomic="true" aria-live="polite" className="bf-plan-status" data-state={status} role="status">
+          <span aria-hidden="true" className="bf-plan-status__dot" />
+          {statusLabel[status]}
+        </span>
+        {action}
+      </div>
+    </section>
+    {session.view === "setup" ? <div className="bf-plan-setup">
+      {status === "needs-attention" && <WarningList items={diagnosticItems(session.diagnostics)} title="Calculation diagnostics" />}
+      <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tanks={tankRecords} />
+    </div> : calculatedIsCurrent && session.calculated ? <PlanResultView
+      completion={completion ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} /> : undefined}
       onSave={() => setSaveOpen(true)}
-      plan={calculated.plan}
+      plan={session.calculated.plan}
       preferences={preferences}
-      stale={stale}
-    />}
+    /> : <Panel eyebrow={statusLabel[status]} title="Plan review unavailable">
+      <p>{statusDescription[status]}</p>
+    </Panel>}
     <SavePlanDialog
       defaultName={`${draft.mode.toUpperCase()} · ${Math.round(draft.depthM)} m · ${draft.bottomTimeMinutes} min`}
       onCancel={() => setSaveOpen(false)}

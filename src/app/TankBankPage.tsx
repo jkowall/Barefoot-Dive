@@ -5,6 +5,7 @@ import { DEFAULT_ENVIRONMENT } from "../domain/defaults";
 import type { CylinderRole, Gas } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
 import {
+  CompletionNotice,
   ConfirmDialog,
   EmptyState,
   FieldGroup,
@@ -189,6 +190,7 @@ export function TankBankPage({
   const [gas, setGas] = useState("");
   const [records, setRecords] = useState<readonly TankRecord[]>([]);
   const [editing, setEditing] = useState<{ id?: string; draft: DraftState }>();
+  const [completion, setCompletion] = useState<{ readonly revision: number; readonly label: string; readonly description: string }>();
   const [errors, setErrors] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<TankRecord>();
   const refresh = useCallback(() => {
@@ -221,6 +223,7 @@ export function TankBankPage({
       onError(failureMessage(result.error), result.error);
       return false;
     }
+    setCompletion(undefined);
     refresh();
     return true;
   };
@@ -238,11 +241,19 @@ export function TankBankPage({
           ),
         )
       : store.create(toDraft(editing.draft));
-    if (mutate(result)) setEditing(undefined);
+    if (mutate(result)) {
+      setCompletion((current) => ({
+        revision: (current?.revision ?? 0) + 1,
+        label: editing.id ? "Cylinder updated locally" : "Cylinder saved locally",
+        description: `${editing.draft.name.trim()} is now available in Tank Bank.`,
+      }));
+      setEditing(undefined);
+    }
   };
   const formatVolume = (record: TankRecord) =>
     `${ratedCapacityFromCanonical(record.waterVolumeL, record.workingPressureBar, units.cylinderCapacity).toFixed(1)} ${capacityUnit(units.cylinderCapacity)} ${units.cylinderCapacity === "imperial" ? "rated at working pressure" : "water volume"}`;
   const beginEdit = (record?: TankRecord) => {
+    setCompletion(undefined);
     setErrors([]);
     setEditing({
       ...(record?.id ? { id: record.id } : {}),
@@ -275,6 +286,7 @@ export function TankBankPage({
         description="Keep analyzed cylinders ready for explicit planner assignment."
         actions={<Button onClick={() => beginEdit()}>Add cylinder</Button>}
       />
+      {completion && <CompletionNotice description={completion.description} key={completion.revision} label={completion.label} />}
       <Panel>
         <div className="bf-form-grid">
           <SegmentedControl
@@ -332,11 +344,12 @@ export function TankBankPage({
         <div className="bf-card-grid">
           {records.map((record) => (
             <Panel
+              className="bf-tank-card"
               key={record.id}
               title={record.name}
               eyebrow={`${record.gas.name} · ${record.role ?? record.gas.role}`}
               actions={
-                <div className="bf-page-header__actions">
+                <div className="bf-tank-card__actions">
                   <Button
                     onClick={() => onSelectCylinder?.(record)}
                     quiet

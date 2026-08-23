@@ -11,6 +11,7 @@ import {
 } from "./storage";
 import {
   AppShell,
+  CompletionNotice,
   ConfirmDialog,
   EmptyState,
   PageHeader,
@@ -27,6 +28,7 @@ import { DEFAULT_PREFERENCES, type UnitPreferences } from "./app/helpers";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./app/planning";
 import PlanPage from "./app/PlanPage";
 import { PlanResultView } from "./app/PlanResultView";
+import { createInitialPlanWorkspaceSession, type PlanWorkspaceSession } from "./app/planWorkspace";
 import { SavedPlansPage } from "./app/SavedPlansPage";
 import { TankBankPage } from "./app/TankBankPage";
 import { createInitialToolsSessionState, type ToolsSessionState } from "./app/toolsSession";
@@ -249,8 +251,9 @@ export default function App() {
   const [globalError, setGlobalError] = useState<string>();
   const [openedRecord, setOpenedRecord] = useState<SavedPlanRecord>();
   const [planDraft, setPlanDraft] = useState<PlanDraft>(() => structuredClone(DEFAULT_PLAN_DRAFT));
+  const [planSession, setPlanSession] = useState<PlanWorkspaceSession>(createInitialPlanWorkspaceSession);
   const [pendingToolPatch, setPendingToolPatch] = useState<ToolPlanPatch>();
-  const [planNotice, setPlanNotice] = useState<string>();
+  const [planNotice, setPlanNotice] = useState<{ readonly revision: number; readonly label: string; readonly description: string }>();
   const [toolsSession, setToolsSession] = useState<ToolsSessionState>(createInitialToolsSessionState);
   const [dataRevision, setDataRevision] = useState(0);
 
@@ -273,10 +276,16 @@ export default function App() {
   ];
   const reportError = useCallback((message: string) => setGlobalError(message), []);
   const refreshData = useCallback(() => setDataRevision((revision) => revision + 1), []);
+  const showPlanNotice = (label: string, description: string) => setPlanNotice((current) => ({
+    revision: (current?.revision ?? 0) + 1,
+    label,
+    description,
+  }));
 
   const useCylinder = (record: TankRecord) => {
     setPlanDraft(draftFromCylinder(record));
-    setPlanNotice(`Started a new plan with ${record.name}.`);
+    setPlanSession(createInitialPlanWorkspaceSession());
+    showPlanNotice("Plan started", `Started a new plan with ${record.name}.`);
     setOpenedRecord(undefined);
     setRoute("plan");
   };
@@ -320,9 +329,12 @@ export default function App() {
         setPlanDraft(next);
         setPlanNotice(undefined);
       }}
+      onSessionChange={setPlanSession}
       onStorageChange={refreshData}
       plans={stores.savedPlans}
       preferences={preferences}
+      session={planSession}
+      tankRevision={dataRevision}
       tanks={stores.tankBank}
     />;
   } else if (route === "cave") {
@@ -371,10 +383,12 @@ export default function App() {
       severity: "error",
     }]} title="Application status" />}
     {globalError && <div className="bf-inline-actions"><ActionButton onClick={() => setGlobalError(undefined)} quiet>Dismiss error</ActionButton></div>}
-    {route === "plan" && planNotice && <>
-      <WarningList items={[{ id: "plan-update", message: planNotice, severity: "info" }]} title="Plan updated" />
-      <div className="bf-inline-actions"><ActionButton onClick={() => setPlanNotice(undefined)} quiet>Dismiss update</ActionButton></div>
-    </>}
+    {route === "plan" && planNotice && <CompletionNotice
+      actions={<ActionButton onClick={() => setPlanNotice(undefined)} quiet>Dismiss</ActionButton>}
+      description={planNotice.description}
+      key={planNotice.revision}
+      label={planNotice.label}
+    />}
     {content}
     {settingsOpen && <SettingsDialog onChange={savePreferences} onClose={() => setSettingsOpen(false)} preferences={preferences} />}
     <ConfirmDialog
@@ -386,8 +400,9 @@ export default function App() {
         if (!pendingToolPatch) return;
         const description = describeToolPlanPatch(planDraft, pendingToolPatch);
         setPlanDraft((current) => applyToolPlanPatch(current, pendingToolPatch));
+        setPlanSession((current) => ({ ...current, view: "setup" }));
         setPendingToolPatch(undefined);
-        setPlanNotice(description);
+        showPlanNotice("Plan updated", description);
         setOpenedRecord(undefined);
         setRoute("plan");
       }}

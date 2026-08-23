@@ -8,10 +8,16 @@
 - Replaced the generic Tools selector with a task-oriented library and focused, responsive calculator workspaces for all eleven named capabilities.
 - Added per-tool ephemeral session inputs, field and cross-field diagnostics, typed result presenters, Tank Bank snapshots with manual detachment, and safe debounced live results for Emergency Gas.
 - Added clearer Tools section hierarchy, live/updating/invalid status cues, active-navigation indicators, restrained page/result transitions, and reduced-motion behavior.
+- Refined the shared visual system with layered workspace depth, stronger page and panel hierarchy, clearer result metrics, richer navigation and controls, and visible keyboard focus for segmented choices.
+- Added one-shot border completion cues for Plan and Cave calculations, local snapshot and cylinder saves, and confirmed Tool-to-Plan transfers without animating safety-critical values; successful calculations bring the completed result into view.
+- Split the single top-level Plan workspace into Setup and Review, with an explicit first calculation, debounced recalculation after later valid edits, and suppression of superseded results and saving while inputs are updating or invalid.
+- Kept the current Plan draft and matching result across primary-workspace navigation for the app session, surfaced Tank Bank source revisions for explicit Plan updates, retained display/local preferences in Settings, and made edited Cave results require an explicit `Update cave plan` before output or saving returns.
 - Added exact, confirmed Plan patches for Best Mix, one selected SAC/RMV target, and OC rock-bottom assumptions; unsupported calculators remain display-only.
 - Added versioned trimix Best Mix and END narcotic policies, dual-input SAC/RMV, entered-schedule Emergency Gas, and distinct absolute, gauge, and pressure-delta types.
 - Added source-backed literal Tools fixtures from NOAA, U.S. Navy, SSI, and the documented Subsurface convention option; these establish formula arithmetic only, not procedure or planner parity.
 - Required explicit END oxygen, OC Emergency team size, and cylinder reserve; routed Emergency segments through the shared planner gas-integration primitive and exposed exact Best Mix active constraints.
+- Fixed Tank Bank card actions so multiple cylinders keep their Delete controls separated and clickable across responsive layouts.
+- Scrolled newly added deco and bailout gas editors into view without hiding them behind the sticky application header.
 
 ## [0.1.0] - 2026-08-21
 
