@@ -1,6 +1,6 @@
 # Tools library and workspace
 
-The `0.2.1` checkout implements Tools as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
+The `0.2.2` checkout implements Tools as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
 
 ## Library
 

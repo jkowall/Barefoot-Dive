@@ -19,9 +19,20 @@ const defaultNavigation: readonly NavigationItem[] = [
   { key: "plans", label: "Saved plans" },
 ];
 
-export function AppShell({ children, activeRoute, navigation = defaultNavigation, onNavigate, onOpenSettings, title = "Barefoot Dive" }: {
+const projectLinks = [
+  { label: "GitHub", href: "https://github.com/jkowall/Barefoot-Dive" },
+  { label: "Changelog", href: "https://github.com/jkowall/Barefoot-Dive/blob/main/CHANGELOG.md" },
+  { label: "Roadmap", href: "https://github.com/jkowall/Barefoot-Dive/blob/main/ROADMAP.md" },
+  { label: "Validation notes", href: "https://github.com/jkowall/Barefoot-Dive/blob/main/documentation/reference-validation.md" },
+  { label: "Apache 2.0 license", href: "https://github.com/jkowall/Barefoot-Dive/blob/main/LICENSE" },
+  { label: "Report an issue", href: "https://github.com/jkowall/Barefoot-Dive/issues/new" },
+] as const;
+
+export function AppShell({ children, activeRoute, appVersion, engineVersion, navigation = defaultNavigation, onNavigate, onOpenSettings, title = "Barefoot Dive" }: {
   readonly children: ReactNode;
   readonly activeRoute: RouteKey;
+  readonly appVersion: string;
+  readonly engineVersion: string;
   readonly navigation?: readonly NavigationItem[];
   readonly onNavigate?: (route: RouteKey) => void;
   readonly onOpenSettings?: () => void;
@@ -36,7 +47,21 @@ export function AppShell({ children, activeRoute, navigation = defaultNavigation
   );
   return <div className="bf-app-shell">
     <aside className="bf-rail"><div className="bf-brand"><img alt="" aria-hidden="true" className="bf-brand__mark" src="/logo-64.png" /><span><small>BAREFOOT</small><strong>Dive</strong></span></div>{navigationButtons("rail")}</aside>
-    <div className="bf-workspace"><header className="bf-topbar"><div className="bf-topbar__title">{title}</div><button aria-label="Open settings" className="bf-icon-button" onClick={onOpenSettings} type="button">⚙</button></header><main className="bf-content">{children}</main></div>
+    <div className="bf-workspace">
+      <header className="bf-topbar"><div className="bf-topbar__title">{title}</div><button aria-label="Open settings" className="bf-icon-button" onClick={onOpenSettings} type="button">⚙</button></header>
+      <main className="bf-content">{children}</main>
+      <footer className="bf-app-footer">
+        <dl aria-label="Software versions" className="bf-app-footer__versions">
+          <div><dt>App</dt><dd>{appVersion}</dd></div>
+          <div><dt>Calculation engine</dt><dd>{engineVersion}</dd></div>
+        </dl>
+        <nav aria-label="Project links">
+          <ul className="bf-app-footer__links">
+            {projectLinks.map((link) => <li key={link.href}><a href={link.href} rel="noopener noreferrer" target="_blank">{link.label}<span className="bf-sr-only"> (opens in a new tab)</span></a></li>)}
+          </ul>
+        </nav>
+      </footer>
+    </div>
     {navigationButtons("bottom")}
   </div>;
 }

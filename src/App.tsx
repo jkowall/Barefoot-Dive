@@ -380,6 +380,8 @@ export default function App() {
 
   return <AppShell
     activeRoute={route}
+    appVersion={__APP_VERSION__}
+    engineVersion={ENGINE_VERSION}
     navigation={navigation}
     onNavigate={(next) => {
       setOpenedRecord(undefined);

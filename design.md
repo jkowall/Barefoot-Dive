@@ -8,7 +8,7 @@ The Barefoot Dive mark uses the illustrated rope-badge language of Barefoot Blen
 
 Browser and PWA derivatives live in `public/` at 32, 64, 180, 192, and 512 pixels, with a separately padded 512-pixel maskable icon. The iOS app icon, Android legacy and adaptive launchers, and native splash images use the same cutout on the application navy (`#08111f`). Native icons retain the platform mask rather than baking rounded corners into the artwork.
 
-The application uses a layered dark-slate visual system with restrained cyan depth cues, elevated primary surfaces, explicit keyboard focus, and stronger metric grouping. Navigation, page headers, forms, and results share the same surface hierarchy. Motion is reserved for state transitions and completion feedback; safety-critical values remain static.
+The application uses a layered dark-slate visual system with restrained cyan depth cues, elevated primary surfaces, explicit keyboard focus, and stronger metric grouping. Navigation, page headers, forms, and results share the same surface hierarchy. A normal-flow footer keeps the package release and independently versioned calculation-engine identifier visible on every workspace, alongside project source, changelog, roadmap, validation, license, and issue links. It wraps above the mobile bottom navigation instead of competing with it. Motion is reserved for state transitions and completion feedback; safety-critical values remain static.
 
 ## Current implemented product
 

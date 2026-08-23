@@ -11,6 +11,27 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Plan", exact: true })).toBeVisible();
 
+  const footer = page.getByRole("contentinfo");
+  const versions = footer.locator(".bf-app-footer__versions");
+  await expect(versions.getByText("App", { exact: true })).toBeVisible();
+  await expect(versions.getByText("0.2.2", { exact: true })).toBeVisible();
+  await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
+  await expect(versions.getByText("barefoot-dive-engine-0.1.0", { exact: true })).toBeVisible();
+  const projectLinks = footer.getByRole("navigation", { name: "Project links" });
+  for (const [label, href] of [
+    ["GitHub", "https://github.com/jkowall/Barefoot-Dive"],
+    ["Changelog", "https://github.com/jkowall/Barefoot-Dive/blob/main/CHANGELOG.md"],
+    ["Roadmap", "https://github.com/jkowall/Barefoot-Dive/blob/main/ROADMAP.md"],
+    ["Validation notes", "https://github.com/jkowall/Barefoot-Dive/blob/main/documentation/reference-validation.md"],
+    ["Apache 2.0 license", "https://github.com/jkowall/Barefoot-Dive/blob/main/LICENSE"],
+    ["Report an issue", "https://github.com/jkowall/Barefoot-Dive/issues/new"],
+  ] as const) {
+    const link = projectLinks.getByRole("link", { name: `${label} (opens in a new tab)`, exact: true });
+    await expect(link).toHaveAttribute("href", href);
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  }
+
   for (const [button, heading] of [
     ["Cave", "Cave"],
     ["Tools", "Tools"],
@@ -60,9 +81,32 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.2.1 · Calculation engine barefoot-dive-engine-0.1.0")).toBeVisible();
+  await expect(settings.getByText("App 0.2.2 · Calculation engine barefoot-dive-engine-0.1.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
+
+  const footerLink = page.getByRole("contentinfo").getByRole("link", { name: "GitHub (opens in a new tab)", exact: true });
+  await footerLink.focus();
+  await expect(footerLink).toBeFocused();
+  await expect(footerLink).toHaveCSS("outline-style", "solid");
+});
+
+test("keeps the footer content above mobile navigation without horizontal overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+
+  const footer = page.getByRole("contentinfo");
+  await footer.scrollIntoViewIfNeeded();
+  const [versionsBox, linksBox, navigationBox] = await Promise.all([
+    footer.locator(".bf-app-footer__versions").boundingBox(),
+    footer.getByRole("navigation", { name: "Project links" }).boundingBox(),
+    page.locator(".bf-nav--bottom").boundingBox(),
+  ]);
+  expect(versionsBox).not.toBeNull();
+  expect(linksBox).not.toBeNull();
+  expect(navigationBox).not.toBeNull();
+  expect(Math.max(versionsBox!.y + versionsBox!.height, linksBox!.y + linksBox!.height)).toBeLessThanOrEqual(navigationBox!.y + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
 test("traces a completion border once and removes its motion when requested", async ({ page }) => {

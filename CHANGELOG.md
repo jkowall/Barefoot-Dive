@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.2.2] - 2026-08-24
+
+- Added a responsive application footer with the canonical app and calculation-engine versions plus GitHub, changelog, roadmap, validation, license, and issue links.
+
 ## [0.2.1] - 2026-08-23
 
 - Labeled the independently versioned scientific component as the “Calculation engine” in Settings so its identifier is not confused with the app release.

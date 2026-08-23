@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function prepareLongCapture(page: Page) {
   const mobileStyles = (page.viewportSize()?.width ?? 900) < 900
-    ? ".bf-nav--bottom { position: static !important; } .bf-content { padding-bottom: 1.5rem !important; }"
+    ? ".bf-nav--bottom { position: static !important; } .bf-content, .bf-app-footer { padding-bottom: 1.5rem !important; }"
     : "";
   await page.addStyleTag({ content: `
     .bf-topbar { position: static !important; }

@@ -2,9 +2,9 @@
 
 | Name/source | Used by | Runtime scope | Source and rotation | Risk |
 | --- | --- | --- | --- | --- |
-| `package.json` version (`0.2.1`) | Vite build, Settings display, and web/source release metadata | Client | Repository release edit; change for an app release | Stale release identification if package and documentation diverge |
+| `package.json` version (`0.2.2`) | Vite build, Settings/footer display, and web/source release metadata | Client | Repository release edit; change for an app release | Stale release identification if package and documentation diverge |
 | Android `versionName`/`versionCode` and iOS `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` (`1.0`/`1`) | Native package metadata | Native builds | Native project files; change and increment for an authorized native release | Store rejection or version drift if marketing versions and build counters diverge |
-| `ENGINE_VERSION` | Plan metadata, Settings display, and stale-snapshot detection | Client | Canonical export from `src/engine/planner.ts`; change only with scientific engine behavior | False stale-plan warnings or mislabeled calculation history |
+| `ENGINE_VERSION` | Plan metadata, Settings/footer display, and stale-snapshot detection | Client | Canonical export from `src/engine/planner.ts`; change only with scientific engine behavior | False stale-plan warnings or mislabeled calculation history |
 | ZH-L16C model/coefficient/convention metadata | Plan metadata | Client | Versioned source constants; change with the corresponding model or policy | Calculation output loses an auditable model identity |
 | `wrangler.jsonc` | Cloudflare Worker name, asset directory, and custom domains | Build/deployment | Repository configuration; review with deployment changes | A bad route or asset path can publish the wrong bundle |
 | Cloudflare Workers Builds generated API token | Cloudflare build and deployment service | Cloudflare account only | Cloudflare-managed secret; rotate after exposure or access changes | Grants deployment access; never commit or bundle it |
