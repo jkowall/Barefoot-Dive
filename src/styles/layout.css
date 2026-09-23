@@ -33,6 +33,19 @@
 .bf-panel__header > div { display: grid; min-width: 0; gap: 2px; }
 .bf-panel__body { padding: var(--bf-space-3); }
 .bf-panel__note { margin-bottom: var(--bf-space-3); color: var(--bf-text-muted); font-size: var(--bf-text-sm); line-height: 1.45; }
+.bf-panel__note:last-child { margin-bottom: 0; }
+.bf-inline-fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-2) var(--bf-space-3);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  border-left: 3px solid var(--bf-danger);
+  background: var(--bf-danger-bg);
+  font-size: var(--bf-text-sm);
+}
+.bf-inline-fix p { margin: 0; color: var(--bf-text); }
 
 .bf-form-grid {
   display: grid;
@@ -41,7 +54,8 @@
   align-items: end;
 }
 .bf-form-grid + .bf-form-grid, .bf-form-grid + .bf-toggle, .bf-toggle + .bf-gas-editor { margin-top: var(--bf-space-3); }
-.bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.bf-form-grid + .bf-toggle, .bf-toggle + .bf-toggle, .bf-toggle + .bf-form-grid, .bf-form-grid + .bf-form-grid { margin-top: var(--bf-space-3); }
 
 .bf-card-grid { display: grid; gap: var(--bf-space-3); }
 .bf-card-grid .bf-panel + .bf-panel { margin-top: 0; }

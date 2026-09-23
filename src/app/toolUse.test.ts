@@ -98,4 +98,30 @@ describe("exact Tools plan patches", () => {
     expect(toolPlanPatchError(customizedDraft(), { kind: "rmv", target: "bailoutRmvLpm", valueLpm: 20 })).toMatch(/breathing mode/);
     expect(toolPlanPatchError(customizedDraft(), { kind: "best-mix", name: "Invalid", oxygenPercent: 80, heliumPercent: 30 })).toMatch(/fractions/);
   });
+
+  it("preserves CCR setpoint, dil-out, and gas-planning fields through every patch kind", () => {
+    const before: PlanDraft = {
+      ...customizedDraft(),
+      lowSetpointBar: 0.6,
+      setpointDeactivationDepthM: 9,
+      diluentBailout: true,
+      diluentPreBailoutUseL: 140,
+      gasPlanning: "gas-only",
+    };
+    const patches: readonly ToolPlanPatch[] = [
+      { kind: "best-mix", name: "Tx21/35", oxygenPercent: 21, heliumPercent: 35 },
+      { kind: "rmv", target: "bottomRmvLpm", valueLpm: 17 },
+      { kind: "rock-bottom", teamSize: 2, stressedRmvLpm: 40 },
+    ];
+    for (const patch of patches) {
+      const after = applyToolPlanPatch(before, patch);
+      expect(after).toMatchObject({
+        lowSetpointBar: 0.6,
+        setpointDeactivationDepthM: 9,
+        diluentBailout: true,
+        diluentPreBailoutUseL: 140,
+        gasPlanning: "gas-only",
+      });
+    }
+  });
 });

@@ -50,8 +50,18 @@ export type PlanDraft = {
   readonly decoGases: readonly GasDraft[];
   readonly diluent: GasDraft;
   readonly bailoutGases: readonly GasDraft[];
+  /** High setpoint (bar absolute). */
   readonly setpointBar: number;
+  /** Switch-up depth on descent. */
   readonly setpointActivationDepthM: number;
+  /** Low setpoint breathed from the surface and after leaving the switch-down depth. */
+  readonly lowSetpointBar: number;
+  /** Switch-down depth on ascent; never shallower than where the high setpoint is achievable. */
+  readonly setpointDeactivationDepthM: number;
+  /** Dil-out: the diluent and its cylinder join the bailout gases. */
+  readonly diluentBailout: boolean;
+  /** Dil-out only: diver-entered diluent use before bailout, in surface litres. */
+  readonly diluentPreBailoutUseL?: number;
   readonly bailoutTriggerMinutes?: number;
   readonly gfLowPercent: number;
   readonly gfHighPercent: number;
@@ -61,6 +71,8 @@ export type PlanDraft = {
   readonly bailoutRmvLpm: number;
   readonly bailoutDecoRmvLpm: number;
   readonly reserve: ReserveDraft;
+  /** Cylinder accounting, or gas volumes only (open water; Cave always uses cylinders). */
+  readonly gasPlanning: "cylinders" | "gas-only";
 };
 
 export type ResolvedPlanInput = {
@@ -69,7 +81,53 @@ export type ResolvedPlanInput = {
   readonly cylinders: readonly Cylinder[];
 };
 
-export function tankSourceSignature(draft: PlanDraft, tanks: readonly TankRecord[]): string {
+/**
+ * Change the gas-planning mode. Gas-only plans read the mix from the draft, so a gas that was
+ * sourced from a Tank Bank cylinder takes that cylinder's mix, name, and maximum PPO₂ with it.
+ * The Tank Bank selection is kept so switching back to cylinders restores it.
+ */
+export function withGasPlanning(
+  draft: PlanDraft,
+  gasPlanning: PlanDraft["gasPlanning"],
+  tanks: readonly TankRecord[],
+): PlanDraft {
+  if (gasPlanning !== "gas-only") return { ...draft, gasPlanning };
+  const percent = (value: number) => Math.round(value * 100 * 1e6) / 1e6;
+  const fromTank = (gas: GasDraft): GasDraft => {
+    const tank = gas.cylinderId
+      ? tanks.find((candidate) => candidate.id === gas.cylinderId && !candidate.archived)
+      : undefined;
+    if (!tank) return gas;
+    return {
+      ...gas,
+      name: tank.gas.name || gas.name,
+      oxygenPercent: percent(tank.gas.oxygen),
+      heliumPercent: percent(tank.gas.helium),
+      maximumPPO2Bar: tank.maximumPPO2,
+    };
+  };
+  return {
+    ...draft,
+    gasPlanning,
+    bottomGas: fromTank(draft.bottomGas),
+    travelGas: fromTank(draft.travelGas),
+    decoGases: draft.decoGases.map(fromTank),
+    diluent: fromTank(draft.diluent),
+    bailoutGases: draft.bailoutGases.map(fromTank),
+  };
+}
+
+/** Gas-only planning applies to open-water plans only; Cave always plans with cylinders. */
+export function isGasOnlyPlan(draft: PlanDraft, environment: DivePlanInput["environment"] = "open-water"): boolean {
+  return environment !== "cave" && draft.gasPlanning === "gas-only";
+}
+
+export function tankSourceSignature(
+  draft: PlanDraft,
+  tanks: readonly TankRecord[],
+  environment: DivePlanInput["environment"] = "open-water",
+): string {
+  if (isGasOnlyPlan(draft, environment)) return "[]";
   const selectedDrafts = activeGasDrafts(draft);
   return JSON.stringify(selectedDrafts.flatMap((gas) => {
     if (!gas.cylinderId) return [];
@@ -121,6 +179,9 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   ],
   setpointBar: 1.3,
   setpointActivationDepthM: 6,
+  lowSetpointBar: 0.7,
+  setpointDeactivationDepthM: 6,
+  diluentBailout: false,
   gfLowPercent: 30,
   gfHighPercent: 70,
   conventionId: "barefoot-zhl16c-v1",
@@ -129,6 +190,7 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   bailoutRmvLpm: 30,
   bailoutDecoRmvLpm: 20,
   reserve: { kind: "fixed", minimumPressureBar: 35 },
+  gasPlanning: "cylinders",
 };
 
 /** Gases that take part in the calculation: bottom/diluent, an enabled travel gas, and deco/bailout gases not switched off. */
@@ -137,6 +199,19 @@ export function activeGasDrafts(draft: PlanDraft): readonly GasDraft[] {
   return draft.mode === "oc"
     ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases.filter(included)]
     : [draft.diluent, ...draft.bailoutGases.filter(included)];
+}
+
+/** Gas-only: the draft's own mix and PPO₂ ceiling, with no cylinder or Tank Bank source. */
+function resolveGasOnly(draft: GasDraft): Gas {
+  return {
+    id: `plan-gas-${draft.key}`,
+    name: draft.name.trim() || "Plan gas",
+    oxygen: fraction(draft.oxygenPercent / 100),
+    helium: fraction(draft.heliumPercent / 100),
+    role: draft.role,
+    ...(draft.switchDepthM === undefined ? {} : { switchDepthM: meters(draft.switchDepthM) }),
+    maximumPPO2: barAbsolute(draft.maximumPPO2Bar),
+  };
 }
 
 function resolveGasAndCylinder(
@@ -216,9 +291,12 @@ export function resolvePlanInput(
   environment: DivePlanInput["environment"] = "open-water",
 ): ResolvedPlanInput {
   const selectedDrafts = activeGasDrafts(draft);
-  const resolved = selectedDrafts.map((item) => resolveGasAndCylinder(item, tankBank));
+  const gasOnly = isGasOnlyPlan(draft, environment);
+  const resolved = gasOnly
+    ? selectedDrafts.map((item) => ({ gas: resolveGasOnly(item), cylinder: undefined }))
+    : selectedDrafts.map((item) => resolveGasAndCylinder(item, tankBank));
   const gases = resolved.map((item) => item.gas);
-  const cylinders = [...new Map(resolved.map((item) => [item.cylinder.id, item.cylinder])).values()];
+  const cylinders = [...new Map(resolved.flatMap((item) => item.cylinder ? [[item.cylinder.id, item.cylinder] as const] : [])).values()];
   const shared = {
     environment,
     depthM: meters(draft.depthM),
@@ -239,6 +317,7 @@ export function resolvePlanInput(
       bailoutDecoLpm: litersPerMinute(draft.bailoutDecoRmvLpm),
     },
     reservePolicy: reservePolicy(draft.reserve),
+    ...(gasOnly ? { gasOnly: true } : {}),
   } as const;
   if (draft.mode === "oc") {
     return {
@@ -260,7 +339,15 @@ export function resolvePlanInput(
       diluent: gases[0] ?? AIR,
       setpointBar: barAbsolute(draft.setpointBar),
       setpointActivationDepthM: meters(draft.setpointActivationDepthM),
+      lowSetpointBar: barAbsolute(draft.lowSetpointBar),
+      setpointDeactivationDepthM: meters(draft.setpointDeactivationDepthM),
       bailoutGases: gases.slice(1),
+      ...(draft.diluentBailout
+        ? {
+            diluentBailout: true,
+            ...(draft.diluentPreBailoutUseL === undefined ? {} : { diluentPreBailoutUseL: liters(draft.diluentPreBailoutUseL) }),
+          }
+        : {}),
       ...(draft.bailoutTriggerMinutes === undefined
         ? {}
         : { bailoutTriggerSecondsAtDepth: seconds(draft.bailoutTriggerMinutes * 60) }),

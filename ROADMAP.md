@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the `0.3.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.4.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,9 +11,10 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: `0.3.0` evaluation build
+## Current: `0.4.0` evaluation build
 
-- Unit-safe ZH-L16C/GF engine, OC planning, constant-setpoint CCR decompression/exposure, exact-trigger-state CCR bailout to open circuit, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
+- Unit-safe ZH-L16C/GF engine, OC planning, CCR decompression/exposure with a low setpoint from the surface and a high setpoint below separate switch-up and switch-down depths, exact-trigger-state CCR bailout to open circuit, dil-out, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
+- Gas-only open-water planning with per-gas minimum volumes to carry, and bailout surface/coverage checks plus mid-leg switches that keep open-circuit ascents breathable.
 - Experimental cave route context with accessible cylinders, stage drop/recovery, gas-derived OC turn constraints, CCR bailout-derived limits, and required failure scenarios.
 - Tank Bank, immutable Saved Plan revisions, all eleven Tools calculators, responsive offline PWA, and iOS/Android shells.
 - Representative DecoTengu and pinned Abysner comparison coverage with known input and schedule-distribution differences documented.
@@ -38,13 +39,12 @@ These items are listed in priority order and take precedence over adding planner
 | Decide the cave scope | Decide whether the implemented experimental CCR cave/bailout-derived behavior remains in scope alongside OC cave planning | An explicit OC/CCR scope decision before investing in further cave qualification or expansion |
 | Decide the named-preset strategy | Choose whether each compatibility-named preset stays explicitly experimental, loses the external product name, or enters a formal validation effort | A keep/rename/remove/validate decision for every preset; any validation path identifies pinned product/firmware versions and comparison evidence |
 | Expand decompression reference vectors | Cover air, nitrox, trimix, CCR, bailout, multiple GF pairs, fresh/salt water, and altitude | Versioned inputs, independently sourced expected results, tolerances, and documented discrepancy decisions |
+| Re-check open-circuit arrival ceilings | Decide whether the first-stop search re-checks the arrival ceiling on open-circuit and legacy CCR legs, where helium-heavy gases can put the first stop above the GF-low ceiling (low-setpoint legs are already re-checked) | A scheduler change with its legacy-output impact documented, independent vectors, and scientific review |
 | Validate gas, reserves, and oxygen exposure | Independently check integrated consumption, rock bottom/team reserve, thirds/sixths, reserve crossings, CNS, and unit conversions | Committed positive and failure vectors with reviewer/source identity |
 | Qualify retained cave semantics | Review OC turn pressure, thirds/sixths, team reserve, stage access, scooter failure, lost-gas/lost-buddy behavior, and any retained CCR bailout-derived limits | Named qualified cave-diver review, committed scenario vectors, and no unresolved critical/high audit findings |
 | Harden release evidence | Repeat web, offline, migration, accessibility, visual, Android, iOS, and dependency gates from a frozen revision | Reproducible release report and an explicit go/no-go decision; web hosting does not authorize signing or store submission |
 
 ## Later candidates: open-water planning depth
-
-- Gas-only planning mode: enter gases without cylinders and read total surface volume per gas. Today every gas needs a cylinder because reserve, remaining pressure, and reserve-crossing semantics are cylinder-based; the ledger already reports used volume per gas in the preferred unit.
 
 1. Arbitrary multi-level open-water profile editing using the existing exposure-event model.
 2. Repetitive dives and explicit surface intervals with serializable tissue-state lineage.
@@ -56,12 +56,12 @@ Entry gate: qualified evaluation shows that current square-profile planning is u
 
 ## Later candidates: CCR and exposure expansion
 
-- Diluent as an explicit bailout gas ("dil-out"): sharing the diluent cylinder between loop use and open-circuit bailout changes the bailout gas ledger and needs its own reserve semantics and review.
-- Low/high setpoint phases: the current model breathes open-circuit diluent from the surface to the setpoint activation depth, then holds one constant setpoint; a low-setpoint descent phase (or high setpoint from the surface as a default) needs engine and exposure changes and independent review. Interim: set the activation depth to 0 to model the loop closed from the surface.
-- Separate setpoint deactivation depth on ascent: activation and deactivation currently share one depth, so the loop opens at the same depth on the way up.
+- Independent vectors for the low/high setpoint switch schedule, dil-out bailout, and gas-only volumes, then a qualified CCR review of the 0.4.0 defaults (0.7/1.3 bar, 6 m switch-up and switch-down).
+- Trigger bailout gas selection that respects the bottom PPO₂ limit (or a dedicated bailout PPO₂ limit); today it is flagged, not changed, because it alters exact-state bailout results.
+- Planner CNS accumulation alongside OTU, from the same exposure timeline.
 
 1. If the CCR onboard-gas decision supports it, estimate onboard oxygen use from a configurable metabolic rate plus explicit additions or losses, and diluent use from descent, ADV/manual-add, flush, and loop-loss assumptions. Define and version which values are profile-derived versus user-entered, attribute every use to an explicit cylinder, keep the calculation local, and never infer it from OC RMV.
-2. Multiple automatic or manually scheduled CCR setpoint transitions.
+2. More than two setpoints, or manually scheduled CCR setpoint transitions.
 3. OTU calculation and display from the same exposure timeline used by CNS.
 4. Independently validated IBCD methodology, only after its model, applicability limits, and reference evidence are agreed.
 

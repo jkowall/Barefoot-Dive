@@ -12,7 +12,7 @@ The application uses a flat "instrument dark" visual system in the navy-slate fa
 
 ## Current implemented product
 
-The planner supports square open-water OC and constant-setpoint CCR profiles, travel and deco gas selection, diluent and bailout semantics, GF-based decompression, and integrated gas/reserve accounting. CCR bailout is calculated from the exact tissue/depth/runtime trigger state selected by the user. The same production calculation functions power all 11 tools: MOD, Best Mix, END, gas density, PPO2, SAC/RMV, gas duration, rock bottom, cylinder gas, CNS, and simplified bailout.
+The planner supports square open-water OC and CCR profiles with a low setpoint from the surface and a high setpoint below separate switch-up and switch-down depths, travel and deco gas selection, diluent, dil-out, and bailout semantics, cylinder or gas-only accounting, GF-based decompression, and integrated gas/reserve accounting. CCR bailout is calculated from the exact tissue/depth/runtime trigger state selected by the user. The same production calculation functions power all 11 tools: MOD, Best Mix, END, gas density, PPO2, SAC/RMV, gas duration, rock bottom, cylinder gas, CNS, and simplified bailout.
 
 Plan is one top-level workspace with distinct Setup and Review views. Setup contains the editable profile, gas, cylinder, decompression, consumption, and reserve assumptions; Review contains only the result that matches those current inputs. The first calculation is explicit. After that first result, direct valid edits recalculate after a short pause. While an update is pending, or while the current inputs are invalid, the previous numeric result and Save action are not shown. The Plan draft and its latest matching result remain available while the user moves among primary workspaces during the current app session.
 
@@ -44,4 +44,4 @@ The interactive profile is a display of already calculated segment, stop, switch
 - Keep the decompression and gas modules deterministic, unit-safe, and independent of React UI.
 - The client-only web bundle may be published through Cloudflare; no signed or store-submitted native artifact is represented by this repository.
 
-Later work may add arbitrary profiles, repetitive dives, additional setpoint transitions, OTU, IBCD evidence, and richer cave branching only with separate implementation and validation evidence.
+Later work may add arbitrary profiles, repetitive dives, more than two setpoints, planner CNS and OTU, IBCD evidence, and richer cave branching only with separate implementation and validation evidence.

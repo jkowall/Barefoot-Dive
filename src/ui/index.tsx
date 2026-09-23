@@ -200,7 +200,23 @@ export function RuntimeSchedule({ rows }: { readonly rows: readonly RuntimeRow[]
   return <div className="bf-scroll-table"><table className="bf-schedule"><caption>Runtime schedule</caption><thead><tr><th>Runtime (min)</th><th>Depth</th><th>Time</th><th>Gas</th><th>Instruction</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.runtime}-${index}`}><td>{row.runtime}</td><td>{row.depth}</td><td>{row.duration}</td><td>{row.gas ?? "—"}</td><td>{row.event}</td></tr>)}</tbody></table></div>;
 }
 
-export type GasLedgerRow = { readonly gas: ReactNode; readonly used: string; readonly reserve?: string; readonly remaining?: string; readonly status: "ok" | "warning" | "short" };
+export type GasLedgerRow = {
+  readonly gas: ReactNode;
+  readonly used: string;
+  readonly reserve?: string;
+  readonly remaining?: string;
+  /** Gas-only planning: minimum surface volume to carry, expected use plus the reserve policy. */
+  readonly required?: string;
+  readonly status: "ok" | "warning" | "short" | "unchecked";
+};
+const ledgerStatusLabel: Record<GasLedgerRow["status"], string> = {
+  ok: "Sufficient",
+  warning: "Review",
+  short: "Short",
+  unchecked: "Not checked (gas only)",
+};
 export function GasLedger({ rows }: { readonly rows: readonly GasLedgerRow[] }) {
-  return <div className="bf-scroll-table"><table className="bf-ledger"><caption>Gas ledger</caption><thead><tr><th>Gas</th><th>Used</th><th>Reserve</th><th>Remaining</th><th>Status</th></tr></thead><tbody>{rows.map((row, index) => <tr data-status={row.status} key={index}><td>{row.gas}</td><td>{row.used}</td><td>{row.reserve ?? "—"}</td><td>{row.remaining ?? "—"}</td><td>{row.status === "ok" ? "Sufficient" : row.status === "warning" ? "Review" : "Short"}</td></tr>)}</tbody></table></div>;
+  const showRequired = rows.some((row) => row.required !== undefined);
+  const showRemaining = rows.some((row) => row.status !== "unchecked");
+  return <div className="bf-scroll-table"><table className="bf-ledger"><caption>Gas ledger</caption><thead><tr><th>Gas</th><th>Used</th><th>Reserve</th>{showRemaining && <th>Remaining</th>}{showRequired && <th>Minimum to carry</th>}<th>Status</th></tr></thead><tbody>{rows.map((row, index) => <tr data-status={row.status} key={index}><td>{row.gas}</td><td>{row.used}</td><td>{row.reserve ?? "—"}</td>{showRemaining && <td>{row.remaining ?? "—"}</td>}{showRequired && <td>{row.required ?? "—"}</td>}<td>{ledgerStatusLabel[row.status]}</td></tr>)}</tbody></table></div>;
 }

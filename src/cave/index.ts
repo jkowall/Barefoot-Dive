@@ -5,7 +5,15 @@ import type {
 import { integratedSurfaceGas } from "../calculations";
 import { calculateEventDivePlan, type ExposureEvent } from "../engine/planner";
 import { barGauge, depthToAmbientPressure, liters, meters, seconds } from "../domain/units";
-import { ocBottomSwitchDepth, resolveAssignedCylinder } from "../domain/validation";
+import {
+  effectiveBailoutGases,
+  ocBottomSwitchDepth,
+  resolveAssignedCylinder,
+  setpointAchievableDepth,
+  switchDownDepth,
+  usesLowSetpoint,
+  compareGasPreference,
+} from "../domain/validation";
 
 /** The cave API is deliberately local: it is a route planner, not a second dive engine. */
 export type Propulsion = "fins" | "scooter" | "tow";
@@ -170,6 +178,18 @@ function validate(input: CavePlanInput): Diagnostic[] {
   for (const request of input.scenarios ?? []) {
     finite(request.targetDistanceM, "SCENARIO_TARGET_INVALID", "Scenario target distance must be finite and nonnegative.", "targetDistanceM");
   }
+  const dive = input.dive;
+  if (dive.mode === "ccr" && usesLowSetpoint(dive) && Number.isFinite(dive.setpointBar)) {
+    // Route legs are explicit events, so the high setpoint must be achievable wherever it is held.
+    const achievableDepth = setpointAchievableDepth(dive.setpointBar, dive.environmentSettings);
+    if (switchDownDepth(dive) < achievableDepth - 1e-9) {
+      d.push(error(
+        "CAVE_CCR_SWITCH_DOWN_TOO_SHALLOW",
+        `Cave routes are explicit legs, so the ${dive.setpointBar.toFixed(2)} bar high setpoint must be dropped at or below ${achievableDepth.toFixed(1)} m, where the loop can still hold it. Deepen the switch-down depth.`,
+        "dive.setpointDeactivationDepthM",
+      ));
+    }
+  }
   return d;
 }
 
@@ -254,7 +274,12 @@ function selectAccessibleGas(
   return gasAndCylinderCandidates(input, leg, gases, excludedCylinderIds)
     .filter(({ gas, cylinder }) => gasBreathableOnLeg(input, gas, cylinder, leg, planMaximumPPO2, respectPlannedTravelSwitch))
     .slice()
-    .sort((left, right) => right.gas.oxygen - left.gas.oxygen || left.gas.id.localeCompare(right.gas.id))[0]?.gas;
+    .sort((left, right) =>
+      // Dil-out uses the planner's shared ordering (oxygen, then least helium, then a dedicated
+      // bailout before the diluent). Other plans keep the engine 0.1.0 ordering.
+      input.dive.mode === "ccr" && input.dive.diluentBailout === true
+        ? compareGasPreference(left.gas, right.gas)
+        : right.gas.oxygen - left.gas.oxygen || left.gas.id.localeCompare(right.gas.id))[0]?.gas;
 }
 
 function targetRoute(input: CavePlanInput, request: CaveScenarioRequest): { route: RouteLeg[]; targetIndex: number; diagnostics: Diagnostic[] } {
@@ -312,11 +337,19 @@ function baseLegEvents(
 ): readonly ExposureEvent[] {
   const dive = input.dive;
   if (dive.mode === "ccr") {
-    return splitLegAtDepth(leg, dive.setpointActivationDepthM).map((part, partIndex) => {
-      const useCcr = Math.min(part.startDepthM, part.endDepthM) >= dive.setpointActivationDepthM - 1e-8;
-      const strategy: ExposureEvent["strategy"] = useCcr
+    // Low-setpoint mode: switch up at the activation depth on the way in and hold the
+    // high setpoint until leaving the switch-down depth on exit legs. Legacy mode keeps
+    // open-circuit diluent above the activation depth in both directions.
+    const lowMode = usesLowSetpoint(dive);
+    const boundary = lowMode && kind === "exit" ? switchDownDepth(dive) : dive.setpointActivationDepthM;
+    const shallowStrategy: ExposureEvent["strategy"] = lowMode
+      ? { kind: "ccr", diluent: dive.diluent, setpointBar: dive.lowSetpointBar! }
+      : { kind: "open-circuit", gas: dive.diluent };
+    return splitLegAtDepth(leg, boundary).map((part, partIndex) => {
+      const useHigh = Math.min(part.startDepthM, part.endDepthM) >= boundary - 1e-8;
+      const strategy: ExposureEvent["strategy"] = useHigh
         ? { kind: "ccr", diluent: dive.diluent, setpointBar: dive.setpointBar }
-        : { kind: "open-circuit", gas: dive.diluent };
+        : shallowStrategy;
       return event(`${kind}-${index + 1}-${partIndex + 1}-${leg.id}`, kind, part, dive.diluent, strategy);
     });
   }
@@ -364,7 +397,10 @@ function validateBaseBreathingAccess(input: CavePlanInput): Diagnostic[] {
     }
   }
   const entrance = input.route[0];
-  if (entrance && entrance.startDepthM > 0) {
+  // A low-setpoint CCR ascent from the entrance stays on the loop, so no open-circuit
+  // surface gas is needed for it; legacy CCR ascends on open-circuit diluent.
+  const loopAscent = input.dive.mode === "ccr" && usesLowSetpoint(input.dive);
+  if (entrance && entrance.startDepthM > 0 && !loopAscent) {
     const ascentGases = baseAscentGases(input);
     const surfaceLeg: RouteLeg = {
       ...entrance,
@@ -481,7 +517,9 @@ function gasLimits(input: CavePlanInput, routeEvents: readonly ExposureEvent[], 
     const starting = entry.startingVolumeL!;
     const reserve = entry.reserveL!;
     const totalUse = limitEntry.totalUsedL;
-    const penetrationUse = cylinder
+    // CCR limits come from the bailout ledger, which starts at the loop failure; loop
+    // events on the diluent cylinder are not open-circuit use and must not be subtracted.
+    const penetrationUse = cylinder && input.dive.mode !== "ccr"
       ? surfaceUseForCylinder(routeEvents.filter((event) => event.kind === "descent" || event.kind === "penetration"), input, cylinder, rmv)
       : 0;
     return { entry, cylinder, starting, reserve, totalUse, penetrationUse };
@@ -489,14 +527,23 @@ function gasLimits(input: CavePlanInput, routeEvents: readonly ExposureEvent[], 
   const complete = actual.length > 0 && actual.every(({ starting, reserve, totalUse }) => Number.isFinite(starting) && Number.isFinite(reserve) && Number.isFinite(totalUse));
   if (!complete) return { diagnostics: [error("GAS_LIMIT_UNDETERMINED", "A finite per-cylinder gas limit could not be determined; no numeric maximum is presented.")] };
 
-  const operationalValues = actual.map(({ entry, cylinder, penetrationUse }) => {
-    if (input.reserve.kind === "thirds") return entry.startingPressureBar! * 2 / 3;
-    if (input.reserve.kind === "sixths") return entry.startingPressureBar! * 5 / 6;
-    return ((entry.reserveL ?? 0) + Math.max(0, (limitEntries.find((candidate) => candidate.cylinderId === entry.cylinderId)?.totalUsedL ?? 0) - penetrationUse)) / cylinder!.waterVolumeL;
-  });
   const minimumValues = actual.map(({ entry, cylinder, penetrationUse }) => {
     const exitUse = Math.max(0, (limitEntries.find((candidate) => candidate.cylinderId === entry.cylinderId)?.totalUsedL ?? 0) - penetrationUse);
     return (exitUse + entry.reserveL!) / cylinder!.waterVolumeL;
+  });
+  // The dil-out diluent gauge drops during penetration (loop make-up, ADV, wing) and its exit
+  // is on open circuit at bailout RMV, so a thirds or sixths fraction of the start is not a
+  // safe turn for it. Its turn is never below the pressure the exit and reserve require.
+  const dilOutCylinderId = input.dive.mode === "ccr" && input.dive.diluentBailout === true
+    ? input.dive.diluent.cylinderId
+    : undefined;
+  const operationalValues = actual.map(({ entry, cylinder, penetrationUse }, index) => {
+    const policyTurn = input.reserve.kind === "thirds"
+      ? entry.startingPressureBar! * 2 / 3
+      : input.reserve.kind === "sixths"
+        ? entry.startingPressureBar! * 5 / 6
+        : ((entry.reserveL ?? 0) + Math.max(0, (limitEntries.find((candidate) => candidate.cylinderId === entry.cylinderId)?.totalUsedL ?? 0) - penetrationUse)) / cylinder!.waterVolumeL;
+    return entry.cylinderId === dilOutCylinderId ? Math.max(policyTurn, minimumValues[index]) : policyTurn;
   });
   const margins = actual.map(({ entry, cylinder, penetrationUse }, index) =>
     entry.startingVolumeL! - penetrationUse - minimumValues[index] * cylinder!.waterVolumeL);
@@ -521,7 +568,12 @@ function gasLimits(input: CavePlanInput, routeEvents: readonly ExposureEvent[], 
       durationSeconds: seconds(Math.max(1, leg.durationSeconds * scale)),
       distanceM: meters(leg.distanceM * scale),
     }));
-    const candidateInput = { ...input, route: candidateRoute, scenarios: [], maximumPenetrationDistanceM: undefined, maximumPenetrationTimeSeconds: undefined, turnTimeSeconds: undefined };
+    // Diluent used on the loop before a dil-out bailout grows with penetration time, so a longer
+    // candidate route scales the entered use with it (never below the entered value).
+    const candidateDive = input.dive.mode === "ccr" && input.dive.diluentBailout === true && input.dive.diluentPreBailoutUseL !== undefined
+      ? { ...input.dive, diluentPreBailoutUseL: liters(input.dive.diluentPreBailoutUseL * Math.max(1, scale)) }
+      : input.dive;
+    const candidateInput = { ...input, dive: candidateDive, route: candidateRoute, scenarios: [], maximumPenetrationDistanceM: undefined, maximumPenetrationTimeSeconds: undefined, turnTimeSeconds: undefined };
     const candidate = calculateCavePlanInternal(candidateInput, false);
     if (!candidate.ok) return { safe: false, reason: candidate.errors.map((item) => item.code).join(", ") || "candidate-plan-failed" };
     const candidatePlan = input.dive.mode === "ccr"
@@ -623,7 +675,7 @@ function scenarioEvents(input: CavePlanInput, request: CaveScenarioRequest): {
     diagnostics.push(error("SCENARIO_MODE_INVALID", `${request.kind} requires an OC cave plan.`));
     return { events: [], target, diagnostics };
   }
-  if (request.kind === "ccr-loop-failure" && (dive.mode !== "ccr" || dive.bailoutGases.length === 0)) {
+  if (request.kind === "ccr-loop-failure" && (dive.mode !== "ccr" || effectiveBailoutGases(dive).length === 0)) {
     diagnostics.push(error("BAILOUT_GAS_REQUIRED", "CCR loop failure requires at least one assigned, accessible bailout gas."));
     return { events: [], target, diagnostics };
   }
@@ -640,7 +692,7 @@ function scenarioEvents(input: CavePlanInput, request: CaveScenarioRequest): {
   if (request.kind === "scooter-failure" && target.propulsion !== "scooter") diagnostics.push(error("SCENARIO_TARGET_INVALID", "Scooter failure must target a scooter-propelled leg."));
   if (diagnostics.some((item) => item.severity === "error")) return { events: [], target, diagnostics };
 
-  const gases = dive.mode === "ccr" ? dive.bailoutGases : registeredOcGases(dive);
+  const gases = dive.mode === "ccr" ? effectiveBailoutGases(dive) : registeredOcGases(dive);
   const exitEvents: ExposureEvent[] = [];
   route.slice().reverse().forEach((leg, index) => {
     const reversed = reverseLeg(leg, index);

@@ -64,6 +64,39 @@ export function NumberField({
   </FieldGroup>;
 }
 
+/** A number field that stays blank until a value is entered; blank reports undefined, never 0. */
+export function OptionalNumberField({
+  label,
+  value,
+  onChange,
+  step = 1,
+  min,
+  hint,
+  error,
+}: {
+  readonly label: string;
+  readonly value: number | undefined;
+  readonly onChange: (value: number | undefined) => void;
+  readonly step?: number;
+  readonly min?: number;
+  readonly hint?: string;
+  readonly error?: string;
+}) {
+  return <FieldGroup error={error} label={label} hint={hint}>
+    <input
+      aria-label={label}
+      min={min}
+      onChange={(event) => {
+        const text = event.currentTarget.value.trim();
+        onChange(text === "" ? undefined : Number(text));
+      }}
+      step={step}
+      type="number"
+      value={value !== undefined && Number.isFinite(value) ? value : ""}
+    />
+  </FieldGroup>;
+}
+
 export function TextField({
   label,
   value,

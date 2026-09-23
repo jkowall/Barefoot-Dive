@@ -238,7 +238,7 @@ export default function CavePage({
     ...(limits.maximumTimeMinutes === undefined ? {} : { maximumPenetrationTimeSeconds: seconds(limits.maximumTimeMinutes * 60) }),
   }), [draft.mode, limits, normalizedRoute, resolved.input, scenarios]);
   const inputSignature = JSON.stringify(input);
-  const sourceSignature = tankSourceSignature(draft, tankRecords);
+  const sourceSignature = tankSourceSignature(draft, tankRecords, "cave");
   const calculatedIsCurrent = calculated?.inputSignature === inputSignature;
   const attemptedCurrentInput = session.attemptedInputSignature === inputSignature;
   const sourceChanged = Boolean(

@@ -77,6 +77,15 @@ function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly Run
 function ledgerRow(entry: GasLedgerEntry, preferences: UnitPreferences): GasLedgerRow {
   const capacity = preferences.cylinderCapacity;
   const volume = (litersValue: number) => formatSurfaceGas(litersValue, capacity);
+  if (entry.gasOnly) {
+    return {
+      gas: entry.gasName,
+      used: volume(entry.totalUsedL),
+      reserve: entry.reserveL === undefined ? undefined : volume(entry.reserveL),
+      required: entry.requiredVolumeL === undefined ? undefined : volume(entry.requiredVolumeL),
+      status: "unchecked",
+    };
+  }
   const context = entry.cylinderWaterVolumeL === undefined
     ? undefined
     : capacity === "imperial" && entry.workingPressureBar !== undefined
@@ -90,8 +99,11 @@ function ledgerRow(entry: GasLedgerEntry, preferences: UnitPreferences): GasLedg
   const reserve = entry.reserveL === undefined
     ? undefined
     : `${volume(entry.reserveL)}${entry.cylinderWaterVolumeL === undefined ? "" : ` · ${context}`}`;
+  const dilOut = entry.preBailoutDeductionL === undefined
+    ? ""
+    : ` · diluent, bailout use only after ${volume(entry.preBailoutDeductionL)} used before bailout`;
   return {
-    gas: `${entry.cylinderName ?? entry.gasName}${context ? ` · ${context}` : ""}`,
+    gas: `${entry.cylinderName ?? entry.gasName}${context ? ` · ${context}` : ""}${dilOut}`,
     used: volume(entry.totalUsedL),
     reserve,
     remaining,
@@ -107,6 +119,13 @@ function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
 }) {
   const rows = runtimeRows(plan, preferences);
   const ledger = plan.gasLedger.map((entry) => ledgerRow(entry, preferences));
+  const gasOnly = plan.gasLedger.some((entry) => entry.gasOnly);
+  const ledgerView = ledger.length === 0
+    ? <p className="bf-panel__note">No open-circuit gas is breathed on this plan. Loop oxygen and diluent use are not modeled{plan.mode === "ccr" ? "; bailout gas is accounted for in the CCR bailout plan" : ""}.</p>
+    : <>
+      <GasLedger rows={ledger} />
+      {gasOnly && <p className="bf-panel__note">Minimum to carry is the surface volume for expected use plus the reserve policy. It excludes unusable residual gas and any per-cylinder minimum pressure.</p>}
+    </>;
   return <>
     <Panel title={`${title} profile`}>
       <ProfileChart
@@ -123,15 +142,15 @@ function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
         <RuntimeSchedule rows={rows} />
       </details>
       <details className="bf-disclosure">
-        <summary>Gas ledger <span>{ledger.length} cylinders</span></summary>
-        <GasLedger rows={ledger} />
+        <summary>Gas ledger <span>{ledger.length} {gasOnly ? "gases" : "cylinders"}</span></summary>
+        {ledgerView}
       </details>
     </Panel> : <>
       <Panel title={`${title} runtime`}>
         <RuntimeSchedule rows={rows} />
       </Panel>
       <Panel title={`${title} gas ledger`}>
-        <GasLedger rows={ledger} />
+        {ledgerView}
       </Panel>
     </>}
   </>;

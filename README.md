@@ -1,13 +1,13 @@
 # Barefoot Dive
 
-Barefoot Dive is an offline-first, client-only technical dive-planning PWA with Capacitor iOS and Android shells. It supports open-circuit (OC) and constant-setpoint CCR planning, gas and reserve accounting, Tank Bank equipment records, saved local snapshots, and an experimental cave route/scenario workflow.
+Barefoot Dive is an offline-first, client-only technical dive-planning PWA with Capacitor iOS and Android shells. It supports open-circuit (OC) and CCR planning with low and high setpoints, gas and reserve accounting (with or without cylinders), Tank Bank equipment records, saved local snapshots, and an experimental cave route/scenario workflow.
 
 ## Implemented scope
 
 - Pure, deterministic, unit-branded TypeScript calculations using metres, seconds, bar absolute, litres, and fractions.
-- A 16-compartment ZH-L16C engine with gradient factors, tissue ceilings, event segments, OC gas switches, CCR setpoint activation/deactivation, travel/deco gases, diluent, and bailout.
+- A 16-compartment ZH-L16C engine with gradient factors, tissue ceilings, event segments, OC gas switches, CCR low and high setpoints with separate switch-up and switch-down depths, travel/deco gases, diluent, dil-out, and bailout.
 - CCR bailout generated from the exact trigger state at the selected at-depth time, rather than from a separately reconstructed profile.
-- Integrated gas use and reserves, including fixed, custom, thirds, sixths, and rock-bottom policies, with reserve-crossing diagnostics.
+- Integrated gas use and reserves, including fixed, custom, thirds, sixths, and rock-bottom policies, with reserve-crossing diagnostics. Open-water plans can instead enter gases only and read the minimum volume to carry per gas.
 - Eleven production calculator tools: MOD, Best Mix, END, gas density, PPO2, SAC/RMV, gas duration, rock bottom, cylinder gas, CNS, and simplified bailout. The UI calls these production functions; there is no parallel demo calculator path.
 - The task-oriented Tools library organizes those eleven capabilities into focused, responsive workspaces. Emergency Gas contains Rock Bottom / Minimum Gas and Simplified Bailout modes; it checks an entered schedule, optionally against one OC cylinder and always against one CCR bailout cylinder. It does not generate a decompression or bailout plan. See [`documentation/tools.md`](documentation/tools.md).
 - Tank Bank records with explicit cylinder/gas assignment, analyzer-first fields, revision metadata, archive/restore, and local persistence. Depth, pressure, and cylinder-capacity preferences are independent: imperial cylinders use rated surface ft³ at working pressure, while metric cylinders use physical water-volume litres.

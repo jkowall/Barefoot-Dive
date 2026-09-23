@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
 import type { TankRecord } from "../storage";
-import { DEFAULT_PLAN_DRAFT, resolvePlanInput } from "./planning";
+import { switchDepthToCanonical } from "./helpers";
+import { DEFAULT_PLAN_DRAFT, resolvePlanInput, tankSourceSignature, withGasPlanning, type PlanDraft } from "./planning";
 
 describe("plan input resolution", () => {
   it("creates distinct immutable ad hoc cylinders for every active OC gas", () => {
@@ -69,5 +70,94 @@ describe("plan input resolution", () => {
     const bailout = draft.bailoutGases.map((gas, index) => index === 0 ? { ...gas, enabled: false as const } : gas);
     const resolved = resolvePlanInput({ ...draft, mode: "ccr", bailoutGases: bailout }, []);
     expect(resolved.input.mode === "ccr" ? resolved.input.bailoutGases.length : -1).toBe(draft.bailoutGases.length - 1);
+  });
+
+  it("resolves gas-only plans without cylinders or Tank Bank sources and keeps per-gas PPO₂ ceilings", () => {
+    const draft: PlanDraft = {
+      ...structuredClone(DEFAULT_PLAN_DRAFT),
+      gasPlanning: "gas-only",
+      bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: "bank-doubles" },
+    };
+    const resolved = resolvePlanInput(draft, []);
+    expect(resolved.cylinders).toEqual([]);
+    expect(resolved.input.cylinders).toEqual([]);
+    expect(resolved.input.gasOnly).toBe(true);
+    expect(resolved.gases.every((gas) => gas.cylinderId === undefined)).toBe(true);
+    expect(resolved.gases[0]).toMatchObject({ id: "plan-gas-bottom", oxygen: 0.18, helium: 0.45, maximumPPO2: 1.4 });
+    expect(tankSourceSignature(draft, [])).toBe("[]");
+  });
+
+  it("ignores gas-only planning in Cave and does not emit gas-only fields for cylinder plans", () => {
+    const draft: PlanDraft = { ...structuredClone(DEFAULT_PLAN_DRAFT), gasPlanning: "gas-only" };
+    const cave = resolvePlanInput(draft, [], "cave");
+    expect(cave.input.gasOnly).toBeUndefined();
+    expect(cave.cylinders.length).toBeGreaterThan(0);
+    const cylinders = resolvePlanInput(DEFAULT_PLAN_DRAFT, []);
+    expect("gasOnly" in cylinders.input).toBe(false);
+    expect(cylinders.gases.every((gas) => gas.maximumPPO2 === undefined)).toBe(true);
+  });
+
+  it("emits the low setpoint and switch-down depth for every new CCR plan and dil-out only when enabled", () => {
+    const ccr = resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr" }, []).input;
+    expect(ccr.mode).toBe("ccr");
+    if (ccr.mode !== "ccr") return;
+    expect(ccr.lowSetpointBar).toBe(0.7);
+    expect(ccr.setpointDeactivationDepthM).toBe(6);
+    expect("diluentBailout" in ccr).toBe(false);
+    expect("diluentPreBailoutUseL" in ccr).toBe(false);
+    const dilOut = resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr", diluentBailout: true, diluentPreBailoutUseL: 150 }, []).input;
+    expect(dilOut).toMatchObject({ diluentBailout: true, diluentPreBailoutUseL: 150 });
+    const blank = resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr", diluentBailout: true }, []).input;
+    expect("diluentPreBailoutUseL" in blank).toBe(false);
+  });
+});
+
+describe("gas-planning mode and switch-depth entry", () => {
+  const tank: TankRecord = {
+    id: "doubles",
+    name: "Doubles",
+    waterVolumeL: liters(24),
+    workingPressureBar: barGauge(232),
+    currentPressureBar: barGauge(210),
+    gas: { id: "tank-tx2135", name: "Tx21/35", oxygen: fraction(0.21), helium: fraction(0.35), role: "bottom" },
+    maximumPPO2: barAbsolute(1.2),
+    revision: 1,
+    createdAt: "2026-09-23T00:00:00.000Z",
+    updatedAt: "2026-09-23T00:00:00.000Z",
+  };
+
+  it("carries a Tank Bank mix, name, and maximum PPO₂ into gas-only planning", () => {
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: "doubles" } };
+    const next = withGasPlanning(draft, "gas-only", [tank]);
+    expect(next.gasPlanning).toBe("gas-only");
+    expect(next.bottomGas).toMatchObject({ name: "Tx21/35", oxygenPercent: 21, heliumPercent: 35, maximumPPO2Bar: 1.2, cylinderId: "doubles" });
+    const resolved = resolvePlanInput(next, [tank]).input;
+    expect(resolved.gasOnly).toBe(true);
+    expect(resolved.mode === "oc" && resolved.bottomGas).toMatchObject({ oxygen: 0.21, helium: 0.35, maximumPPO2: 1.2 });
+    expect(next.decoGases).toEqual(draft.decoGases);
+    expect(withGasPlanning(next, "cylinders", [tank])).toEqual({ ...next, gasPlanning: "cylinders" });
+  });
+
+  it("leaves ad hoc gases and archived tanks untouched", () => {
+    const archived = { ...tank, archived: true };
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: "doubles" } };
+    expect(withGasPlanning(draft, "gas-only", [archived]).bottomGas).toEqual(draft.bottomGas);
+    expect(withGasPlanning(DEFAULT_PLAN_DRAFT, "gas-only", [tank]).bottomGas).toEqual(DEFAULT_PLAN_DRAFT.bottomGas);
+  });
+
+  it.each([
+    [20, "imperial", 6],
+    [19.7, "imperial", 6],
+    [10, "imperial", 3],
+    [0, "imperial", 0],
+    [30, "imperial", 9],
+  ] as const)("snaps %d ft to the %d m stop grid", (value, units, expected) => {
+    expect(switchDepthToCanonical(value, units)).toBe(expected);
+  });
+
+  it("keeps depths away from the grid and all metric entries exact", () => {
+    expect(switchDepthToCanonical(15, "imperial")).toBeCloseTo(15 / 3.280839895, 9);
+    expect(switchDepthToCanonical(5.9, "metric")).toBe(5.9);
+    expect(switchDepthToCanonical(6, "metric")).toBe(6);
   });
 });

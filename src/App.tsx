@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { calculateCavePlan } from "./cave";
-import { calculateDivePlan, ENGINE_VERSION } from "./engine/planner";
+import { ENGINE_VERSION } from "./engine/planner";
 import {
   createSavedPlansStore,
   createTankBankStore,
   storageOptions,
-  type SavedPlanDraft,
   type SavedPlanRecord,
   type TankRecord,
 } from "./storage";
@@ -28,6 +26,7 @@ import { ActionButton } from "./app/controls";
 import { DEFAULT_PREFERENCES, type UnitPreferences } from "./app/helpers";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./app/planning";
 import PlanPage from "./app/PlanPage";
+import { buildRecalculation } from "./app/recalculation";
 import { PlanResultView } from "./app/PlanResultView";
 import { createInitialPlanWorkspaceSession, type PlanWorkspaceSession } from "./app/planWorkspace";
 import { SavedPlansPage } from "./app/SavedPlansPage";
@@ -196,38 +195,6 @@ function SavedPlanDetail({
       title={record.caveResultSnapshot ? "Stored base decompression output" : "Stored calculated output"}
     />
   </>;
-}
-
-function buildRecalculation(record: SavedPlanRecord, reportError: (message: string) => void): SavedPlanDraft | undefined {
-  if (record.caveInputSnapshot) {
-    const calculated = calculateCavePlan(record.caveInputSnapshot);
-    if (!calculated.ok) {
-      reportError(calculated.errors.map((item) => `${item.message} (${item.code})`).join(" "));
-      return undefined;
-    }
-    return {
-      title: record.title,
-      normalizedInputSnapshot: record.caveInputSnapshot.dive,
-      calculatedPlan: calculated.value.base,
-      caveInputSnapshot: record.caveInputSnapshot,
-      caveResultSnapshot: calculated.value,
-      warnings: collectCaveDiagnostics(
-        [...calculated.warnings, ...(calculated.errors ?? [])],
-        calculated.value,
-      ),
-    };
-  }
-  const calculated = calculateDivePlan(record.normalizedInputSnapshot);
-  if (!calculated.ok) {
-    reportError(calculated.errors.map((item) => `${item.message} (${item.code})`).join(" "));
-    return undefined;
-  }
-  return {
-    title: record.title,
-    normalizedInputSnapshot: record.normalizedInputSnapshot,
-    calculatedPlan: calculated.value,
-    warnings: [...calculated.warnings, ...(calculated.errors ?? [])],
-  };
 }
 
 export default function App() {

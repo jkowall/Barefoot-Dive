@@ -60,6 +60,11 @@ export type Gas = {
   readonly role: GasRole;
   readonly switchDepthM?: Meters;
   readonly cylinderId?: string;
+  /**
+   * Per-gas PPO₂ ceiling used only in gas-only planning, where no cylinder carries
+   * the limit. Cylinder plans keep the limit on the assigned cylinder.
+   */
+  readonly maximumPPO2?: BarAbsolute;
 };
 
 export type Cylinder = {
@@ -189,7 +194,18 @@ export type GasLedgerEntry = {
   readonly reserveL?: Liters;
   readonly remainingVolumeL?: Liters;
   readonly remainingPressureBar?: BarGauge;
+  /** False when no cylinder was checked (gas-only entries) or the cylinder does not keep its reserve. */
   readonly sufficient: boolean;
+  /** Gas-only planning entry: no cylinder, capacity, pressure, or reserve crossing was checked. */
+  readonly gasOnly?: true;
+  /** Gas-only planning: minimum surface volume to carry, expected use plus the reserve policy. */
+  readonly requiredVolumeL?: Liters;
+  /**
+   * Dil-out: surface volume removed from the diluent cylinder before bailout starts
+   * (diver-entered loop, ADV, flush, wing, and suit use plus any modeled open-circuit
+   * diluent breathing before the trigger). startingVolumeL is already reduced by it.
+   */
+  readonly preBailoutDeductionL?: Liters;
   readonly reserveCrossing?: {
     readonly runtimeSeconds: Seconds;
     readonly depthM: Meters;
@@ -223,6 +239,11 @@ export type BaseDiveInput = {
   readonly cylinders: readonly Cylinder[];
   readonly rmv: RmvSettings;
   readonly reservePolicy: ReservePolicy;
+  /**
+   * Plan gas volumes without cylinders (open water only). Emitted only when true.
+   * Capacity, pressure, and reserve crossings are not checked.
+   */
+  readonly gasOnly?: boolean;
 };
 
 export type OcDiveInput = BaseDiveInput & {
@@ -235,9 +256,31 @@ export type OcDiveInput = BaseDiveInput & {
 export type CcrDiveInput = BaseDiveInput & {
   readonly mode: "ccr";
   readonly diluent: Gas;
+  /** High (bottom) setpoint. */
   readonly setpointBar: BarAbsolute;
+  /** Switch-up depth on descent. */
   readonly setpointActivationDepthM: Meters;
+  /**
+   * Low setpoint breathed on the loop from the surface to the switch-up depth, and
+   * after leaving the switch-down depth on ascent. Absent means the legacy convention:
+   * open-circuit diluent above the switch-up depth in both directions.
+   */
+  readonly lowSetpointBar?: BarAbsolute;
+  /**
+   * Switch-down depth on ascent, used only with lowSetpointBar. The high setpoint is
+   * held at any depth at or below it, including a stop there; the switch happens when
+   * leaving it. Absent means the switch-up depth. The open-water planner switches no shallower than
+   * the depth where the high setpoint is achievable; cave plans reject a shallower value.
+   */
+  readonly setpointDeactivationDepthM?: Meters;
   readonly bailoutGases: readonly Gas[];
+  /** Dil-out: the diluent and its cylinder join the open-circuit bailout gas set. */
+  readonly diluentBailout?: boolean;
+  /**
+   * Dil-out only and then required: surface volume the diver expects to have used from
+   * the diluent cylinder before bailout (loop make-up, ADV, flushes, wing, suit).
+   */
+  readonly diluentPreBailoutUseL?: Liters;
   readonly bailoutTriggerSecondsAtDepth?: Seconds;
 };
 

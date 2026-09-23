@@ -24,9 +24,17 @@ import {
   seconds,
 } from "../domain/units";
 import {
+  compareGasPreference,
+  effectiveBailoutGases,
+  effectiveSwitchDownDepth,
+  setpointAchievableDepth,
+  gasPPO2,
+  isBelowMinimumPPO2,
+  isSwitchEligible,
+  maximumPPO2ForGas,
   ocBottomSwitchDepth,
-  resolveAssignedCylinder,
   sameGas,
+  usesLowSetpoint,
   validateDiveInput,
   validateGas,
 } from "../domain/validation";
@@ -45,7 +53,7 @@ import {
   ZHL16C_MODEL_VERSION,
 } from "./zhl16c";
 
-export const ENGINE_VERSION = "barefoot-dive-engine-0.1.0";
+export const ENGINE_VERSION = "barefoot-dive-engine-0.2.0";
 const MAX_ASCENT_ITERATIONS = 10_000;
 const MAX_DECOMPRESSION_SECONDS = 48 * 60 * 60;
 const EPSILON = 1e-8;
@@ -60,11 +68,26 @@ type WorkingState = {
   firstStopDepthM?: Meters;
 };
 
+/**
+ * CCR ascent breathing rule. Legacy: switch to open-circuit diluent on arrival at the
+ * activation depth. Low: hold the high setpoint at or below the switch-down depth
+ * (including a stop there) and switch to the low setpoint when leaving it.
+ */
+type CcrAscent =
+  | { readonly mode: "legacy"; readonly activationDepthM: Meters }
+  | { readonly mode: "low"; readonly switchDownDepthM: Meters; readonly lowStrategy: Extract<BreathingStrategy, { kind: "ccr" }> };
+
 type AscentConfiguration = {
   readonly input: DivePlanInput;
   readonly availableOcGases?: readonly Gas[];
-  readonly ccrActivationDepthM?: Meters;
+  readonly ccrAscent?: CcrAscent;
   readonly segmentKind?: "ascent" | "bailout" | "exit";
+  /**
+   * Set only when a first schedule deadlocked at a stop: at that stop depth or shallower,
+   * allow leaving a stop that cannot clear for a shallower depth where a richer open-circuit
+   * gas becomes eligible. Deeper stops are scheduled exactly as in the first run.
+   */
+  readonly gasSwitchWaypointMaxDepthM?: Meters;
 };
 
 type AscentResult = {
@@ -118,6 +141,7 @@ function appendExposure(
   gf: Fraction,
   strategy = state.currentStrategy,
   gas = state.currentGas,
+  exposureStrategy = strategy,
 ): WorkingState {
   const startPressure = depthToAmbientPressure(
     state.depthM,
@@ -134,7 +158,7 @@ function appendExposure(
     startPressure,
     endPressure,
     durationSeconds,
-    strategy,
+    exposureStrategy,
     input.environmentSettings,
   );
   const ceiling = calculateCeiling(tissues, gf, input.environmentSettings);
@@ -176,51 +200,36 @@ function nextStopDepth(currentDepthM: Meters, input: DivePlanInput): Meters {
   return meters(Math.max(input.settings.lastStopDepthM, candidate));
 }
 
-function gasPPO2(gas: Gas, depthM: Meters, input: DivePlanInput): number {
-  return gas.oxygen * depthToAmbientPressure(
-    depthM,
-    input.environmentSettings.surfacePressureBar,
-    input.environmentSettings.metersPerBar,
-  );
-}
-
-function maximumPPO2ForGas(
-  gas: Gas,
-  input: DivePlanInput,
-  planLimit: BarAbsolute,
-): number {
-  return Math.min(
-    planLimit,
-    resolveAssignedCylinder(gas, input.cylinders)?.maximumPPO2 ?? planLimit,
-  );
-}
-
-function isGasBreathable(gas: Gas, depthM: Meters, input: DivePlanInput): boolean {
-  const ppO2 = gasPPO2(gas, depthM, input);
-  const maximumPPO2 = maximumPPO2ForGas(
-    gas,
-    input,
-    input.settings.maximumDecoPPO2,
-  );
-  return ppO2 + EPSILON >= input.settings.minimumPPO2 &&
-    ppO2 <= maximumPPO2 + EPSILON;
-}
-
-function isSwitchEligible(gas: Gas, depthM: Meters, input: DivePlanInput): boolean {
-  if (!isGasBreathable(gas, depthM, input)) return false;
-  if (input.mode === "oc" && input.travelGas?.id === gas.id) {
-    return depthM <= ocBottomSwitchDepth(input) + EPSILON;
-  }
-  return gas.switchDepthM === undefined || depthM <= gas.switchDepthM + EPSILON;
-}
-
 function selectBestGas(gases: readonly Gas[], depthM: Meters, input: DivePlanInput): Gas | undefined {
   return gases
     .filter((gas) => isSwitchEligible(gas, depthM, input))
     .slice()
-    .sort((left, right) =>
-      right.oxygen - left.oxygen || left.helium - right.helium || left.id.localeCompare(right.id),
-    )[0];
+    .sort(compareGasPreference)[0];
+}
+
+function registeredGases(input: DivePlanInput): readonly Gas[] {
+  return input.mode === "oc"
+    ? [input.bottomGas, ...(input.travelGas ? [input.travelGas] : []), ...input.decoGases]
+    : [input.diluent, ...input.bailoutGases];
+}
+
+function ccrStrategy(input: CcrDiveInput, setpointBar: BarAbsolute): Extract<BreathingStrategy, { kind: "ccr" }> {
+  return { kind: "ccr", diluent: input.diluent, setpointBar };
+}
+
+/**
+ * `heldSetpointBar` is the setpoint actually breathed when the ascent starts. Explicit event
+ * plans can hold a setpoint other than `setpointBar`, and the switch-down must also be no
+ * shallower than the depth where that setpoint is achievable.
+ */
+function ccrAscentConfiguration(input: CcrDiveInput, heldSetpointBar?: number): CcrAscent {
+  if (!usesLowSetpoint(input)) return { mode: "legacy", activationDepthM: input.setpointActivationDepthM };
+  const held = heldSetpointBar === undefined ? 0 : setpointAchievableDepth(heldSetpointBar, input.environmentSettings);
+  return {
+    mode: "low",
+    switchDownDepthM: meters(Math.max(effectiveSwitchDownDepth(input), held)),
+    lowStrategy: ccrStrategy(input, input.lowSetpointBar),
+  };
 }
 
 function appendSwitch(
@@ -239,7 +248,16 @@ function appendSwitch(
       Math.abs(state.currentStrategy.setpointBar - strategy.setpointBar) < EPSILON
     ) return state;
   }
-  return appendExposure(state, input, kind, state.depthM, seconds(durationValue), gf, strategy, gas);
+  // Low-setpoint mode models a setpoint change on the lower of the two setpoints for the
+  // switch time. Legacy inputs keep engine 0.1.0 behavior (the new setpoint).
+  const exposure = input.mode === "ccr" &&
+    usesLowSetpoint(input) &&
+    state.currentStrategy.kind === "ccr" &&
+    strategy.kind === "ccr" &&
+    state.currentStrategy.setpointBar < strategy.setpointBar
+    ? state.currentStrategy
+    : strategy;
+  return appendExposure(state, input, kind, state.depthM, seconds(durationValue), gf, strategy, gas, exposure);
 }
 
 function updateBreathingAtDepth(
@@ -249,8 +267,12 @@ function updateBreathingAtDepth(
 ): WorkingState {
   const { input } = configuration;
   const policy = conventionFor(input.settings);
-  if (state.currentStrategy.kind === "ccr" && configuration.ccrActivationDepthM !== undefined) {
-    if (state.depthM <= configuration.ccrActivationDepthM + EPSILON) {
+  if (state.currentStrategy.kind === "ccr" && configuration.ccrAscent !== undefined) {
+    // Low-setpoint mode switches only when leaving the switch-down depth (commitAscentLeg).
+    if (
+      configuration.ccrAscent.mode === "legacy" &&
+      state.depthM <= configuration.ccrAscent.activationDepthM + EPSILON
+    ) {
       return appendSwitch(
         state,
         input,
@@ -295,6 +317,169 @@ function trialAscent(
   );
 }
 
+function isOnHighSetpoint(state: WorkingState, low: Extract<CcrAscent, { mode: "low" }>): boolean {
+  return state.currentStrategy.kind === "ccr" &&
+    state.currentStrategy.setpointBar > low.lowStrategy.setpointBar + EPSILON;
+}
+
+/**
+ * Low-setpoint mode: the diver leaves the switch-down depth on the low setpoint. Called
+ * immediately before every ascent leg, so a stop held at that depth stays on the high setpoint.
+ */
+function switchDownBeforeLeaving(
+  state: WorkingState,
+  configuration: AscentConfiguration,
+  gf: Fraction,
+): WorkingState {
+  const ascent = configuration.ccrAscent;
+  if (ascent?.mode !== "low" || ascent.switchDownDepthM <= 0) return state;
+  if (!isOnHighSetpoint(state, ascent) || state.depthM > ascent.switchDownDepthM + EPSILON) return state;
+  return appendSwitch(
+    state,
+    configuration.input,
+    state.currentGas,
+    ascent.lowStrategy,
+    "setpoint-switch",
+    conventionFor(configuration.input.settings).setpointSwitchDurationSeconds,
+    gf,
+  );
+}
+
+/**
+ * Where an open-circuit leg would end on a hypoxic gas, stop the leg at the deepest depth
+ * (no shallower than the gas's hypoxic floor) where a preferred gas is switch-eligible.
+ * Returns undefined when the leg stays breathable, so non-hypoxic schedules are unchanged.
+ */
+function hypoxicWaypoint(
+  state: WorkingState,
+  configuration: AscentConfiguration,
+  targetDepthM: Meters,
+): Meters | undefined {
+  const { input } = configuration;
+  const gases = configuration.availableOcGases;
+  const gas = state.currentGas;
+  if (state.currentStrategy.kind !== "open-circuit" || !gases || !(gas.oxygen > 0)) return undefined;
+  if (!isBelowMinimumPPO2(gasPPO2(gas, targetDepthM, input), input.settings.minimumPPO2)) return undefined;
+  const surface = input.environmentSettings.surfacePressureBar;
+  const perBar = input.environmentSettings.metersPerBar;
+  const floor = (input.settings.minimumPPO2 / gas.oxygen - surface) * perBar;
+  if (floor >= state.depthM - EPSILON || floor <= targetDepthM + EPSILON) return undefined;
+  const preferred = gases.filter((candidate) => candidate.id !== gas.id && compareGasPreference(candidate, gas) < 0);
+  const candidates = new Set<number>([floor]);
+  for (const other of preferred) {
+    if (other.switchDepthM !== undefined) candidates.add(other.switchDepthM);
+    if (other.oxygen > 0) {
+      candidates.add((maximumPPO2ForGas(other, input, input.settings.maximumDecoPPO2) / other.oxygen - surface) * perBar);
+    }
+  }
+  if (input.mode === "oc" && input.travelGas) candidates.add(ocBottomSwitchDepth(input));
+  const switchDepth = [...candidates]
+    .filter((depth) => depth >= floor - EPSILON && depth < state.depthM - EPSILON && depth > targetDepthM + EPSILON)
+    .sort((left, right) => right - left)
+    .find((depth) => preferred.some((other) => isSwitchEligible(other, meters(depth), input)));
+  return meters(switchDepth ?? floor);
+}
+
+/**
+ * Deepest depth between the current depth and the target where an open-circuit gas preferred
+ * over the current one becomes switch-eligible. Used only after a stop deadlocks.
+ */
+function preferredGasWaypoint(
+  state: WorkingState,
+  configuration: AscentConfiguration,
+  targetDepthM: Meters,
+): Meters | undefined {
+  const { input } = configuration;
+  const gases = configuration.availableOcGases;
+  if (state.currentStrategy.kind !== "open-circuit" || !gases) return undefined;
+  const surface = input.environmentSettings.surfacePressureBar;
+  const perBar = input.environmentSettings.metersPerBar;
+  const preferred = gases.filter((candidate) =>
+    candidate.id !== state.currentGas.id && compareGasPreference(candidate, state.currentGas) < 0);
+  const candidates = new Set<number>();
+  for (const other of preferred) {
+    if (other.switchDepthM !== undefined) candidates.add(other.switchDepthM);
+    if (other.oxygen > 0) {
+      candidates.add((maximumPPO2ForGas(other, input, input.settings.maximumDecoPPO2) / other.oxygen - surface) * perBar);
+    }
+  }
+  if (input.mode === "oc" && input.travelGas) candidates.add(ocBottomSwitchDepth(input));
+  const depth = [...candidates]
+    .filter((candidate) => candidate < state.depthM - EPSILON && candidate > targetDepthM + EPSILON)
+    .sort((left, right) => right - left)
+    .find((candidate) => preferred.some((other) => isSwitchEligible(other, meters(candidate), input)));
+  return depth === undefined ? undefined : meters(depth);
+}
+
+/**
+ * Commit one ascent leg. It is split, without a stop, at the low-setpoint switch-down
+ * depth and at any hypoxic-floor waypoint, and breathing is updated at each split.
+ * With neither split this is exactly one trialAscent, so legacy schedules are unchanged.
+ */
+function commitAscentLeg(
+  state: WorkingState,
+  configuration: AscentConfiguration,
+  targetDepthM: Meters,
+  gf: Fraction,
+  rateMPerMinute: number,
+  kind: ProfileSegment["kind"],
+): WorkingState {
+  const { input } = configuration;
+  let current = state;
+  for (let splits = 0; current.depthM > targetDepthM + EPSILON && splits < 8; splits += 1) {
+    current = switchDownBeforeLeaving(current, configuration, gf);
+    let next = targetDepthM;
+    const ascent = configuration.ccrAscent;
+    if (
+      ascent?.mode === "low" &&
+      isOnHighSetpoint(current, ascent) &&
+      ascent.switchDownDepthM > next + EPSILON &&
+      ascent.switchDownDepthM < current.depthM - EPSILON
+    ) {
+      next = ascent.switchDownDepthM;
+    }
+    next = hypoxicWaypoint(current, configuration, next) ?? next;
+    current = trialAscent(current, input, next, gf, rateMPerMinute, kind);
+    if (next > targetDepthM + EPSILON) current = updateBreathingAtDepth(current, configuration, gf);
+  }
+  return current.depthM > targetDepthM + EPSILON
+    ? trialAscent(current, input, targetDepthM, gf, rateMPerMinute, kind)
+    : current;
+}
+
+function hypoxicSegmentDiagnostics(segments: readonly ProfileSegment[], input: DivePlanInput): readonly Diagnostic[] {
+  const gases = new Map(registeredGases(input).map((gas) => [gas.id, gas]));
+  const flagged = new Set<string>();
+  const diagnostics: Diagnostic[] = [];
+  for (const segment of segments) {
+    if (segment.setpointBar !== undefined) continue;
+    const gas = gases.get(segment.gasId);
+    if (!gas || flagged.has(gas.id)) continue;
+    for (const [depthM, runtimeSeconds] of [
+      [segment.startDepthM, segment.startRuntimeSeconds],
+      [segment.endDepthM, segment.startRuntimeSeconds + segment.durationSeconds],
+    ] as const) {
+      const ppo2 = gasPPO2(gas, depthM, input);
+      if (!isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2)) continue;
+      flagged.add(gas.id);
+      diagnostics.push(diagnostic(
+        "OC_GAS_HYPOXIC",
+        "error",
+        `${gas.name} is hypoxic on open circuit at ${depthM.toFixed(1)} m (PPO₂ ${ppo2.toFixed(2)} bar). The schedule cannot be used; add or adjust a gas for that depth.`,
+        {
+          runtimeSeconds: seconds(runtimeSeconds),
+          depthM,
+          gasId: gas.id,
+          actual: ppo2,
+          limit: input.settings.minimumPPO2,
+        },
+      ));
+      break;
+    }
+  }
+  return diagnostics;
+}
+
 function canOccupyDepth(state: WorkingState, targetDepthM: Meters, gf: Fraction, input: DivePlanInput): boolean {
   const ceiling = calculateCeiling(state.tissues, gf, input.environmentSettings);
   const targetPressure = depthToAmbientPressure(
@@ -328,6 +513,32 @@ function aggregateStops(segments: readonly ProfileSegment[]): readonly DecoStop[
 }
 
 function scheduleAscent(initial: WorkingState, configuration: AscentConfiguration): AscentResult {
+  const first = scheduleAscentOnce(initial, configuration);
+  const stuck = first.diagnostics.find((item) => item.code === "DECOMPRESSION_LIMIT_EXCEEDED");
+  if (
+    configuration.gasSwitchWaypointMaxDepthM !== undefined ||
+    !configuration.availableOcGases ||
+    stuck?.depthM === undefined
+  ) return first;
+  // A stop that never clears on its gas: retry, allowing a move from that stop (or a shallower
+  // one) to where a richer gas becomes eligible. Schedules that already clear are never
+  // recomputed, and stops deeper than the stuck stop are unchanged.
+  const retry = scheduleAscentOnce(initial, { ...configuration, gasSwitchWaypointMaxDepthM: stuck.depthM });
+  if (retry.diagnostics.some((item) => item.code === "DECOMPRESSION_LIMIT_EXCEEDED")) return first;
+  return {
+    ...retry,
+    diagnostics: [
+      ...retry.diagnostics,
+      diagnostic(
+        "OC_STOP_MOVED_FOR_GAS_SWITCH",
+        "warning",
+        "A stop could not clear on its gas, so the plan moves shallower to switch to a richer gas and finishes decompression there, which can be shallower than the configured last stop. Add a gas usable at the last stop to avoid this.",
+      ),
+    ],
+  };
+}
+
+function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfiguration): AscentResult {
   const { input } = configuration;
   const startRuntime = initial.runtimeSeconds;
   const startingSegmentCount = initial.segments.length;
@@ -348,9 +559,9 @@ function scheduleAscent(initial: WorkingState, configuration: AscentConfiguratio
     ndlIterations += 1;
     ndlState = updateBreathingAtDepth(ndlState, configuration, input.settings.gfHigh);
     const target = nextStopDepth(ndlState.depthM, input);
-    const trial = trialAscent(
+    const trial = commitAscentLeg(
       ndlState,
-      input,
+      configuration,
       target,
       input.settings.gfHigh,
       effectiveAscentRate(input.settings, false),
@@ -391,21 +602,46 @@ function scheduleAscent(initial: WorkingState, configuration: AscentConfiguratio
       ...(configuration.availableOcGases ?? [])
         .map((gas) => gas.switchDepthM)
         .filter((depth): depth is Meters => depth !== undefined),
-      ...(configuration.ccrActivationDepthM !== undefined
-        ? [configuration.ccrActivationDepthM]
+      ...(configuration.ccrAscent?.mode === "legacy"
+        ? [configuration.ccrAscent.activationDepthM]
         : []),
     ].filter((depth) => depth < state.depthM - EPSILON && depth > target + EPSILON);
     if (boundaries.length > 0) target = meters(Math.max(...boundaries));
     if (target < state.depthM - EPSILON) {
-      state = trialAscent(
+      let committed = commitAscentLeg(
         state,
-        input,
+        configuration,
         target,
         input.settings.gfLow,
         effectiveAscentRate(input.settings, false),
         configuration.segmentKind ?? "ascent",
       );
-      continue;
+      // A switch down to the low setpoint mid-leg loads inert gas on the rest of the leg,
+      // so re-check the arrival ceiling and stop deeper if it was crossed.
+      while (
+        configuration.ccrAscent?.mode === "low" &&
+        !canOccupyDepth(committed, target, input.settings.gfLow, input) &&
+        target < state.depthM - EPSILON
+      ) {
+        target = meters(Math.min(
+          state.depthM,
+          roundDepthDeeper(meters(target + 1e-6), input.settings.stopIncrementM),
+        ));
+        committed = target < state.depthM - EPSILON
+          ? commitAscentLeg(
+              state,
+              configuration,
+              target,
+              input.settings.gfLow,
+              effectiveAscentRate(input.settings, false),
+              configuration.segmentKind ?? "ascent",
+            )
+          : state;
+      }
+      if (committed !== state) {
+        state = committed;
+        continue;
+      }
     }
     state = { ...state, firstStopDepthM: state.depthM };
     break;
@@ -455,15 +691,39 @@ function scheduleAscent(initial: WorkingState, configuration: AscentConfiguratio
     // next depth. The subsequent ascent is then committed with Schreiner.
     // This intentionally avoids crediting off-gassing from a rejected trial.
     if (canOccupyDepth(state, target, targetGf, input)) {
-      state = trialAscent(
+      const committed = commitAscentLeg(
         state,
-        input,
+        configuration,
         target,
         targetGf,
         effectiveAscentRate(input.settings, true),
         configuration.segmentKind ?? "ascent",
       );
-      continue;
+      // Low-setpoint mode: a switch down during this leg can load inert gas, so the leg is
+      // taken only if the arrival still clears; otherwise hold the stop on the high setpoint.
+      if (configuration.ccrAscent?.mode !== "low" || canOccupyDepth(committed, target, targetGf, input)) {
+        state = committed;
+        continue;
+      }
+    } else if (
+      configuration.gasSwitchWaypointMaxDepthM !== undefined &&
+      state.depthM <= configuration.gasSwitchWaypointMaxDepthM + EPSILON
+    ) {
+      const waypoint = preferredGasWaypoint(state, configuration, target);
+      if (waypoint !== undefined) {
+        const waypointGf = gradientFactorAtDepth(waypoint, firstStopDepthM, input.settings.gfLow, input.settings.gfHigh);
+        if (canOccupyDepth(state, waypoint, waypointGf, input)) {
+          state = commitAscentLeg(
+            state,
+            configuration,
+            waypoint,
+            waypointGf,
+            effectiveAscentRate(input.settings, true),
+            configuration.segmentKind ?? "ascent",
+          );
+          continue;
+        }
+      }
     }
     state = appendExposure(
       state,
@@ -502,13 +762,17 @@ function scheduleAscent(initial: WorkingState, configuration: AscentConfiguratio
   };
 }
 
-function initialWorkingState(input: DivePlanInput, gas: Gas): WorkingState {
+function initialWorkingState(
+  input: DivePlanInput,
+  gas: Gas,
+  strategy: BreathingStrategy = { kind: "open-circuit", gas },
+): WorkingState {
   return {
     tissues: initializeTissues(input.environmentSettings),
     runtimeSeconds: seconds(0),
     depthM: meters(0),
     segments: [],
-    currentStrategy: { kind: "open-circuit", gas },
+    currentStrategy: strategy,
     currentGas: gas,
   };
 }
@@ -556,6 +820,7 @@ function ocDescent(input: OcDiveInput): WorkingState {
 }
 
 function ccrDescent(input: CcrDiveInput): { state: WorkingState; arrivalState: TissueState } {
+  if (usesLowSetpoint(input)) return lowSetpointDescent(input);
   let state = initialWorkingState(input, input.diluent);
   const activation = meters(Math.min(input.depthM, input.setpointActivationDepthM));
   if (activation > 0) {
@@ -595,6 +860,48 @@ function ccrDescent(input: CcrDiveInput): { state: WorkingState; arrivalState: T
   return { state, arrivalState: state.tissues };
 }
 
+/** Loop closed from the surface on the low setpoint, then switch up at the activation depth. */
+function lowSetpointDescent(input: CcrDiveInput & { readonly lowSetpointBar: BarAbsolute }): { state: WorkingState; arrivalState: TissueState } {
+  let state = initialWorkingState(input, input.diluent, ccrStrategy(input, input.lowSetpointBar));
+  const activation = meters(Math.min(input.depthM, input.setpointActivationDepthM));
+  if (activation > 0) {
+    state = appendExposure(
+      state,
+      input,
+      "descent",
+      activation,
+      ascentDuration(meters(0), activation, input.settings.descentRateMPerMinute),
+      input.settings.gfLow,
+    );
+  }
+  state = appendSwitch(
+    state,
+    input,
+    input.diluent,
+    ccrStrategy(input, input.setpointBar),
+    "setpoint-switch",
+    conventionFor(input.settings).setpointSwitchDurationSeconds,
+    input.settings.gfLow,
+  );
+  if (activation < input.depthM) {
+    state = appendExposure(
+      state,
+      input,
+      "descent",
+      input.depthM,
+      ascentDuration(activation, input.depthM, input.settings.descentRateMPerMinute),
+      input.settings.gfLow,
+    );
+  }
+  return { state, arrivalState: state.tissues };
+}
+
+function diluentBailoutLedgerOption(input: DivePlanInput) {
+  return input.mode === "ccr" && input.diluentBailout === true
+    ? { diluentBailout: { gasId: input.diluent.id, preBailoutUseL: input.diluentPreBailoutUseL ?? 0 } }
+    : {};
+}
+
 function planMetadata(input: DivePlanInput) {
   const policy = conventionFor(input.settings);
   return {
@@ -615,7 +922,11 @@ function buildPlan(
   warnings: readonly Diagnostic[],
   bottomEndRuntime: Seconds,
   idSuffix = "base",
-  ledgerOptions: { readonly bailout?: boolean; readonly startRuntimeSeconds?: Seconds } = {},
+  ledgerOptions: {
+    readonly bailout?: boolean;
+    readonly startRuntimeSeconds?: Seconds;
+    readonly diluentBailout?: { readonly gasId: string; readonly preBailoutUseL: number };
+  } = {},
 ): DivePlan {
   const decompressionSeconds = seconds(
     ascent.stops.reduce((sum, stop) => sum + stop.durationSeconds, 0),
@@ -624,7 +935,12 @@ function buildPlan(
     ...ledgerOptions,
     bottomEndRuntimeSeconds: bottomEndRuntime,
   });
-  const diagnostics = [...warnings, ...ascent.diagnostics, ...ledger.diagnostics];
+  const diagnostics = [
+    ...warnings,
+    ...ascent.diagnostics,
+    ...ledger.diagnostics,
+    ...hypoxicSegmentDiagnostics(ascent.state.segments, input),
+  ];
   return {
     id: `plan-${stableHash({ input, idSuffix })}`,
     mode: input.mode,
@@ -679,7 +995,7 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
   const bottomEndRuntime = normalState.runtimeSeconds;
   const normalAscent = scheduleAscent(normalState, {
     input,
-    ccrActivationDepthM: input.setpointActivationDepthM,
+    ccrAscent: ccrAscentConfiguration(input),
   });
   const normalPlan = buildPlan(input, normalAscent, warnings, bottomEndRuntime);
 
@@ -697,7 +1013,8 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
     input.settings.gfLow,
   );
   const bailoutTriggerRuntime = triggerState.runtimeSeconds;
-  const bailoutGas = selectBestGas(input.bailoutGases, input.depthM, input);
+  const bailoutGases = effectiveBailoutGases(input);
+  const bailoutGas = selectBestGas(bailoutGases, input.depthM, input);
   if (!bailoutGas) {
     const noGas = diagnostic(
       "NO_BREATHABLE_BAILOUT_GAS",
@@ -718,18 +1035,39 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
   );
   const bailoutAscent = scheduleAscent(triggerState, {
     input,
-    availableOcGases: input.bailoutGases,
+    availableOcGases: bailoutGases,
     segmentKind: "bailout",
   });
+  const triggerPPO2 = gasPPO2(bailoutGas, input.depthM, input);
+  const triggerWarnings: Diagnostic[] = triggerPPO2 > input.settings.maximumBottomPPO2 + EPSILON
+    ? [diagnostic(
+        "CCR_BAILOUT_TRIGGER_PPO2_HIGH",
+        "warning",
+        `${bailoutGas.name} reaches PPO₂ ${triggerPPO2.toFixed(2)} bar at the trigger depth, above the ${input.settings.maximumBottomPPO2.toFixed(2)} bar bottom limit, because it is the richest bailout gas eligible there.`,
+        { gasId: bailoutGas.id, depthM: input.depthM, actual: triggerPPO2, limit: input.settings.maximumBottomPPO2 },
+      )]
+    : [];
   const bailoutPlan = buildPlan(
     { ...input, mode: "ccr" },
     bailoutAscent,
-    warnings,
+    [...warnings, ...triggerWarnings],
     bailoutTriggerRuntime,
     "bailout",
-    { bailout: true, startRuntimeSeconds: bailoutTriggerRuntime },
+    { bailout: true, startRuntimeSeconds: bailoutTriggerRuntime, ...diluentBailoutLedgerOption(input) },
   );
-  return { ...normalPlan, bailoutPlan };
+  // A bailout plan that cannot be used makes the whole CCR plan unusable.
+  const unusableBailout = bailoutPlan.diagnostics
+    .filter((item) =>
+      item.code === "OC_GAS_HYPOXIC" ||
+      item.code === "DECOMPRESSION_LIMIT_EXCEEDED" ||
+      item.code === "ASCENT_ITERATION_LIMIT")
+    .map((item) => item.code === "OC_GAS_HYPOXIC" ? item : { ...item, message: `Bailout plan: ${item.message}` });
+  return {
+    ...normalPlan,
+    diagnostics: [...normalPlan.diagnostics, ...unusableBailout],
+    safetyStatus: unusableBailout.length > 0 ? "unsafe" : normalPlan.safetyStatus,
+    bailoutPlan,
+  };
 }
 
 export function calculateDivePlan(input: DivePlanInput): CalculationResult<DivePlan> {
@@ -748,6 +1086,7 @@ function resultForPlan(plan: DivePlan): CalculationResult<DivePlan> {
     "DECOMPRESSION_LIMIT_EXCEEDED",
     "NO_BREATHABLE_BAILOUT_GAS",
     "EXPOSURE_CEILING_VIOLATION",
+    "OC_GAS_HYPOXIC",
   ]);
   const fatal = errors.filter((item) => fatalCodes.has(item.code));
   const warnings = plan.diagnostics.filter((item) => item.severity !== "error");
@@ -778,9 +1117,7 @@ export function calculateEventDivePlan(
   const validation = validateDiveInput(input);
   if (!validation.ok) return validation;
   const eventErrors: Diagnostic[] = [];
-  const normalizedGases = input.mode === "oc"
-    ? [input.bottomGas, ...(input.travelGas ? [input.travelGas] : []), ...input.decoGases]
-    : [input.diluent, ...input.bailoutGases];
+  const normalizedGases = registeredGases(input);
   if (events.length === 0) {
     eventErrors.push(diagnostic("EXPOSURE_EVENTS_REQUIRED", "error", "At least one exposure event is required."));
   }
@@ -997,7 +1334,12 @@ export function calculateEventDivePlan(
   }
   const exposureEndRuntime = state.runtimeSeconds;
   const configuration: AscentConfiguration = state.currentStrategy.kind === "ccr"
-    ? { input, ccrActivationDepthM: input.mode === "ccr" ? input.setpointActivationDepthM : meters(0) }
+    ? {
+        input,
+        ccrAscent: input.mode === "ccr"
+          ? ccrAscentConfiguration(input, state.currentStrategy.setpointBar)
+          : { mode: "legacy", activationDepthM: meters(0) },
+      }
     : { input, availableOcGases: options.ascentGases ?? [state.currentGas], segmentKind: options.bailout ? "bailout" : "ascent" };
   const ascent = scheduleAscent(state, configuration);
   const plan = buildPlan(
@@ -1007,7 +1349,11 @@ export function calculateEventDivePlan(
     exposureEndRuntime,
     options.idSuffix ?? "events",
     options.bailout
-      ? { bailout: true, startRuntimeSeconds: bailoutStartRuntime ?? exposureEndRuntime }
+      ? {
+          bailout: true,
+          startRuntimeSeconds: bailoutStartRuntime ?? exposureEndRuntime,
+          ...diluentBailoutLedgerOption(input),
+        }
       : {},
   );
   return resultForPlan(plan);

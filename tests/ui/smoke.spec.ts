@@ -14,9 +14,9 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   const footer = page.getByRole("contentinfo");
   const versions = footer.locator(".bf-app-footer__versions");
   await expect(versions.getByText("App", { exact: true })).toBeVisible();
-  await expect(versions.getByText("0.3.0", { exact: true })).toBeVisible();
+  await expect(versions.getByText("0.4.0", { exact: true })).toBeVisible();
   await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
-  await expect(versions.getByText("barefoot-dive-engine-0.1.0", { exact: true })).toBeVisible();
+  await expect(versions.getByText("barefoot-dive-engine-0.2.0", { exact: true })).toBeVisible();
   const projectLinks = footer.getByRole("navigation", { name: "Project links" });
   for (const [label, href] of [
     ["GitHub", "https://github.com/jkowall/Barefoot-Dive"],
@@ -81,7 +81,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.3.0 · Calculation engine barefoot-dive-engine-0.1.0")).toBeVisible();
+  await expect(settings.getByText("App 0.4.0 · Calculation engine barefoot-dive-engine-0.2.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 
@@ -389,6 +389,8 @@ test("exposes distinct CCR primary and bailout profile scrubbers", async ({ page
 
   await primary.focus();
   let setpointText = await primary.getAttribute("aria-valuetext") ?? "";
+  // The loop is closed on the low setpoint from the surface, then switches up.
+  expect(setpointText).toContain("setpoint 0.70 bar");
   for (let index = 0; index < 12 && !setpointText.includes("setpoint 1.30 bar"); index += 1) {
     await page.keyboard.press("ArrowRight");
     setpointText = await primary.getAttribute("aria-valuetext") ?? "";
@@ -396,6 +398,46 @@ test("exposes distinct CCR primary and bailout profile scrubbers", async ({ page
   expect(setpointText).toContain("plan CCR");
   expect(setpointText).toContain("setpoint 1.30 bar");
   await expect(bailout).toHaveAttribute("aria-valuetext", /plan CCR/i);
+});
+test("requires the pre-bailout diluent use and bails out onto the diluent when dil-out is the only bailout gas", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await expect(page.getByRole("spinbutton", { name: "Low setpoint (bar)" })).toHaveValue("0.7");
+  await expect(page.getByRole("spinbutton", { name: "High setpoint (bar)" })).toHaveValue("1.3");
+  await expect(page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" })).toBeVisible();
+  const bailoutPanel = page.locator("section.bf-panel", { has: page.getByRole("heading", { name: "Bailout gases", exact: true }) });
+  await bailoutPanel.getByRole("button", { name: "Remove" }).first().click();
+  await bailoutPanel.getByRole("button", { name: "Remove" }).first().click();
+  await page.getByText("Use diluent as bailout (dil-out)", { exact: true }).click();
+  const preUse = page.getByRole("spinbutton", { name: "Diluent used before bailout (ft³)" });
+  await expect(preUse).toHaveValue("");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("heading", { name: "Calculation diagnostics" })).toBeVisible();
+  await expect(page.getByText(/Dil-out needs the diluent volume you expect to use before bailout/)).toBeVisible();
+  await preUse.fill("5");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results).toBeVisible();
+  await expect(results.getByText(/No open-circuit gas is breathed on this plan/)).toBeVisible();
+  await expect(results.getByText(/diluent, bailout use only after 5\.0 ft³ used before bailout/)).toBeVisible();
+});
+
+test("plans gas volumes only and asks for a volume-based reserve", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Gas planning" }).getByText("Gas only", { exact: true }).click();
+  await expect(page.getByRole("combobox", { name: /cylinder source/ })).toHaveCount(0);
+  await expect(page.getByRole("spinbutton", { name: "Max PPO₂ (bar)" }).first()).toBeVisible();
+  const useThirds = page.getByRole("button", { name: "Use thirds" });
+  await expect(useThirds).toBeVisible();
+  await useThirds.click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results.getByRole("columnheader", { name: "Minimum to carry" })).toBeVisible();
+  await expect(results.getByText("Not checked (gas only)", { exact: true }).first()).toBeVisible();
+  await expect(results.getByRole("columnheader", { name: "Remaining" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Gas planning" })).toHaveCount(0);
 });
 
 test("calculates and saves an OC plan, then keeps the snapshot immutable in the library", async ({ page }) => {

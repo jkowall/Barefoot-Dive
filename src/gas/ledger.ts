@@ -96,6 +96,51 @@ function crossingFraction(
   return (lower + upper) / 2;
 }
 
+function rockBottomReserve(
+  input: DivePlanInput,
+  records: readonly ConsumptionRecord[],
+): number {
+  if (input.reservePolicy.kind !== "rock-bottom") return 0;
+  const multiplier = input.reservePolicy.teamSize * input.reservePolicy.stressedRmvLpm;
+  return records
+    .filter((record) =>
+      record.phase === "deco" ||
+      record.segment.kind === "exit" ||
+      record.segment.kind === "bailout" ||
+      record.segment.kind === "ascent"
+    )
+    .reduce((total, record) => {
+      const averageDepth = (record.segment.startDepthM + record.segment.endDepthM) / 2;
+      const ambient = input.environmentSettings.surfacePressureBar +
+        averageDepth / input.environmentSettings.metersPerBar;
+      return total + multiplier * ambient * (record.segment.durationSeconds / 60);
+    }, 0);
+}
+
+/**
+ * Gas-only reserve for one gas, the inverse of the cylinder rules: with starting
+ * volume S, thirds keeps S/3 so S >= 1.5 x used; sixths keeps 2S/3 so S >= 3 x used.
+ * A fixed pressure reserve needs a cylinder size and is rejected by validation.
+ */
+function gasOnlyReserve(
+  input: DivePlanInput,
+  usedL: number,
+  records: readonly ConsumptionRecord[],
+): number | undefined {
+  switch (input.reservePolicy.kind) {
+    case "thirds":
+      return usedL / 2;
+    case "sixths":
+      return usedL * 2;
+    case "custom":
+      return input.reservePolicy.reserveVolumeL;
+    case "rock-bottom":
+      return rockBottomReserve(input, records);
+    case "fixed":
+      return undefined;
+  }
+}
+
 function policyReserve(
   input: DivePlanInput,
   cylinder: Cylinder,
@@ -116,27 +161,9 @@ function policyReserve(
     case "sixths":
       reserve = starting * 2 / 3;
       break;
-    case "rock-bottom": {
-      const multiplier = input.reservePolicy.teamSize *
-        input.reservePolicy.stressedRmvLpm;
-      reserve = records
-        .filter((record) =>
-          record.cylinder?.id === cylinder.id &&
-          (
-            record.phase === "deco" ||
-            record.segment.kind === "exit" ||
-            record.segment.kind === "bailout" ||
-            record.segment.kind === "ascent"
-          )
-        )
-        .reduce((total, record) => {
-          const averageDepth = (record.segment.startDepthM + record.segment.endDepthM) / 2;
-          const ambient = input.environmentSettings.surfacePressureBar +
-            averageDepth / input.environmentSettings.metersPerBar;
-          return total + multiplier * ambient * (record.segment.durationSeconds / 60);
-        }, 0);
+    case "rock-bottom":
+      reserve = rockBottomReserve(input, records.filter((record) => record.cylinder?.id === cylinder.id));
       break;
-    }
   }
   const cylinderMinimum = cylinder.minimumPressureBar === undefined
     ? 0
@@ -151,8 +178,15 @@ export function calculateGasLedger(
     readonly bailout?: boolean;
     readonly startRuntimeSeconds?: Seconds;
     readonly bottomEndRuntimeSeconds: Seconds;
+    /**
+     * Dil-out bailout ledger: the diluent cylinder starts bailout with its full volume minus
+     * the diver-entered pre-bailout use and any modeled open-circuit diluent breathing before
+     * the trigger. Its reserve stays on the full entered volume.
+     */
+    readonly diluentBailout?: { readonly gasId: string; readonly preBailoutUseL: number };
   },
 ): GasLedgerResult {
+  const gasOnly = input.gasOnly === true;
   const diagnostics: Diagnostic[] = [];
   const records: ConsumptionRecord[] = [];
   const missing = new Set<string>();
@@ -189,7 +223,7 @@ export function calculateGasLedger(
     });
   }
 
-  for (const gasId of missing) {
+  for (const gasId of gasOnly ? [] : missing) {
     diagnostics.push({
       code: "CYLINDER_UNASSIGNED",
       severity: "warning",
@@ -213,6 +247,28 @@ export function calculateGasLedger(
     });
   }
 
+  if (gasOnly && records.length > 0) {
+    diagnostics.push({
+      code: "GAS_ONLY_VOLUMES",
+      severity: "info",
+      message: "Gas-only planning: volumes to carry include the reserve policy. Cylinder capacity, pressures, unusable residual gas, per-cylinder minimum pressure, and reserve crossings are not checked.",
+    });
+  }
+  const preBailoutDeduction = (() => {
+    const option = options.diluentBailout;
+    if (!option) return undefined;
+    const earlierOpenCircuitUse = segments
+      .filter((segment) =>
+        segment.startRuntimeSeconds < (options.startRuntimeSeconds ?? 0) &&
+        segment.gasId === option.gasId &&
+        segment.setpointBar === undefined &&
+        segment.durationSeconds > 0
+      )
+      .reduce((total, segment) =>
+        total + surfaceGasForSegment(segment, input, false, options.bottomEndRuntimeSeconds), 0);
+    return { gasId: option.gasId, volumeL: option.preBailoutUseL + earlierOpenCircuitUse };
+  })();
+
   const keys = new Set(records.map((record) => record.cylinder?.id ?? `gas:${record.gasId}`));
   const entries: GasLedgerEntry[] = [];
   for (const key of keys) {
@@ -224,10 +280,17 @@ export function calculateGasLedger(
     const decoUsed = group.filter((record) => record.phase === "deco")
       .reduce((sum, record) => sum + record.usedL, 0);
     const totalUsed = bottomUsed + decoUsed;
-    const startingVolume = cylinder
-      ? cylinder.waterVolumeL * cylinder.currentPressureBar
+    const deduction = cylinder && preBailoutDeduction && group.some((record) => record.gasId === preBailoutDeduction.gasId)
+      ? preBailoutDeduction.volumeL
       : undefined;
-    const reserve = cylinder ? policyReserve(input, cylinder, records) : undefined;
+    const startingVolume = cylinder
+      ? cylinder.waterVolumeL * cylinder.currentPressureBar - (deduction ?? 0)
+      : undefined;
+    const reserve = cylinder
+      ? policyReserve(input, cylinder, records)
+      : gasOnly
+        ? gasOnlyReserve(input, totalUsed, group)
+        : undefined;
     const remaining = startingVolume === undefined ? undefined : startingVolume - totalUsed;
     const remainingPressure = cylinder && remaining !== undefined
       ? remaining / cylinder.waterVolumeL
@@ -293,8 +356,25 @@ export function calculateGasLedger(
       ...(remaining !== undefined ? { remainingVolumeL: liters(remaining) } : {}),
       ...(remainingPressure !== undefined ? { remainingPressureBar: barGauge(remainingPressure) } : {}),
       sufficient: reserve !== undefined && remaining !== undefined && remaining + 1e-7 >= reserve,
+      ...(!cylinder && gasOnly ? {
+        gasOnly: true as const,
+        ...(reserve !== undefined ? { requiredVolumeL: liters(totalUsed + reserve) } : {}),
+      } : {}),
+      ...(deduction !== undefined ? { preBailoutDeductionL: liters(deduction) } : {}),
       ...(reserveCrossing ? { reserveCrossing } : {}),
     });
+  }
+  for (const entry of entries) {
+    if (entry.gasOnly && entry.reserveL !== undefined && entry.reserveL <= 0 && entry.totalUsedL > 0) {
+      diagnostics.push({
+        code: "GAS_ONLY_RESERVE_ZERO",
+        severity: "warning",
+        message: input.reservePolicy.kind === "rock-bottom"
+          ? `${entry.gasName} has no rock-bottom reserve because it is not breathed on an ascent, decompression, exit, or bailout segment, so the volume to carry is only the planned use. Add a margin for it.`
+          : `${entry.gasName} has no reserve under this policy, so the volume to carry is only the planned use.`,
+        gasId: entry.gasId,
+      });
+    }
   }
   return { entries, diagnostics };
 }

@@ -129,6 +129,8 @@
 .bf-ledger tr[data-status="ok"] td:last-child { color: var(--bf-safe); }
 .bf-ledger tr[data-status="warning"] td:last-child { color: var(--bf-warning); }
 .bf-ledger tr[data-status="short"] td:last-child { color: var(--bf-danger); }
+.bf-ledger tr[data-status="unchecked"] td:last-child { color: var(--bf-text-muted); }
+.bf-scroll-table + .bf-panel__note { margin-top: var(--bf-space-2); }
 
 @media (max-width: 480px) {
   .bf-cylinder dl { width: 100%; justify-content: space-between; }

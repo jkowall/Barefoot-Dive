@@ -55,6 +55,16 @@ export const formatSurfaceGas = (litersValue: number, units: UnitPreferences["cy
 export const formatSurfaceGasRate = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"], digits = 1): string =>
   `${surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(digits)} ${surfaceGasRateUnit(units)}`;
 export const depthToCanonical = (value: number, units: UnitPreferences["depth"]): Meters => meters(units === "imperial" ? value / 3.280839895 : value);
+/**
+ * Setpoint switch depths are compared with stop depths exactly, so an imperial entry within
+ * half a foot of the stop grid snaps to it (20 ft or the displayed 19.7 ft is 6 m, not 6.1 m).
+ */
+export const switchDepthToCanonical = (value: number, units: UnitPreferences["depth"], gridM = 3): Meters => {
+  const exact = depthToCanonical(value, units);
+  if (units !== "imperial") return exact;
+  const grid = Math.round(exact / gridM) * gridM;
+  return Math.abs(exact - grid) <= 0.1524 + 1e-9 ? meters(grid) : exact;
+};
 export const depthFromCanonical = (value: number, units: UnitPreferences["depth"]): number => units === "imperial" ? value * 3.280839895 : value;
 export const pressureToCanonical = (value: number, units: UnitPreferences["pressure"]): BarGauge => barGauge(units === "psi" ? value / 14.5037738 : value);
 export const pressureFromCanonical = (value: number, units: UnitPreferences["pressure"]): number => units === "psi" ? value * 14.5037738 : value;
