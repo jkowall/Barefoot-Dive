@@ -53,7 +53,7 @@ import {
   ZHL16C_MODEL_VERSION,
 } from "./zhl16c";
 
-export const ENGINE_VERSION = "barefoot-dive-engine-0.2.0";
+export const ENGINE_VERSION = "barefoot-dive-engine-0.2.1";
 const MAX_ASCENT_ITERATIONS = 10_000;
 const MAX_DECOMPRESSION_SECONDS = 48 * 60 * 60;
 const EPSILON = 1e-8;
@@ -616,10 +616,11 @@ function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfigur
         effectiveAscentRate(input.settings, false),
         configuration.segmentKind ?? "ascent",
       );
-      // A switch down to the low setpoint mid-leg loads inert gas on the rest of the leg,
-      // so re-check the arrival ceiling and stop deeper if it was crossed.
+      // Tissues can still load inert gas during the leg: after a switch from a nitrogen-loaded
+      // loop to a helium-heavy gas the fast compartments take up helium faster than they
+      // release nitrogen, and a mid-leg switch down to the low setpoint loads inert gas. So
+      // re-check the arrival ceiling and retry from the pre-leg state one grid step deeper.
       while (
-        configuration.ccrAscent?.mode === "low" &&
         !canOccupyDepth(committed, target, input.settings.gfLow, input) &&
         target < state.depthM - EPSILON
       ) {
@@ -699,9 +700,9 @@ function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfigur
         effectiveAscentRate(input.settings, true),
         configuration.segmentKind ?? "ascent",
       );
-      // Low-setpoint mode: a switch down during this leg can load inert gas, so the leg is
-      // taken only if the arrival still clears; otherwise hold the stop on the high setpoint.
-      if (configuration.ccrAscent?.mode !== "low" || canOccupyDepth(committed, target, targetGf, input)) {
+      // For the same reasons the leg can load inert gas, so it is taken only if the arrival
+      // still clears; otherwise hold the stop (on the high setpoint in low-setpoint mode).
+      if (canOccupyDepth(committed, target, targetGf, input)) {
         state = committed;
         continue;
       }
@@ -713,7 +714,7 @@ function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfigur
       if (waypoint !== undefined) {
         const waypointGf = gradientFactorAtDepth(waypoint, firstStopDepthM, input.settings.gfLow, input.settings.gfHigh);
         if (canOccupyDepth(state, waypoint, waypointGf, input)) {
-          state = commitAscentLeg(
+          const committed = commitAscentLeg(
             state,
             configuration,
             waypoint,
@@ -721,7 +722,10 @@ function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfigur
             effectiveAscentRate(input.settings, true),
             configuration.segmentKind ?? "ascent",
           );
-          continue;
+          if (canOccupyDepth(committed, waypoint, waypointGf, input)) {
+            state = committed;
+            continue;
+          }
         }
       }
     }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+Calculation engine `barefoot-dive-engine-0.2.1`.
+
+- Every ascent leg now re-checks its arrival ceiling. Before, only low-setpoint legs did, so a leg could arrive above the GF-low ceiling when the fast compartments took up helium faster than they released nitrogen. This happens after a switch from a nitrogen-loaded loop or gas to a helium-bearing one, most often on a CCR bailout. The first stop now moves one grid step deeper until the arrival clears, and a stop is held until the next leg's arrival clears. For example, a 60 m legacy CCR bailout onto Tx12/60 now stops first at 33 m instead of 27 m under a 29.1 m ceiling.
+- Affected schedules change in both directions. First stops only move deeper, but the gradient-factor line is anchored at the first stop, so the shallower stops use higher gradient factors, and many changed plans surface sooner. Exploratory comparisons against engine 0.2.0 saw changes from 55 minutes shorter to 217 minutes longer. An open-circuit dive on air at 40 m with Tx30/30 deco now stops first at 27 m instead of 24 m and surfaces about 6 minutes sooner. Mostly bailout plans changed, along with open-circuit plans that switch from a nitrogen gas to a helium-bearing one, and event and cave ascents with the same pattern. The seven legacy fixture digests are unchanged. Saved plans from engine 0.2.0 show the older-engine notice, and recalculating creates a new revision.
+- Known limitation: the scheduler does not look ahead through a stop. After a bailout from a nitrogen-rich loop to a lean, helium-heavy gas, the ceiling can deepen past a held stop by several metres for several minutes, and no diagnostic is shown.
+
 ## [0.4.0] - 2026-09-23
 
 Calculation engine `barefoot-dive-engine-0.2.0`.

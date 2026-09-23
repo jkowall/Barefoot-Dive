@@ -19,7 +19,10 @@ const tx1845: Gas = { id: "tx18-45", name: "Tx18/45", oxygen: fraction(0.18), he
  * Byte-identity guard for legacy inputs. These digests were captured from engine 0.1.0
  * before low setpoints, dil-out, gas-only planning, and the hypoxic-leg fixes were added.
  * Legacy CCR breathing (open-circuit diluent above the activation depth) and non-hypoxic
- * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same.
+ * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same. Engine 0.2.1
+ * re-checks every ascent leg's arrival ceiling, which deliberately changes schedules whose legs
+ * arrived above the ceiling (mostly bailouts and nitrogen-to-helium switches; see
+ * ascent-ceiling.test.ts). None of these seven inputs is affected.
  */
 it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => {
   const out: Record<string, string> = {};
