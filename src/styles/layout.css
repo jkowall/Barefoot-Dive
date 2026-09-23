@@ -1,0 +1,166 @@
+/* Page structure: headers, panels, form grids, editors, the Plan/Cave context strip, disclosures. */
+.bf-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--bf-space-4);
+  margin-bottom: var(--bf-space-5);
+  padding-bottom: var(--bf-space-3);
+  border-bottom: 1px solid var(--bf-line);
+}
+.bf-page-header > div { min-width: 0; }
+.bf-page-header h1 { margin-top: 2px; }
+.bf-page-header__description { max-width: 72ch; margin-top: var(--bf-space-1); color: var(--bf-text-muted); line-height: 1.5; }
+.bf-page-header__actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: var(--bf-space-2); }
+
+.bf-panel {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--bf-line);
+  border-radius: var(--bf-radius);
+  background: var(--bf-surface-1);
+}
+.bf-panel + .bf-panel { margin-top: var(--bf-space-4); }
+.bf-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-3);
+  min-height: 44px;
+  padding: var(--bf-space-2) var(--bf-space-3);
+  border-bottom: 1px solid var(--bf-line);
+}
+.bf-panel__header > div { display: grid; min-width: 0; gap: 2px; }
+.bf-panel__body { padding: var(--bf-space-3); }
+.bf-panel__note { margin-bottom: var(--bf-space-3); color: var(--bf-text-muted); font-size: var(--bf-text-sm); line-height: 1.45; }
+
+.bf-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--bf-space-3);
+  align-items: end;
+}
+.bf-form-grid + .bf-form-grid, .bf-form-grid + .bf-toggle, .bf-toggle + .bf-gas-editor { margin-top: var(--bf-space-3); }
+.bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.bf-card-grid { display: grid; gap: var(--bf-space-3); }
+.bf-card-grid .bf-panel + .bf-panel { margin-top: 0; }
+
+.bf-row-header { display: flex; align-items: center; justify-content: space-between; gap: var(--bf-space-3); margin-bottom: var(--bf-space-3); }
+.bf-row-header > div { display: grid; min-width: 0; gap: 2px; }
+.bf-row-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bf-space-2); margin-top: var(--bf-space-1); }
+.bf-row-header__meta .bf-inline-summary { display: inline; min-height: 0; font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); }
+
+.bf-gas-editor, .bf-route-editor {
+  padding: var(--bf-space-4) 0;
+  border-bottom: 1px solid var(--bf-line);
+  scroll-margin-top: calc(var(--bf-topbar-h) + var(--bf-context-h) + env(safe-area-inset-top) + var(--bf-space-2));
+}
+.bf-gas-editor:first-child, .bf-route-editor:first-child { padding-top: 0; }
+.bf-gas-editor:last-child, .bf-route-editor:last-child { padding-bottom: 0; border-bottom: 0; }
+
+.bf-inline-summary { display: grid; align-self: stretch; align-content: center; gap: var(--bf-space-2); min-height: var(--bf-control-h); color: var(--bf-text-muted); font-size: var(--bf-text-sm); }
+.bf-inline-actions { display: flex; justify-content: flex-end; margin: var(--bf-space-3) 0 var(--bf-space-4); }
+.bf-inline-actions--row { gap: var(--bf-space-2); margin-bottom: 0; }
+
+.bf-results { display: grid; gap: var(--bf-space-4); margin-top: var(--bf-space-4); }
+.bf-results .bf-panel + .bf-panel { margin-top: 0; }
+.bf-plan-setup { display: grid; gap: var(--bf-space-4); }
+.bf-plan-setup > .bf-panel + .bf-panel { margin-top: 0; }
+.bf-plan-context + .bf-results { margin-top: 0; }
+.bf-scenario-summary { display: grid; gap: var(--bf-space-3); margin-top: var(--bf-space-3); }
+
+/* Sticky Plan/Cave context strip: workspace switch, current-plan summary, status, action. */
+.bf-plan-context {
+  position: sticky;
+  top: calc(var(--bf-topbar-h) + env(safe-area-inset-top));
+  z-index: 9;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--bf-space-2) var(--bf-space-3);
+  align-items: center;
+  min-height: var(--bf-context-h);
+  margin: 0 calc(-1 * var(--bf-content-pad)) var(--bf-space-4);
+  padding: var(--bf-space-2) var(--bf-content-pad);
+  border-bottom: 1px solid var(--bf-line);
+  background: var(--bf-bg);
+}
+.bf-plan-context .bf-segmented { grid-column: 1; grid-row: 1; }
+.bf-plan-context .bf-segmented legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bf-plan-context__summary { display: grid; min-width: 0; grid-column: 1; grid-row: 2; gap: 2px; }
+.bf-plan-context__summary > span { display: none; }
+.bf-plan-context__summary strong {
+  overflow: hidden;
+  color: var(--bf-text);
+  font-family: var(--bf-font-mono);
+  font-size: var(--bf-text-sm);
+  font-weight: 500;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bf-plan-context__summary small { overflow: hidden; color: var(--bf-text-muted); font-size: var(--bf-text-xs); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.bf-plan-context__actions { display: contents; }
+.bf-plan-context__actions .bf-plan-status { grid-column: 2; grid-row: 2; justify-self: end; }
+.bf-plan-context__actions .bf-button { grid-column: 2; grid-row: 1; justify-self: end; }
+
+.bf-settings-fields { display: grid; gap: var(--bf-space-3); margin: var(--bf-space-4) 0; }
+.bf-safety-gate { max-width: 38rem; }
+.bf-safety-gate h1 { margin-top: var(--bf-space-1); }
+.bf-safety-list { display: grid; gap: var(--bf-space-2); margin: var(--bf-space-3) 0 0; padding-left: var(--bf-space-4); color: var(--bf-text-muted); line-height: 1.45; }
+
+.bf-disclosure { border-top: 1px solid var(--bf-line); }
+.bf-disclosure summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-3);
+  color: var(--bf-text);
+  font-size: var(--bf-text-base);
+  font-weight: 600;
+  cursor: pointer;
+}
+.bf-disclosure summary span { color: var(--bf-text-faint); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); font-weight: 500; }
+.bf-disclosure[open] summary { margin-bottom: var(--bf-space-3); border-bottom: 1px solid var(--bf-line); }
+.bf-disclosure + .bf-disclosure { margin-top: var(--bf-space-3); }
+
+.bf-segment-editor { margin-top: var(--bf-space-4); padding: var(--bf-space-3); border: 1px solid var(--bf-line); border-radius: var(--bf-radius); background: var(--bf-bg); }
+.bf-segment-row { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr) auto; gap: var(--bf-space-2); align-items: end; padding: var(--bf-space-3) 0; border-bottom: 1px solid var(--bf-line); }
+.bf-segment-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.bf-segment-editor + .bf-form-grid { margin-top: var(--bf-space-4); }
+
+@media (min-width: 600px) {
+  .bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (min-width: 720px) {
+  .bf-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bf-settings-fields { grid-template-columns: 1fr 1fr; }
+  .bf-plan-context { grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--bf-space-3); }
+  .bf-plan-context .bf-segmented { grid-column: 1; grid-row: 1; }
+  .bf-plan-context__summary { grid-column: 2; grid-row: 1; }
+  .bf-plan-context__actions .bf-plan-status { grid-column: 3; grid-row: 1; }
+  .bf-plan-context__actions .bf-button { grid-column: 4; grid-row: 1; }
+}
+
+@media (min-width: 900px) {
+  .bf-panel__header { padding: var(--bf-space-2) var(--bf-space-4); }
+  .bf-panel__body { padding: var(--bf-space-4); }
+  .bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .bf-segment-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bf-segment-row .bf-field-group:first-child { grid-column: 1 / -1; }
+  .bf-segment-row .bf-button { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .bf-page-header { flex-direction: column; align-items: stretch; }
+  .bf-page-header__actions > * { flex: 1; }
+  .bf-panel__header { flex-wrap: wrap; }
+  .bf-row-header { align-items: flex-start; }
+  .bf-card-grid .bf-page-header__actions { width: 100%; }
+  .bf-card-grid .bf-page-header__actions .bf-button { flex: 1 1 45%; }
+}

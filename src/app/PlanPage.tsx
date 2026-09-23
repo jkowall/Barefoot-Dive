@@ -75,11 +75,15 @@ function GasEditor({
       <div>
         <p className="bf-eyebrow">{value.role}</p>
         <h3>{gas?.name ?? value.name}</h3>
+        {selected && <div className="bf-row-header__meta">
+          <GasChip name={selected.gas.name} oxygen={selected.gas.oxygen * 100} helium={selected.gas.helium * 100} role={selected.role} />
+          <span className="bf-inline-summary">{ratedCapacityFromCanonical(selected.waterVolumeL, selected.workingPressureBar, preferences.cylinderCapacity).toFixed(1)} {capacityUnit(preferences.cylinderCapacity)} {preferences.cylinderCapacity === "imperial" ? "rated at working pressure" : "water volume"} · {formatPressure(selected.currentPressureBar, preferences.pressure)}</span>
+        </div>}
       </div>
-      {onRemove && <ActionButton danger onClick={onRemove} quiet>Remove</ActionButton>}
+      {onRemove && <ActionButton danger onClick={onRemove} quiet small>Remove</ActionButton>}
     </header>
-    <div className="bf-form-grid">
-      <FieldGroup label="Cylinder source" hint="Tank Bank entries are snapshotted into this calculation.">
+    <div className="bf-form-grid bf-form-grid--gas">
+      <FieldGroup label="Cylinder source">
         <select
           aria-label={`${value.name} cylinder source`}
           onChange={(event) => change("cylinderId", event.currentTarget.value || undefined)}
@@ -89,14 +93,11 @@ function GasEditor({
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} · {tank.gas.name}</option>)}
         </select>
       </FieldGroup>
-      {selected ? <div className="bf-inline-summary">
-        <GasChip name={selected.gas.name} oxygen={selected.gas.oxygen * 100} helium={selected.gas.helium * 100} role={selected.role} />
-        <span>{ratedCapacityFromCanonical(selected.waterVolumeL, selected.workingPressureBar, preferences.cylinderCapacity).toFixed(1)} {capacityUnit(preferences.cylinderCapacity)} {preferences.cylinderCapacity === "imperial" ? "rated at working pressure" : "water volume"} · {formatPressure(selected.currentPressureBar, preferences.pressure)}</span>
-      </div> : <>
+      {selected ? null : <>
         <TextField label="Gas name" onChange={(next) => change("name", next)} value={value.name} />
         <NumberField label="O₂ (%)" max={100} min={0} onChange={(next) => change("oxygenPercent", next)} step={0.1} value={value.oxygenPercent} />
         <NumberField label="He (%)" max={100} min={0} onChange={(next) => change("heliumPercent", next)} step={0.1} value={value.heliumPercent} />
-        <NumberField label={capacityLabel(preferences.cylinderCapacity)} hint={preferences.cylinderCapacity === "imperial" ? "Rated surface capacity is converted with the cylinder working pressure." : "Physical internal water volume used by metric cylinder specifications."} min={0.1} onChange={(next) => change("waterVolumeL", waterVolumeFromRatedCapacity(next, value.workingPressureBar, preferences.cylinderCapacity))} step={0.1} value={capacityInputValue(value.waterVolumeL, value.workingPressureBar, preferences.cylinderCapacity)} />
+        <NumberField label={capacityLabel(preferences.cylinderCapacity)} min={0.1} onChange={(next) => change("waterVolumeL", waterVolumeFromRatedCapacity(next, value.workingPressureBar, preferences.cylinderCapacity))} step={0.1} value={capacityInputValue(value.waterVolumeL, value.workingPressureBar, preferences.cylinderCapacity)} />
         <NumberField
           label={`Working pressure (${pressureUnit(preferences.pressure)})`}
           min={0}
@@ -129,7 +130,7 @@ function GasEditor({
         <NumberField label="Cylinder max PPO₂ (bar)" min={0.1} onChange={(next) => change("maximumPPO2Bar", next)} step={0.05} value={value.maximumPPO2Bar} />
       </>}
       {(value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <NumberField
-        hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : "Gas is eligible only at or shallower than this depth."}
+        hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
         label={`Switch depth (${depthUnit(preferences.depth)})`}
         min={0}
         onChange={(next) => change("switchDepthM", depthToCanonical(next, preferences.depth))}
@@ -266,6 +267,7 @@ export function PlannerEditor({
       actions={<ActionButton onClick={() => addGas("decoGases", "deco")} quiet>Add deco gas</ActionButton>}
       title="Open-circuit gases"
     >
+      <p className="bf-panel__note">Tank Bank cylinders are copied into this calculation as snapshots. {preferences.cylinderCapacity === "imperial" ? "Rated capacity is converted with the cylinder working pressure." : "Capacity is the physical internal water volume."} Deco and bailout gases are eligible only at or shallower than their switch depth.</p>
       <GasEditor onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} tanks={tanks} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
       {draft.travelGasEnabled && <GasEditor onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} tanks={tanks} value={draft.travelGas} />}
@@ -280,6 +282,7 @@ export function PlannerEditor({
       />)}
     </Panel> : <>
       <Panel title="CCR loop">
+        <p className="bf-panel__note">Tank Bank cylinders are copied into this calculation as snapshots. {preferences.cylinderCapacity === "imperial" ? "Rated capacity is converted with the cylinder working pressure." : "Capacity is the physical internal water volume."} Deco and bailout gases are eligible only at or shallower than their switch depth.</p>
         <div className="bf-form-grid">
           <NumberField label="Constant setpoint (bar)" max={1.6} min={0.5} onChange={(setpointBar) => set("setpointBar", setpointBar)} step={0.05} value={draft.setpointBar} />
           <NumberField
@@ -506,7 +509,6 @@ export default function PlanPage({
   return <>
     <PageHeader
       description="Build a deterministic square-profile OC or constant-setpoint CCR plan with explicit gas, equipment, consumption, and reserve assumptions."
-      eyebrow="OFFLINE · UNIT-SAFE"
       title="Plan"
     />
     <section aria-label="Current plan" className="bf-plan-context">

@@ -254,10 +254,6 @@ export function ProfileChart({
       >
         <defs>
           <clipPath id={`${svgId}-clip`}><rect height={plotHeight} width={plotWidth} x={PLOT_LEFT} y={PLOT_TOP} /></clipPath>
-          <linearGradient id={`${svgId}-area`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#79d8ec" stopOpacity=".04" />
-            <stop offset="1" stopColor="#79d8ec" stopOpacity=".22" />
-          </linearGradient>
         </defs>
         <text className="bf-profile__axis-title" x={PLOT_LEFT} y="13">Depth ({unit})</text>
         {model.depthTicks.map((tick) => <g className="bf-profile__axis" key={`depth-${tick}`}>
@@ -281,7 +277,7 @@ export function ProfileChart({
             x={xForRuntime(segment.startRuntimeSeconds)}
             y={PLOT_TOP}
           />)}
-          {areaPath && <path className="bf-profile__area" d={areaPath} fill={`url(#${svgId}-area)`} />}
+          {areaPath && <path className="bf-profile__area" d={areaPath} />}
           {depthPolyline && <polyline className="bf-profile__line" points={depthPolyline} />}
           {model.markers.map((marker, index) => <g key={marker.id}>{markerShape(marker, xForRuntime(marker.runtimeSeconds), yForDepth(marker.depth), index + 1)}</g>)}
           {selectedCeilingValue !== undefined && selectedCeilingY !== undefined && <g aria-hidden="true" className="bf-profile__selected-ceiling">

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-09-22
+
+- Replaced the layered gradient visual system with a flat "instrument dark" system: near-neutral navy surfaces, hairline dividers, one cyan accent, and a token file (`src/styles/tokens.css`) that every color, size, and duration in the stylesheet references. The stylesheet is now split into sectioned files under `src/styles/`.
+- Bundled IBM Plex Sans and IBM Plex Mono locally and precached them for offline use; measured values (metrics, readouts, tables, pressure and depth inputs) now use tabular monospace numerals.
+- Added functional navigation icons to the desktop rail and mobile bottom bar, moved Settings to the bottom of the desktop rail (the topbar gear remains on phones and tablets), and reduced the footer to one row.
+- Replaced hero page headers with a compact title row; decorative eyebrows were removed and only safety-bearing labels (experimental, unsafe, before-you-plan) keep a colored eyebrow.
+- Flattened the Plan and Cave context strip, tightened field density on pointer devices (44 px targets remain on touch screens), and laid out gas and route editors in fixed two, three, or four column grids with one note per panel instead of repeated per-field hints.
+- Presented result metrics as flat ruled tiles instead of boxed cards, flattened the profile chart palette, and made runtime and gas-ledger tables denser with striped rows.
+- Grouped consecutive identical stop rows in the runtime schedule table (for example one 15-minute oxygen stop row instead of fifteen one-minute rows). This is presentation only: the profile graph, the profile data table, and every calculated value are unchanged.
+- Folded the runtime and gas-ledger tables of nested Cave base and scenario plans behind disclosures so Cave Review no longer repeats two full table sets; the charts, aggregate status, and diagnostics stay visible.
+- Presented the Tools library as a list with mode tags, consolidated the duplicate page-local button and field components onto the shared controls, and refreshed Tank Bank and Saved Plans cards, filters, and dialogs to the same system.
+- Regenerated the phone, tablet, and desktop visual baselines for the new system.
+
 ## [0.2.2] - 2026-08-24
 
 - Added a responsive application footer with the canonical app and calculation-engine versions plus GitHub, changelog, roadmap, validation, license, and issue links.

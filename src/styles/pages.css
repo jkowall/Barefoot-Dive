@@ -1,0 +1,71 @@
+/* Workspace-specific layouts: Tools library and calculators, Tank Bank cards, Saved Plans cards. */
+.bf-tool-library { display: grid; gap: var(--bf-space-6); max-width: 56rem; }
+.bf-tool-category { display: grid; gap: var(--bf-space-2); }
+.bf-tool-category > .bf-eyebrow { padding-bottom: var(--bf-space-2); border-bottom: 1px solid var(--bf-line-strong); }
+.bf-tool-list { display: grid; }
+.bf-tool-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name modes" "purpose modes";
+  gap: 2px var(--bf-space-4);
+  align-items: center;
+  min-height: 56px;
+  padding: var(--bf-space-3);
+  border: 0;
+  border-bottom: 1px solid var(--bf-line);
+  border-radius: 0;
+  color: var(--bf-text);
+  background: transparent;
+  text-align: left;
+  transition: background-color var(--bf-motion-fast) ease;
+}
+.bf-tool-card:hover, .bf-tool-card:focus-visible { background: var(--bf-surface-2); }
+.bf-tool-card strong { grid-area: name; font-size: var(--bf-text-base); font-weight: 600; }
+.bf-tool-card > span:first-of-type { grid-area: purpose; }
+.bf-tool-card__modes { grid-area: modes; display: grid; gap: 2px; justify-items: end; color: var(--bf-text-faint); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); text-align: right; }
+.bf-tool-card span, .bf-tool-purpose, .bf-tool-note, .bf-source-note, .bf-method-id { color: var(--bf-text-muted); font-size: var(--bf-text-sm); line-height: 1.45; }
+.bf-tool-purpose { margin-bottom: var(--bf-space-3); }
+.bf-tool-note { margin: var(--bf-space-2) 0 var(--bf-space-3); }
+.bf-source-note { margin: var(--bf-space-2) 0 var(--bf-space-3); }
+.bf-method-id { margin-top: var(--bf-space-3); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); }
+
+.bf-tool-workspace { display: grid; gap: var(--bf-space-4); }
+.bf-tool-workspace .bf-panel + .bf-panel { margin-top: 0; }
+.bf-tool-workspace .bf-segmented + .bf-form-grid, .bf-tool-workspace .bf-segmented + .bf-segmented, .bf-tool-workspace .bf-form-grid + .bf-segmented { margin-top: var(--bf-space-3); }
+.bf-tool-result-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--bf-space-2); }
+.bf-tool-result { min-height: 6rem; transition: opacity var(--bf-motion-fast) ease; }
+.bf-tool-result[data-state="updating"] { opacity: .6; }
+.bf-tool-result:focus { outline: 2px solid var(--bf-accent); outline-offset: 4px; }
+.bf-tool-result__empty { padding: var(--bf-space-4) 0; color: var(--bf-text-muted); }
+.bf-tool-updating, .bf-tool-invalid { display: flex; min-height: 5rem; align-items: center; gap: var(--bf-space-2); padding: var(--bf-space-3) 0; color: var(--bf-text-muted); }
+.bf-tool-invalid { min-height: auto; margin-bottom: var(--bf-space-3); padding: var(--bf-space-2) var(--bf-space-3); border-left: 3px solid var(--bf-danger); color: var(--bf-text); background: var(--bf-danger-bg); }
+.bf-tool-details { margin-top: var(--bf-space-4); padding-top: var(--bf-space-3); border-top: 1px solid var(--bf-line); color: var(--bf-text-muted); font-size: var(--bf-text-sm); line-height: 1.5; }
+.bf-tool-details summary { display: flex; min-height: 32px; align-items: center; color: var(--bf-text); font-weight: 600; cursor: pointer; transition: color var(--bf-motion-fast) ease; }
+.bf-tool-details summary:hover { color: var(--bf-accent); }
+.bf-tool-details p + p { margin-top: var(--bf-space-2); }
+.bf-tool-details--nested { margin-top: var(--bf-space-3); border-top: 0; padding-top: 0; }
+.bf-emergency-assumptions { display: grid; margin-top: var(--bf-space-2); border-top: 1px solid var(--bf-line); }
+.bf-emergency-assumption { display: grid; gap: 2px; padding: var(--bf-space-2) 0; border-bottom: 1px solid var(--bf-line); }
+.bf-emergency-assumption span { color: var(--bf-text-muted); }
+
+.bf-tank-card .bf-panel__header { align-items: flex-start; flex-direction: column; }
+.bf-tank-card__actions { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: var(--bf-space-2); }
+.bf-tank-card__actions .bf-button { min-width: 0; }
+
+@media (min-width: 600px) {
+  .bf-form-grid--filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 900px) {
+  .bf-tool-workspace { grid-template-columns: minmax(0, 1fr) minmax(20rem, .6fr); align-items: start; }
+  .bf-tool-result-panel { position: sticky; top: calc(var(--bf-topbar-h) + var(--bf-space-4)); }
+  .bf-tool-input-panel { min-width: 0; }
+  .bf-form-grid--filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 480px) {
+  .bf-tool-card { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "purpose" "modes"; }
+  .bf-tool-card__modes { justify-items: start; text-align: left; }
+  .bf-tool-result-actions { width: 100%; justify-content: space-between; }
+  .bf-tool-result-actions .bf-button { flex: 1 1 100%; }
+}

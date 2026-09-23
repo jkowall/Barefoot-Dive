@@ -100,9 +100,9 @@ function RouteEditor({
   return <article className="bf-route-editor" ref={containerRef}>
     <header className="bf-row-header">
       <div><p className="bf-eyebrow">PENETRATION LEG</p><h3>{route.id}</h3></div>
-      {onRemove && <ActionButton danger onClick={onRemove} quiet>Remove</ActionButton>}
+      {onRemove && <ActionButton danger onClick={onRemove} quiet small>Remove</ActionButton>}
     </header>
-    <div className="bf-form-grid">
+    <div className="bf-form-grid bf-form-grid--route">
       <FieldGroup label="Leg label"><input aria-label="Leg label" onChange={(event) => set("id", event.currentTarget.value)} value={route.id} /></FieldGroup>
       <NumberField label={`Start depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("startDepthM", depthToCanonical(value, preferences.depth))} value={depthInputValue(route.startDepthM, preferences.depth)} />
       <NumberField label={`End depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("endDepthM", depthToCanonical(value, preferences.depth))} value={depthInputValue(route.endDepthM, preferences.depth)} />
@@ -485,6 +485,7 @@ export default function CavePage({
       description="Build a real penetration and reverse-exit timeline, then test accessible-gas, propulsion, team, stage, and CCR loop failures."
       eyebrow="EXPERIMENTAL · QUALIFIED REVIEW REQUIRED"
       title="Cave"
+      tone="warning"
     />
     <section aria-label="Current experimental cave plan" className="bf-plan-context">
       <SegmentedControl
@@ -569,6 +570,7 @@ export default function CavePage({
             detail={aggregateCaveUnsafe
               ? "At least one enabled result has a safety error; review the aggregate diagnostics."
               : "Calculation status only; not a safety or field-validation claim."}
+            kind="text"
             label="Aggregate cave status"
             tone={aggregateCaveUnsafe ? "danger" : "safe"}
             value={aggregateCaveUnsafe ? "Unsafe or unavailable" : "No calculation errors"}
@@ -576,7 +578,7 @@ export default function CavePage({
           <ResultMetric label="Penetration distance" value={`${depthFromCanonical(calculated.result.route.penetrationDistanceM, preferences.depth).toFixed(0)} ${depthUnit(preferences.depth)}`} />
           <ResultMetric label="Penetration time" value={formatDuration(calculated.result.route.penetrationTimeSeconds)} />
           <ResultMetric label="Total runtime" value={formatDuration(calculated.result.route.runtimeSeconds)} />
-          <ResultMetric detail={limitingCylinderContext} label="Limiting resource" tone={calculated.result.limitingResource === "none" ? "safe" : "warning"} value={calculated.result.limitingResource} />
+          <ResultMetric detail={limitingCylinderContext} kind="text" label="Limiting resource" tone={calculated.result.limitingResource === "none" ? "safe" : "warning"} value={calculated.result.limitingResource} />
           <ResultMetric detail={limitingCylinderContext} label="Reserve margin" tone={calculated.result.reserveMarginL >= 0 ? "safe" : "danger"} value={`${Math.round(calculated.result.reserveMarginL)} L`} />
           {calculated.result.turnPressureBar !== undefined && <ResultMetric
             detail={turnCylinderContext ?? "No unique cylinder assignment; pressure hidden."}
@@ -610,12 +612,12 @@ export default function CavePage({
           value={String(selectedScenarioIndex)}
         />
         {scenarioResult ? <div className="bf-scenario-summary">
-          <ResultMetric label="Scenario status" tone={scenarioResult.safe ? "safe" : "danger"} value={scenarioResult.safe ? "Calculated sufficient" : "Unsafe or unavailable"} />
+          <ResultMetric kind="text" label="Scenario status" tone={scenarioResult.safe ? "safe" : "danger"} value={scenarioResult.safe ? "Calculated sufficient" : "Unsafe or unavailable"} />
           <WarningList items={diagnosticsToItems(scenarioResult.diagnostics)} title={`${scenarioLabel(scenarioResult.kind)} diagnostics`} />
         </div> : <p>No failure scenarios selected.</p>}
       </Panel>
-      <PlanResultView plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
-      {scenarioResult?.plan && <PlanResultView plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}
+      <PlanResultView compact plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
+      {scenarioResult?.plan && <PlanResultView compact plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}
     </section> : <Panel eyebrow={statusLabel[status]} title="Cave review unavailable">
       <p>{statusDescription[status]}</p>
     </Panel>}

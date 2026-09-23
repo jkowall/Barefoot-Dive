@@ -6,6 +6,7 @@ export function ActionButton({
   onClick,
   quiet = false,
   danger = false,
+  small = false,
   disabled = false,
   type = "button",
 }: {
@@ -13,11 +14,12 @@ export function ActionButton({
   readonly onClick?: () => void;
   readonly quiet?: boolean;
   readonly danger?: boolean;
+  readonly small?: boolean;
   readonly disabled?: boolean;
   readonly type?: "button" | "submit";
 }) {
   return <button
-    className={`bf-button${quiet ? " bf-button--quiet" : ""}${danger ? " bf-button--danger" : ""}`}
+    className={`bf-button${quiet ? " bf-button--quiet" : ""}${danger ? " bf-button--danger" : ""}${small ? " bf-button--sm" : ""}`}
     disabled={disabled}
     onClick={onClick}
     type={type}
@@ -32,7 +34,9 @@ export function NumberField({
   min,
   max,
   hint,
+  error,
   disabled,
+  onBlur,
 }: {
   readonly label: string;
   readonly value: number;
@@ -41,14 +45,17 @@ export function NumberField({
   readonly min?: number;
   readonly max?: number;
   readonly hint?: string;
+  readonly error?: string;
   readonly disabled?: boolean;
+  readonly onBlur?: () => void;
 }) {
-  return <FieldGroup label={label} hint={hint}>
+  return <FieldGroup error={error} label={label} hint={hint}>
     <input
       aria-label={label}
       disabled={disabled}
       max={max}
       min={min}
+      onBlur={onBlur}
       onChange={(event) => onChange(Number(event.currentTarget.value))}
       step={step}
       type="number"

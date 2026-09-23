@@ -73,7 +73,7 @@ function SafetyGate({ onAcknowledge }: { readonly onAcknowledge: (storageError?:
   useEffect(() => buttonRef.current?.focus(), []);
   return <main className="bf-dialog-backdrop">
     <section aria-describedby="safety-description" aria-labelledby="safety-title" aria-modal="true" className="bf-dialog bf-safety-gate" role="dialog">
-      <p className="bf-eyebrow">BEFORE YOU PLAN</p>
+      <p className="bf-eyebrow bf-eyebrow--warning">BEFORE YOU PLAN</p>
       <h1 id="safety-title">Decision support, not life-support equipment</h1>
       <p id="safety-description">Barefoot Dive does not replace training, team procedures, a dive computer, analyzed gas, manufacturer limits, or independent plan verification. Cave outputs are experimental. Confirm every gas and cylinder before use.</p>
       <ul className="bf-safety-list">
@@ -170,6 +170,7 @@ function SavedPlanDetail({
         ? caveUnsafe ? "SAVED CAVE SNAPSHOT · UNSAFE" : "SAVED CAVE SNAPSHOT"
         : "SAVED PLAN SNAPSHOT"}
       title={record.title}
+      tone={caveUnsafe ? "danger" : undefined}
     />
     {record.engineVersion !== ENGINE_VERSION && <WarningList items={[{
       id: "older-engine",

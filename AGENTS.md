@@ -28,7 +28,7 @@ All output is decision support. Passing tests does not establish decompression s
 - Vitest for unit, invariant, fixture, and reference-comparison tests
 - Playwright for browser smoke, offline, accessibility-oriented, and visual-regression checks
 - Capacitor 8 iOS and Android shells
-- Vanilla mobile-first CSS in `src/index.css`
+- Vanilla mobile-first CSS: `src/index.css` imports the sectioned token, base, shell, controls, layout, results, profile, pages, and motion files in `src/styles/`
 - Versioned local persistence through `src/storage`; there is no backend
 
 There are no accounts, analytics, subscriptions, calculation services, provider credentials, or network calculation dependencies.
@@ -48,7 +48,8 @@ src/
 ├── ui/             # Shared presentation components
 ├── App.tsx         # Application routing and cross-workspace state
 ├── main.tsx        # Entry point and PWA registration
-└── index.css       # Global visual system and responsive behavior
+├── index.css       # Global visual system entry; imports src/styles/
+└── styles/         # Tokens, base, shell, controls, layout, results, profile, pages, motion
 tests/ui/           # Playwright smoke and phone/tablet/desktop visual suites
 documentation/      # Architecture, calculations, flows, tests, tools, and trust boundaries
 ios/                # Capacitor iOS project

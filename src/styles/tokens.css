@@ -1,0 +1,88 @@
+/* Barefoot Dive visual tokens. Every color, size, and duration in src/styles comes from here. */
+:root {
+  /* Surfaces: navy-slate family, desaturated and flat. */
+  --bf-bg: #0b1118;
+  --bf-surface-1: #10171f;
+  --bf-surface-2: #161e27;
+  --bf-surface-3: #1d2630;
+  --bf-line: #243040;
+  --bf-line-strong: #34445a;
+
+  /* Text. */
+  --bf-text: #e6edf3;
+  --bf-text-muted: #9aa8b6;
+  --bf-text-faint: #66768a;
+
+  /* The single accent. */
+  --bf-accent: #5ec8e5;
+  --bf-accent-hover: #7ad4ec;
+  --bf-accent-ink: #06141c;
+  --bf-accent-bg: #12242c;
+
+  /* Semantic status colors. Status meaning only, never decoration. */
+  --bf-safe: #57c9a9;
+  --bf-safe-bg: #14261f;
+  --bf-warning: #e5b566;
+  --bf-warning-bg: #2a2417;
+  --bf-danger: #ef8a7c;
+  --bf-danger-bg: #2b1a18;
+  --bf-info: var(--bf-accent);
+
+  /* Profile chart phase strip and legend keys. */
+  --bf-phase-default: #3a556b;
+  --bf-phase-descent: #3a556b;
+  --bf-phase-bottom: #2c4256;
+  --bf-phase-ascent: #4a6479;
+  --bf-phase-penetration: #2f5e5c;
+  --bf-phase-exit: #3e6b63;
+  --bf-phase-stop: var(--bf-warning);
+  --bf-phase-switch: #7f8fb5;
+  --bf-phase-bailout: #b5765a;
+
+  /* Type. */
+  --bf-font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bf-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bf-text-xs: .6875rem;
+  --bf-text-sm: .75rem;
+  --bf-text-base: .875rem;
+  --bf-text-md: 1rem;
+  --bf-text-lg: 1.25rem;
+  --bf-text-xl: 1.5rem;
+  --bf-text-2xl: 1.75rem;
+
+  /* Spacing, 4 px base. */
+  --bf-space-1: 4px;
+  --bf-space-2: 8px;
+  --bf-space-3: 12px;
+  --bf-space-4: 16px;
+  --bf-space-5: 20px;
+  --bf-space-6: 24px;
+  --bf-space-8: 32px;
+  --bf-space-10: 40px;
+
+  /* Shape and shell geometry. */
+  --bf-radius: 4px;
+  --bf-radius-lg: 6px;
+  --bf-control-h: 44px;
+  --bf-topbar-h: 3rem;
+  --bf-nav-h: 3.5rem;
+  --bf-rail-w: 220px;
+  --bf-context-h: 6.25rem;
+  --bf-content-pad: 16px;
+
+  /* Motion. */
+  --bf-motion-fast: 120ms;
+  --bf-motion: 200ms;
+}
+
+@media (pointer: fine) and (min-width: 900px) {
+  :root { --bf-control-h: 36px; }
+}
+
+@media (min-width: 720px) {
+  :root { --bf-context-h: 3rem; }
+}
+
+@media (min-width: 900px) {
+  :root { --bf-content-pad: 32px; }
+}

@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { calculateMOD } from "../calculations";
 import { DEFAULT_ENVIRONMENT } from "../domain/defaults";
 import type { CylinderRole, Gas } from "../domain/types";
@@ -28,6 +28,7 @@ import {
   waterVolumeFromRatedCapacity,
   type UnitPreferences,
 } from "./helpers";
+import { ActionButton } from "./controls";
 import type { TankBankStore } from "../storage/tankBank";
 import type {
   TankDraft,
@@ -35,25 +36,6 @@ import type {
   StorageDiagnostic,
 } from "../storage/types";
 
-type ButtonProps = {
-  readonly children: ReactNode;
-  readonly onClick?: () => void;
-  readonly quiet?: boolean;
-  readonly danger?: boolean;
-  readonly disabled?: boolean;
-};
-function Button({ children, onClick, quiet, danger, disabled }: ButtonProps) {
-  return (
-    <button
-      className={`bf-button ${quiet ? "bf-button--quiet" : ""} ${danger ? "bf-button--danger" : ""}`}
-      disabled={disabled}
-      onClick={onClick}
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
 function failureMessage(error: StorageDiagnostic): string {
   return `${error.message} (${error.code})`;
 }
@@ -281,14 +263,13 @@ export function TankBankPage({
   return (
     <>
       <PageHeader
-        eyebrow="EQUIPMENT LIBRARY"
         title="Tank Bank"
         description="Keep analyzed cylinders ready for explicit planner assignment."
-        actions={<Button onClick={() => beginEdit()}>Add cylinder</Button>}
+        actions={<ActionButton onClick={() => beginEdit()}>Add cylinder</ActionButton>}
       />
       {completion && <CompletionNotice description={completion.description} key={completion.revision} label={completion.label} />}
       <Panel>
-        <div className="bf-form-grid">
+        <div className="bf-form-grid bf-form-grid--filters">
           <SegmentedControl
             label="View"
             options={[
@@ -350,44 +331,48 @@ export function TankBankPage({
               eyebrow={`${record.gas.name} · ${record.role ?? record.gas.role}`}
               actions={
                 <div className="bf-tank-card__actions">
-                  <Button
+                  <ActionButton
+                    small
                     onClick={() => onSelectCylinder?.(record)}
                     quiet
                     disabled={!onSelectCylinder}
                   >
                     Use
-                  </Button>
-                  <Button onClick={() => beginEdit(record)} quiet>
+                  </ActionButton>
+                  <ActionButton small onClick={() => beginEdit(record)} quiet>
                     Edit
-                  </Button>
-                  <Button
+                  </ActionButton>
+                  <ActionButton
+                    small
                     onClick={() => mutate(store.duplicate(record.id))}
                     quiet
                   >
                     Duplicate
-                  </Button>
+                  </ActionButton>
                   {archived ? (
-                    <Button
+                    <ActionButton
+                      small
                       onClick={() => mutate(store.restore(record.id))}
                       quiet
                     >
                       Restore
-                    </Button>
+                    </ActionButton>
                   ) : (
-                    <Button
+                    <ActionButton
+                      small
                       onClick={() => mutate(store.archive(record.id))}
                       quiet
                     >
                       Archive
-                    </Button>
+                    </ActionButton>
                   )}
-                  <Button danger onClick={() => setConfirm(record)} quiet>
+                  <ActionButton danger small onClick={() => setConfirm(record)} quiet>
                     Delete
-                  </Button>
+                  </ActionButton>
                 </div>
               }
             >
-              <div className="bf-form-grid">
+              <div className="bf-metric-grid">
                 <ResultMetric
                   label="Gas"
                   value={`${Math.round(record.gas.oxygen * 100)}/${Math.round(record.gas.helium * 100)}`}
@@ -591,10 +576,10 @@ export function TankBankPage({
               ))}
             </ul>
           )}
-          <Button onClick={save}>Save cylinder</Button>
-          <Button onClick={() => setEditing(undefined)} quiet>
+          <ActionButton onClick={save}>Save cylinder</ActionButton>
+          <ActionButton onClick={() => setEditing(undefined)} quiet>
             Cancel
-          </Button>
+          </ActionButton>
         </Panel>
       )}
       <ConfirmDialog

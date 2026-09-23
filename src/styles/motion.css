@@ -1,0 +1,19 @@
+/* The only animations in the application. Safety-critical values are never animated. */
+@keyframes bf-tool-pulse { to { opacity: .3; } }
+@keyframes bf-completion-border-x { to { transform: scaleX(1); } }
+@keyframes bf-completion-border-y { to { transform: scaleY(1); } }
+@keyframes bf-completion-copy-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bf-tool-status[data-state="updating"] .bf-tool-status__dot,
+  .bf-plan-status[data-state="updating"] .bf-plan-status__dot,
+  .bf-completion-notice,
+  .bf-completion-notice__edge,
+  .bf-completion-notice__copy { animation: none; }
+  .bf-completion-notice__edge--top, .bf-completion-notice__edge--bottom { transform: scaleX(1); }
+  .bf-completion-notice__edge--right, .bf-completion-notice__edge--left { transform: scaleY(1); }
+  .bf-completion-notice__copy { opacity: 1; transform: none; }
+  .bf-nav__item, .bf-nav__item::after, .bf-button, .bf-icon-button, .bf-tool-card, .bf-panel, .bf-tool-result, .bf-tool-details summary,
+  .bf-segmented label, .bf-cylinder, .bf-toggle, .bf-app-footer__links a,
+  .bf-field-group__control > input, .bf-field-group__control > select, .bf-field-group__control > textarea { transition: none; }
+}

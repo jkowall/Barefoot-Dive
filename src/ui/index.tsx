@@ -1,4 +1,5 @@
 import { type KeyboardEvent, type ReactNode, type RefObject, useEffect, useId, useRef } from "react";
+import { CaveIcon, PlanIcon, PlansIcon, SettingsIcon, TankIcon, ToolsIcon } from "./icons";
 
 export { ProfileChart, type ProfileChartProps } from "./ProfileChart";
 export type { ChartSegmentInput, ReserveCrossingInput } from "./profileChartModel";
@@ -9,6 +10,14 @@ export type NavigationItem = {
   readonly key: RouteKey;
   readonly label: string;
   readonly badge?: string | number;
+};
+
+const routeIcons: Record<RouteKey, () => ReactNode> = {
+  plan: () => <PlanIcon />,
+  cave: () => <CaveIcon />,
+  tools: () => <ToolsIcon />,
+  tanks: () => <TankIcon />,
+  plans: () => <PlansIcon />,
 };
 
 const defaultNavigation: readonly NavigationItem[] = [
@@ -41,14 +50,18 @@ export function AppShell({ children, activeRoute, appVersion, engineVersion, nav
   const navigationButtons = (location: "rail" | "bottom") => (
     <nav className={`bf-nav bf-nav--${location}`} aria-label="Primary navigation">
       {navigation.map((item) => <button aria-current={item.key === activeRoute ? "page" : undefined} className="bf-nav__item" data-active={item.key === activeRoute || undefined} key={item.key} onClick={() => onNavigate?.(item.key)} type="button">
-        <span>{item.label}</span>{item.badge !== undefined && <span className="bf-nav__badge">{item.badge}</span>}
+        {routeIcons[item.key]()}<span>{item.label}</span>{item.badge !== undefined && <span className="bf-nav__badge">{item.badge}</span>}
       </button>)}
     </nav>
   );
   return <div className="bf-app-shell">
-    <aside className="bf-rail"><div className="bf-brand"><img alt="" aria-hidden="true" className="bf-brand__mark" src="/logo-64.png" /><span><small>BAREFOOT</small><strong>Dive</strong></span></div>{navigationButtons("rail")}</aside>
+    <aside className="bf-rail">
+      <div className="bf-brand"><img alt="" aria-hidden="true" className="bf-brand__mark" src="/logo-64.png" /><strong>{title}</strong></div>
+      {navigationButtons("rail")}
+      <div className="bf-rail__footer"><button aria-label="Open settings" className="bf-nav__item bf-nav__item--settings" onClick={onOpenSettings} type="button"><SettingsIcon /><span>Settings</span></button></div>
+    </aside>
     <div className="bf-workspace">
-      <header className="bf-topbar"><div className="bf-topbar__title">{title}</div><button aria-label="Open settings" className="bf-icon-button" onClick={onOpenSettings} type="button">⚙</button></header>
+      <header className="bf-topbar"><div className="bf-topbar__title">{title}</div><button aria-label="Open settings" className="bf-icon-button bf-topbar__settings" onClick={onOpenSettings} type="button"><SettingsIcon /></button></header>
       <main className="bf-content">{children}</main>
       <footer className="bf-app-footer">
         <dl aria-label="Software versions" className="bf-app-footer__versions">
@@ -66,8 +79,8 @@ export function AppShell({ children, activeRoute, appVersion, engineVersion, nav
   </div>;
 }
 
-export function PageHeader({ eyebrow, title, description, actions }: { readonly eyebrow?: string; readonly title: string; readonly description?: string; readonly actions?: ReactNode }) {
-  return <header className="bf-page-header"><div>{eyebrow && <p className="bf-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p className="bf-page-header__description">{description}</p>}</div>{actions && <div className="bf-page-header__actions">{actions}</div>}</header>;
+export function PageHeader({ eyebrow, tone, title, description, actions }: { readonly eyebrow?: string; readonly tone?: "warning" | "danger"; readonly title: string; readonly description?: string; readonly actions?: ReactNode }) {
+  return <header className="bf-page-header"><div>{eyebrow && <p className={`bf-eyebrow${tone ? ` bf-eyebrow--${tone}` : ""}`}>{eyebrow}</p>}<h1>{title}</h1>{description && <p className="bf-page-header__description">{description}</p>}</div>{actions && <div className="bf-page-header__actions">{actions}</div>}</header>;
 }
 
 export function SegmentedControl<T extends string>({ label, value, options, onChange }: { readonly label: string; readonly value: T; readonly options: readonly { readonly value: T; readonly label: string; readonly disabled?: boolean }[]; readonly onChange?: (value: T) => void }) {
@@ -84,15 +97,16 @@ export function Panel({ title, eyebrow, actions, children, className = "" }: { r
   return <section className={`bf-panel ${className}`.trim()}>{(title || eyebrow || actions) && <header className="bf-panel__header"><div>{eyebrow && <p className="bf-eyebrow">{eyebrow}</p>}{title && <h2>{title}</h2>}</div>{actions}</header>}<div className="bf-panel__body">{children}</div></section>;
 }
 
-export function ResultMetric({ label, value, detail, tone = "default" }: { readonly label: string; readonly value: string; readonly detail?: string; readonly tone?: "default" | "safe" | "warning" | "danger" }) {
-  return <div className="bf-metric" data-tone={tone}><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
+export function ResultMetric({ label, value, detail, tone = "default", kind = "number" }: { readonly label: string; readonly value: string; readonly detail?: string; readonly tone?: "default" | "safe" | "warning" | "danger"; readonly kind?: "number" | "text" }) {
+  return <div className={`bf-metric bf-metric--${kind}`} data-tone={tone}><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }
 
 export type WarningItem = { readonly id: string; readonly message: string; readonly severity?: "info" | "warning" | "error" };
 export function WarningList({ items, title = "Planning notes" }: { readonly items: readonly WarningItem[]; readonly title?: string }) {
   const titleId = useId();
   if (!items.length) return null;
-  return <section className="bf-warnings" aria-labelledby={titleId}><h2 id={titleId}>{title}</h2><ul>{items.map((item) => <li data-severity={item.severity ?? "warning"} key={item.id}>{item.message}</li>)}</ul></section>;
+  const tone = items.some((item) => item.severity === "error") ? "danger" : items.every((item) => item.severity === "info") ? "info" : "warning";
+  return <section className="bf-warnings" aria-labelledby={titleId} data-tone={tone}><h2 id={titleId}>{title}</h2><ul>{items.map((item) => <li data-severity={item.severity ?? "warning"} key={item.id}>{item.message}</li>)}</ul></section>;
 }
 
 export function GasChip({ name, oxygen, helium, role }: { readonly name: string; readonly oxygen: number; readonly helium?: number; readonly role?: string }) {
@@ -104,7 +118,7 @@ export function CylinderSummary({ name, gas, pressure, workingPressure, reserveP
 }
 
 export function EmptyState({ title, description, action }: { readonly title: string; readonly description: string; readonly action?: ReactNode }) {
-  return <section className="bf-empty-state"><span aria-hidden="true">⌁</span><h2>{title}</h2><p>{description}</p>{action}</section>;
+  return <section className="bf-empty-state"><h2>{title}</h2><p>{description}</p>{action}</section>;
 }
 
 export function CompletionNotice({ label, description, actions, containerRef }: {

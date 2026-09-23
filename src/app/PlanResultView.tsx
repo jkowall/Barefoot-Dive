@@ -14,6 +14,7 @@ import {
   type WarningItem,
 } from "../ui";
 import { ActionButton } from "./controls";
+import { groupRuntimeSegments } from "./runtimeRows";
 import {
   depthFromCanonical,
   depthUnit,
@@ -62,7 +63,7 @@ function profileReserveCrossings(plan: DivePlan, preferences: UnitPreferences): 
 }
 
 function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly RuntimeRow[] {
-  return plan.segments.map((segment) => ({
+  return groupRuntimeSegments(plan.segments).map((segment) => ({
     runtime: formatDuration(segment.startRuntimeSeconds),
     depth: formatDepth(segment.endDepthM, preferences.depth),
     duration: formatDuration(segment.durationSeconds),
@@ -92,11 +93,14 @@ function ledgerRow(entry: GasLedgerEntry, preferences: UnitPreferences): GasLedg
   };
 }
 
-function ScheduleAndLedger({ plan, preferences, title }: {
+function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
   readonly title: string;
+  readonly compact?: boolean;
 }) {
+  const rows = runtimeRows(plan, preferences);
+  const ledger = plan.gasLedger.map((entry) => ledgerRow(entry, preferences));
   return <>
     <Panel title={`${title} profile`}>
       <ProfileChart
@@ -107,12 +111,23 @@ function ScheduleAndLedger({ plan, preferences, title }: {
         unit={depthUnit(preferences.depth)}
       />
     </Panel>
-    <Panel title={`${title} runtime`}>
-      <RuntimeSchedule rows={runtimeRows(plan, preferences)} />
-    </Panel>
-    <Panel title={`${title} gas ledger`}>
-      <GasLedger rows={plan.gasLedger.map((entry) => ledgerRow(entry, preferences))} />
-    </Panel>
+    {compact ? <Panel title={`${title} tables`}>
+      <details className="bf-disclosure">
+        <summary>Runtime schedule <span>{rows.length} rows</span></summary>
+        <RuntimeSchedule rows={rows} />
+      </details>
+      <details className="bf-disclosure">
+        <summary>Gas ledger <span>{ledger.length} cylinders</span></summary>
+        <GasLedger rows={ledger} />
+      </details>
+    </Panel> : <>
+      <Panel title={`${title} runtime`}>
+        <RuntimeSchedule rows={rows} />
+      </Panel>
+      <Panel title={`${title} gas ledger`}>
+        <GasLedger rows={ledger} />
+      </Panel>
+    </>}
   </>;
 }
 
@@ -123,6 +138,7 @@ export function PlanResultView({
   onSave,
   title = "Calculated plan",
   completion,
+  compact = false,
 }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
@@ -130,6 +146,8 @@ export function PlanResultView({
   readonly onSave?: () => void;
   readonly title?: string;
   readonly completion?: ReactNode;
+  /** Fold the runtime and ledger tables behind disclosures; used for nested cave scenario output. */
+  readonly compact?: boolean;
 }) {
   return <section className="bf-results" aria-label={title}>
     {completion}
@@ -145,6 +163,7 @@ export function PlanResultView({
         <ResultMetric label="Maximum depth" value={formatDepth(plan.summary.maximumDepthM, preferences.depth)} />
         <ResultMetric
           detail={`${plan.metadata.conventionId} · ${plan.metadata.engineVersion}`}
+          kind="text"
           label="Safety status"
           tone={plan.safetyStatus === "unsafe" ? "danger" : "safe"}
           value={plan.safetyStatus === "unsafe" ? "Unsafe" : "Calculated"}
@@ -152,13 +171,14 @@ export function PlanResultView({
       </div>
     </Panel>
     <WarningList items={warningsFor(plan)} title="Plan diagnostics" />
-    <ScheduleAndLedger plan={plan} preferences={preferences} title="Primary" />
+    <ScheduleAndLedger compact={compact} plan={plan} preferences={preferences} title="Primary" />
     {plan.bailoutPlan && <>
       <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
         <div className="bf-metric-grid">
           <ResultMetric label="Bailout runtime" value={formatDuration(plan.bailoutPlan.summary.runtimeSeconds)} />
           <ResultMetric label="Bailout TTS" value={formatDuration(plan.bailoutPlan.summary.ttsSeconds)} />
           <ResultMetric
+            kind="text"
             label="Bailout status"
             tone={plan.bailoutPlan.safetyStatus === "unsafe" ? "danger" : "safe"}
             value={plan.bailoutPlan.safetyStatus}
@@ -166,7 +186,7 @@ export function PlanResultView({
         </div>
       </Panel>
       <WarningList items={warningsFor(plan.bailoutPlan)} title="Bailout diagnostics" />
-      <ScheduleAndLedger plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
+      <ScheduleAndLedger compact={compact} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
     </>}
   </section>;
 }
