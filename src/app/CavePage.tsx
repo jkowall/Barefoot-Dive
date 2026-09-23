@@ -49,6 +49,7 @@ import {
   depthUnit,
   formatDuration,
   formatPressure,
+  formatSurfaceGas,
   pressureInputStep,
   pressureInputToCanonical,
   pressureInputValue,
@@ -579,7 +580,7 @@ export default function CavePage({
           <ResultMetric label="Penetration time" value={formatDuration(calculated.result.route.penetrationTimeSeconds)} />
           <ResultMetric label="Total runtime" value={formatDuration(calculated.result.route.runtimeSeconds)} />
           <ResultMetric detail={limitingCylinderContext} kind="text" label="Limiting resource" tone={calculated.result.limitingResource === "none" ? "safe" : "warning"} value={calculated.result.limitingResource} />
-          <ResultMetric detail={limitingCylinderContext} label="Reserve margin" tone={calculated.result.reserveMarginL >= 0 ? "safe" : "danger"} value={`${Math.round(calculated.result.reserveMarginL)} L`} />
+          <ResultMetric detail={limitingCylinderContext} label="Reserve margin" tone={calculated.result.reserveMarginL >= 0 ? "safe" : "danger"} value={formatSurfaceGas(calculated.result.reserveMarginL, preferences.cylinderCapacity)} />
           {calculated.result.turnPressureBar !== undefined && <ResultMetric
             detail={turnCylinderContext ?? "No unique cylinder assignment; pressure hidden."}
             label="Operational turn pressure"

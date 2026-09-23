@@ -29,6 +29,8 @@ export type GasDraft = {
   readonly currentPressureBar: number;
   readonly minimumPressureBar?: number;
   readonly maximumPPO2Bar: number;
+  /** Deco and bailout gases can be excluded from a calculation without deleting them. Undefined means included. */
+  readonly enabled?: boolean;
 };
 
 export type ReserveDraft =
@@ -68,9 +70,7 @@ export type ResolvedPlanInput = {
 };
 
 export function tankSourceSignature(draft: PlanDraft, tanks: readonly TankRecord[]): string {
-  const selectedDrafts = draft.mode === "oc"
-    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases]
-    : [draft.diluent, ...draft.bailoutGases];
+  const selectedDrafts = activeGasDrafts(draft);
   return JSON.stringify(selectedDrafts.flatMap((gas) => {
     if (!gas.cylinderId) return [];
     const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
@@ -130,6 +130,14 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   bailoutDecoRmvLpm: 20,
   reserve: { kind: "fixed", minimumPressureBar: 35 },
 };
+
+/** Gases that take part in the calculation: bottom/diluent, an enabled travel gas, and deco/bailout gases not switched off. */
+export function activeGasDrafts(draft: PlanDraft): readonly GasDraft[] {
+  const included = (gas: GasDraft) => gas.enabled !== false;
+  return draft.mode === "oc"
+    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases.filter(included)]
+    : [draft.diluent, ...draft.bailoutGases.filter(included)];
+}
 
 function resolveGasAndCylinder(
   draft: GasDraft,
@@ -207,9 +215,7 @@ export function resolvePlanInput(
   tankBank: readonly TankRecord[],
   environment: DivePlanInput["environment"] = "open-water",
 ): ResolvedPlanInput {
-  const selectedDrafts = draft.mode === "oc"
-    ? [draft.bottomGas, ...(draft.travelGasEnabled ? [draft.travelGas] : []), ...draft.decoGases]
-    : [draft.diluent, ...draft.bailoutGases];
+  const selectedDrafts = activeGasDrafts(draft);
   const resolved = selectedDrafts.map((item) => resolveGasAndCylinder(item, tankBank));
   const gases = resolved.map((item) => item.gas);
   const cylinders = [...new Map(resolved.map((item) => [item.cylinder.id, item.cylinder])).values()];

@@ -197,7 +197,7 @@ export function SavePlanDialog({ open, defaultName = "", onSave, onCancel }: { r
 
 export type RuntimeRow = { readonly runtime: string; readonly depth: string; readonly duration: string; readonly gas?: ReactNode; readonly event: string };
 export function RuntimeSchedule({ rows }: { readonly rows: readonly RuntimeRow[] }) {
-  return <div className="bf-scroll-table"><table className="bf-schedule"><caption>Runtime schedule</caption><thead><tr><th>Runtime</th><th>Depth</th><th>Time</th><th>Gas</th><th>Instruction</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.runtime}-${index}`}><td>{row.runtime}</td><td>{row.depth}</td><td>{row.duration}</td><td>{row.gas ?? "—"}</td><td>{row.event}</td></tr>)}</tbody></table></div>;
+  return <div className="bf-scroll-table"><table className="bf-schedule"><caption>Runtime schedule</caption><thead><tr><th>Runtime (min)</th><th>Depth</th><th>Time</th><th>Gas</th><th>Instruction</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.runtime}-${index}`}><td>{row.runtime}</td><td>{row.depth}</td><td>{row.duration}</td><td>{row.gas ?? "—"}</td><td>{row.event}</td></tr>)}</tbody></table></div>;
 }
 
 export type GasLedgerRow = { readonly gas: ReactNode; readonly used: string; readonly reserve?: string; readonly remaining?: string; readonly status: "ok" | "warning" | "short" };

@@ -44,6 +44,8 @@ These items are listed in priority order and take precedence over adding planner
 
 ## Later candidates: open-water planning depth
 
+- Gas-only planning mode: enter gases without cylinders and read total surface volume per gas. Today every gas needs a cylinder because reserve, remaining pressure, and reserve-crossing semantics are cylinder-based; the ledger already reports used volume per gas in the preferred unit.
+
 1. Arbitrary multi-level open-water profile editing using the existing exposure-event model.
 2. Repetitive dives and explicit surface intervals with serializable tissue-state lineage.
 3. General `+5 minutes` and lost-gas comparison plans.
@@ -53,6 +55,10 @@ These items are listed in priority order and take precedence over adding planner
 Entry gate: qualified evaluation shows that current square-profile planning is understood and that at least one candidate addresses a repeated planning need. Every edited or derived profile must be deterministic, unit-safe, snapshot-compatible, and covered by planner/Tool parity and migration tests.
 
 ## Later candidates: CCR and exposure expansion
+
+- Diluent as an explicit bailout gas ("dil-out"): sharing the diluent cylinder between loop use and open-circuit bailout changes the bailout gas ledger and needs its own reserve semantics and review.
+- Low/high setpoint phases: the current model breathes open-circuit diluent from the surface to the setpoint activation depth, then holds one constant setpoint; a low-setpoint descent phase (or high setpoint from the surface as a default) needs engine and exposure changes and independent review. Interim: set the activation depth to 0 to model the loop closed from the surface.
+- Separate setpoint deactivation depth on ascent: activation and deactivation currently share one depth, so the loop opens at the same depth on the way up.
 
 1. If the CCR onboard-gas decision supports it, estimate onboard oxygen use from a configurable metabolic rate plus explicit additions or losses, and diluent use from descent, ADV/manual-add, flush, and loop-loss assumptions. Define and version which values are profile-derived versus user-entered, attribute every use to an explicit cylinder, keep the calculation local, and never infer it from OC RMV.
 2. Multiple automatic or manually scheduled CCR setpoint transitions.

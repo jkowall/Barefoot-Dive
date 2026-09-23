@@ -21,6 +21,8 @@ import {
   formatDepth,
   formatDuration,
   formatPressure,
+  formatSurfaceGas,
+  ratedCapacityFromCanonical,
   type UnitPreferences,
 } from "./helpers";
 
@@ -64,7 +66,7 @@ function profileReserveCrossings(plan: DivePlan, preferences: UnitPreferences): 
 
 function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly RuntimeRow[] {
   return groupRuntimeSegments(plan.segments).map((segment) => ({
-    runtime: formatDuration(segment.startRuntimeSeconds),
+    runtime: String(Math.round(segment.startRuntimeSeconds / 60)),
     depth: formatDepth(segment.endDepthM, preferences.depth),
     duration: formatDuration(segment.durationSeconds),
     gas: segment.gasName,
@@ -73,20 +75,24 @@ function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly Run
 }
 
 function ledgerRow(entry: GasLedgerEntry, preferences: UnitPreferences): GasLedgerRow {
+  const capacity = preferences.cylinderCapacity;
+  const volume = (litersValue: number) => formatSurfaceGas(litersValue, capacity);
   const context = entry.cylinderWaterVolumeL === undefined
     ? undefined
-    : `${entry.cylinderWaterVolumeL.toFixed(1)} L cylinder`;
+    : capacity === "imperial" && entry.workingPressureBar !== undefined
+      ? `${ratedCapacityFromCanonical(entry.cylinderWaterVolumeL, entry.workingPressureBar, capacity).toFixed(1)} ft³ cylinder`
+      : `${entry.cylinderWaterVolumeL.toFixed(1)} L cylinder`;
   const remaining = entry.remainingVolumeL === undefined
     ? undefined
     : entry.remainingPressureBar === undefined || !context
-      ? `${Math.round(entry.remainingVolumeL)} L`
-      : `${Math.round(entry.remainingVolumeL)} L · ${formatPressure(entry.remainingPressureBar, preferences.pressure)} in ${context}`;
+      ? volume(entry.remainingVolumeL)
+      : `${volume(entry.remainingVolumeL)} · ${formatPressure(entry.remainingPressureBar, preferences.pressure)} in ${context}`;
   const reserve = entry.reserveL === undefined
     ? undefined
-    : `${Math.round(entry.reserveL)} L${entry.cylinderWaterVolumeL === undefined ? "" : ` · ${context}`}`;
+    : `${volume(entry.reserveL)}${entry.cylinderWaterVolumeL === undefined ? "" : ` · ${context}`}`;
   return {
     gas: `${entry.cylinderName ?? entry.gasName}${context ? ` · ${context}` : ""}`,
-    used: `${Math.round(entry.totalUsedL)} L`,
+    used: volume(entry.totalUsedL),
     reserve,
     remaining,
     status: entry.sufficient ? "ok" : entry.reserveCrossing ? "short" : "warning",

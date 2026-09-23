@@ -28,6 +28,10 @@ import {
   pressureInputValue,
   pressureUnit,
   ratedCapacityFromCanonical,
+  surfaceGasRateInputStep,
+  surfaceGasRateInputToCanonical,
+  surfaceGasRateInputValue,
+  surfaceGasRateUnit,
   waterVolumeFromRatedCapacity,
   type UnitPreferences,
 } from "./helpers";
@@ -59,6 +63,9 @@ function GasEditor({
   preferences,
   onChange,
   onRemove,
+  reserveKind,
+  showSwitchDepth = true,
+  switchable = false,
 }: {
   readonly containerRef?: Ref<HTMLElement>;
   readonly value: GasDraft;
@@ -66,11 +73,27 @@ function GasEditor({
   readonly preferences: UnitPreferences;
   readonly onChange: (next: GasDraft) => void;
   readonly onRemove?: () => void;
+  /** Active reserve policy; cave thirds/sixths lock the cylinder minimum to the policy fraction. */
+  readonly reserveKind?: ReserveDraft["kind"];
+  /** Bottom gas only needs a switch depth when a travel gas is in use. */
+  readonly showSwitchDepth?: boolean;
+  /** Deco and bailout gases can be switched off to see the plan without them. */
+  readonly switchable?: boolean;
 }) {
   const selected = tanks.find((tank) => tank.id === value.cylinderId);
   const gas = selected?.gas;
   const change = <K extends keyof GasDraft>(key: K, next: GasDraft[K]) => onChange({ ...value, [key]: next });
-  return <article className="bf-gas-editor" ref={containerRef}>
+  const included = value.enabled !== false;
+  const policyFraction = reserveKind === "thirds" ? 1 / 3 : reserveKind === "sixths" ? 2 / 3 : undefined;
+  const policyMinimumBar = policyFraction === undefined ? undefined : value.currentPressureBar * policyFraction;
+  const enteredMinimumBar = value.minimumPressureBar ?? 0;
+  const lockedMinimumBar = policyMinimumBar === undefined ? undefined : Math.max(policyMinimumBar, enteredMinimumBar);
+  const lockHint = policyMinimumBar === undefined
+    ? undefined
+    : enteredMinimumBar > policyMinimumBar
+      ? `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy; the entered cylinder minimum is higher than ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure, so it governs.`
+      : `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy: ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure.`;
+  return <article className="bf-gas-editor" data-excluded={included ? undefined : ""} ref={containerRef}>
     <header className="bf-row-header">
       <div>
         <p className="bf-eyebrow">{value.role}</p>
@@ -80,9 +103,16 @@ function GasEditor({
           <span className="bf-inline-summary">{ratedCapacityFromCanonical(selected.waterVolumeL, selected.workingPressureBar, preferences.cylinderCapacity).toFixed(1)} {capacityUnit(preferences.cylinderCapacity)} {preferences.cylinderCapacity === "imperial" ? "rated at working pressure" : "water volume"} · {formatPressure(selected.currentPressureBar, preferences.pressure)}</span>
         </div>}
       </div>
-      {onRemove && <ActionButton danger onClick={onRemove} quiet small>Remove</ActionButton>}
+      <div className="bf-row-header__actions">
+        {switchable && <label className="bf-check bf-gas-editor__switch">
+          <input aria-label={`Include ${gas?.name ?? value.name} in plan`} checked={included} onChange={(event) => change("enabled", event.currentTarget.checked)} type="checkbox" />
+          <span>Include in plan</span>
+        </label>}
+        {onRemove && <ActionButton danger onClick={onRemove} quiet small>Remove</ActionButton>}
+      </div>
     </header>
-    <div className="bf-form-grid bf-form-grid--gas">
+    {!included && <p className="bf-panel__note">Excluded from this calculation. The entered values are kept; switch it back on to plan with this gas.</p>}
+    {included && <div className="bf-form-grid bf-form-grid--gas">
       <FieldGroup label="Cylinder source">
         <select
           aria-label={`${value.name} cylinder source`}
@@ -121,22 +151,24 @@ function GasEditor({
           value={pressureInputValue(value.currentPressureBar, preferences.pressure)}
         />
         <NumberField
+          disabled={lockedMinimumBar !== undefined}
+          hint={lockHint}
           label={`Cylinder minimum (${pressureUnit(preferences.pressure)})`}
           min={0}
           onChange={(next) => change("minimumPressureBar", pressureInputToCanonical(next, preferences.pressure, [value.minimumPressureBar ?? 0, value.currentPressureBar]))}
           step={pressureInputStep(preferences.pressure)}
-          value={pressureInputValue(value.minimumPressureBar ?? 0, preferences.pressure)}
+          value={pressureInputValue(lockedMinimumBar ?? enteredMinimumBar, preferences.pressure)}
         />
         <NumberField label="Cylinder max PPO₂ (bar)" min={0.1} onChange={(next) => change("maximumPPO2Bar", next)} step={0.05} value={value.maximumPPO2Bar} />
       </>}
-      {(value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <NumberField
+      {showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <NumberField
         hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
         label={`Switch depth (${depthUnit(preferences.depth)})`}
         min={0}
         onChange={(next) => change("switchDepthM", depthToCanonical(next, preferences.depth))}
         value={depthInputValue(value.switchDepthM ?? 0, preferences.depth)}
       />}
-    </div>
+    </div>}
   </article>;
 }
 
@@ -197,7 +229,7 @@ function ReserveEditor({ value, preferences, onChange }: {
     {value.kind === "custom" && <NumberField label="Reserve volume (surface L)" min={0} onChange={(reserveVolumeL) => onChange({ ...value, reserveVolumeL })} value={value.reserveVolumeL} />}
     {value.kind === "rock-bottom" && <>
       <NumberField label="Team size" min={1} onChange={(teamSize) => onChange({ ...value, teamSize })} value={value.teamSize} />
-      <NumberField label="Stressed RMV per diver (L/min)" min={1} onChange={(stressedRmvLpm) => onChange({ ...value, stressedRmvLpm })} value={value.stressedRmvLpm} />
+      <NumberField label={`Stressed SAC/RMV per diver (${surfaceGasRateUnit(preferences.cylinderCapacity)})`} min={0.1} onChange={(next) => onChange({ ...value, stressedRmvLpm: surfaceGasRateInputToCanonical(next, preferences.cylinderCapacity, [value.stressedRmvLpm]) })} step={surfaceGasRateInputStep()} value={surfaceGasRateInputValue(value.stressedRmvLpm, preferences.cylinderCapacity)} />
     </>}
   </div>;
 }
@@ -220,6 +252,15 @@ export function PlannerEditor({
   const [pendingGasKey, setPendingGasKey] = useState<string>();
   const pendingGasRef = useRef<HTMLElement>(null);
   const set = <K extends keyof PlanDraft>(key: K, value: PlanDraft[K]) => onChange({ ...draft, [key]: value });
+  const rateUnit = surfaceGasRateUnit(preferences.cylinderCapacity);
+  const rateField = (label: string, key: "bottomRmvLpm" | "decoRmvLpm" | "bailoutRmvLpm" | "bailoutDecoRmvLpm") => <NumberField
+    key={key}
+    label={`${label} (${rateUnit})`}
+    min={0.1}
+    onChange={(next) => set(key, surfaceGasRateInputToCanonical(next, preferences.cylinderCapacity, [draft[key]]))}
+    step={surfaceGasRateInputStep()}
+    value={surfaceGasRateInputValue(draft[key], preferences.cylinderCapacity)}
+  />;
   const updateArray = (key: "decoGases" | "bailoutGases", index: number, value: GasDraft) => {
     const next = [...draft[key]];
     next[index] = value;
@@ -263,20 +304,45 @@ export function PlannerEditor({
       </div>
     </Panel>
 
+    <Panel title="Decompression and gas policies">
+      <div className="bf-form-grid">
+        <SelectField<PlannerConventionId>
+          hint="All compatibility presets remain explicitly experimental until their validation suites are complete."
+          label="Convention preset"
+          onChange={(conventionId) => set("conventionId", conventionId)}
+          options={[
+            { value: "barefoot-zhl16c-v1", label: "Barefoot ZHL-16C preset" },
+            { value: "shearwater-petrel3-v103-compatible-v1", label: "Shearwater Petrel 3 documented preset" },
+            { value: "multideco-zhlc-compatible-v1", label: "MultiDeco ZHL-C preset" },
+          ]}
+          value={draft.conventionId}
+        />
+        <NumberField label="GF Low (%)" max={100} min={1} onChange={(gfLowPercent) => set("gfLowPercent", gfLowPercent)} value={draft.gfLowPercent} />
+        <NumberField label="GF High (%)" max={100} min={1} onChange={(gfHighPercent) => set("gfHighPercent", gfHighPercent)} value={draft.gfHighPercent} />
+        {rateField("Bottom SAC/RMV", "bottomRmvLpm")}
+        {rateField("Deco SAC/RMV", "decoRmvLpm")}
+        {rateField("Bailout SAC/RMV", "bailoutRmvLpm")}
+        {rateField("Bailout deco SAC/RMV", "bailoutDecoRmvLpm")}
+      </div>
+      <ReserveEditor onChange={(reserve) => set("reserve", reserve)} preferences={preferences} value={draft.reserve} />
+    </Panel>
+
     {draft.mode === "oc" ? <Panel
       actions={<ActionButton onClick={() => addGas("decoGases", "deco")} quiet>Add deco gas</ActionButton>}
       title="Open-circuit gases"
     >
       <p className="bf-panel__note">Tank Bank cylinders are copied into this calculation as snapshots. {preferences.cylinderCapacity === "imperial" ? "Rated capacity is converted with the cylinder working pressure." : "Capacity is the physical internal water volume."} Deco and bailout gases are eligible only at or shallower than their switch depth.</p>
-      <GasEditor onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} tanks={tanks} value={draft.bottomGas} />
+      <GasEditor onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
-      {draft.travelGasEnabled && <GasEditor onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} tanks={tanks} value={draft.travelGas} />}
+      {draft.travelGasEnabled && <GasEditor onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} value={draft.travelGas} />}
       {draft.decoGases.map((gas, index) => <GasEditor
         containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
         key={gas.key}
         onChange={(next) => updateArray("decoGases", index, next)}
         onRemove={() => set("decoGases", draft.decoGases.filter((_, gasIndex) => gasIndex !== index))}
         preferences={preferences}
+        reserveKind={draft.reserve.kind}
+        switchable
         tanks={tanks}
         value={gas}
       />)}
@@ -299,7 +365,7 @@ export function PlannerEditor({
           />
           {draft.bailoutTriggerMinutes !== undefined && <NumberField label="Bailout trigger at depth (min)" min={0} max={draft.bottomTimeMinutes} onChange={(bailoutTriggerMinutes) => set("bailoutTriggerMinutes", bailoutTriggerMinutes)} value={draft.bailoutTriggerMinutes} />}
         </div>
-        <GasEditor onChange={(diluent) => set("diluent", diluent)} preferences={preferences} tanks={tanks} value={draft.diluent} />
+        <GasEditor onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} value={draft.diluent} />
       </Panel>
       <Panel
         actions={<ActionButton onClick={() => addGas("bailoutGases", "bailout")} quiet>Add bailout gas</ActionButton>}
@@ -311,34 +377,13 @@ export function PlannerEditor({
           onChange={(next) => updateArray("bailoutGases", index, next)}
           onRemove={() => set("bailoutGases", draft.bailoutGases.filter((_, gasIndex) => gasIndex !== index))}
           preferences={preferences}
+          reserveKind={draft.reserve.kind}
+          switchable
           tanks={tanks}
           value={gas}
         />)}
       </Panel>
     </>}
-
-    <Panel title="Decompression and gas policies">
-      <div className="bf-form-grid">
-        <SelectField<PlannerConventionId>
-          hint="All compatibility presets remain explicitly experimental until their validation suites are complete."
-          label="Convention preset"
-          onChange={(conventionId) => set("conventionId", conventionId)}
-          options={[
-            { value: "barefoot-zhl16c-v1", label: "Barefoot ZHL-16C preset" },
-            { value: "shearwater-petrel3-v103-compatible-v1", label: "Shearwater Petrel 3 documented preset" },
-            { value: "multideco-zhlc-compatible-v1", label: "MultiDeco ZHL-C preset" },
-          ]}
-          value={draft.conventionId}
-        />
-        <NumberField label="GF Low (%)" max={100} min={1} onChange={(gfLowPercent) => set("gfLowPercent", gfLowPercent)} value={draft.gfLowPercent} />
-        <NumberField label="GF High (%)" max={100} min={1} onChange={(gfHighPercent) => set("gfHighPercent", gfHighPercent)} value={draft.gfHighPercent} />
-        <NumberField label="Bottom RMV (L/min)" min={1} onChange={(bottomRmvLpm) => set("bottomRmvLpm", bottomRmvLpm)} value={draft.bottomRmvLpm} />
-        <NumberField label="Deco RMV (L/min)" min={1} onChange={(decoRmvLpm) => set("decoRmvLpm", decoRmvLpm)} value={draft.decoRmvLpm} />
-        <NumberField label="Bailout RMV (L/min)" min={1} onChange={(bailoutRmvLpm) => set("bailoutRmvLpm", bailoutRmvLpm)} value={draft.bailoutRmvLpm} />
-        <NumberField label="Bailout deco RMV (L/min)" min={1} onChange={(bailoutDecoRmvLpm) => set("bailoutDecoRmvLpm", bailoutDecoRmvLpm)} value={draft.bailoutDecoRmvLpm} />
-      </div>
-      <ReserveEditor onChange={(reserve) => set("reserve", reserve)} preferences={preferences} value={draft.reserve} />
-    </Panel>
   </>;
 }
 

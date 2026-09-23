@@ -49,6 +49,9 @@
 .bf-row-header { display: flex; align-items: center; justify-content: space-between; gap: var(--bf-space-3); margin-bottom: var(--bf-space-3); }
 .bf-row-header > div { display: grid; min-width: 0; gap: 2px; }
 .bf-row-header__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bf-space-2); margin-top: var(--bf-space-1); }
+.bf-row-header__actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--bf-space-3); }
+.bf-gas-editor__switch { min-height: 32px; color: var(--bf-text-muted); font-size: var(--bf-text-sm); white-space: nowrap; }
+.bf-gas-editor[data-excluded] h3 { color: var(--bf-text-muted); text-decoration: line-through; text-decoration-color: var(--bf-text-faint); }
 .bf-row-header__meta .bf-inline-summary { display: inline; min-height: 0; font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); }
 
 .bf-gas-editor, .bf-route-editor {

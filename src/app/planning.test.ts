@@ -54,4 +54,20 @@ describe("plan input resolution", () => {
     expect(resolved.input.bailoutGases).toHaveLength(2);
     expect(resolved.cylinders).toHaveLength(3);
   });
+
+  it("excludes a switched-off deco gas and its cylinder without deleting the draft entry", () => {
+    const draft = structuredClone(DEFAULT_PLAN_DRAFT);
+    const disabled = { ...draft.decoGases[1]!, enabled: false as const };
+    const resolved = resolvePlanInput({ ...draft, decoGases: [draft.decoGases[0]!, disabled] }, []);
+    expect(resolved.gases.map((gas) => gas.name)).toEqual([draft.bottomGas.name, draft.decoGases[0]!.name]);
+    expect(resolved.cylinders).toHaveLength(2);
+    expect(resolved.input.mode === "oc" ? resolved.input.decoGases : []).toHaveLength(1);
+  });
+
+  it("keeps a switched-off bailout gas out of the CCR bailout list", () => {
+    const draft = structuredClone(DEFAULT_PLAN_DRAFT);
+    const bailout = draft.bailoutGases.map((gas, index) => index === 0 ? { ...gas, enabled: false as const } : gas);
+    const resolved = resolvePlanInput({ ...draft, mode: "ccr", bailoutGases: bailout }, []);
+    expect(resolved.input.mode === "ccr" ? resolved.input.bailoutGases.length : -1).toBe(draft.bailoutGases.length - 1);
+  });
 });

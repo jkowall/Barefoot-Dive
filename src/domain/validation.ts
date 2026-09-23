@@ -250,7 +250,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
     }
     cylinderIds.add(cylinder.id);
     if (cylinder.currentPressureBar > cylinder.workingPressureBar) {
-      warnings.push(warning("CYLINDER_OVER_WORKING_PRESSURE", `${cylinder.name} is above its stated working pressure.`, `cylinders.${index}.currentPressureBar`));
+      warnings.push(warning("CYLINDER_OVER_WORKING_PRESSURE", `${cylinder.name} starts above its stated working pressure (overfill); the plan uses the entered starting pressure.`, `cylinders.${index}.currentPressureBar`));
     }
   });
   gases.forEach((gas, index) => {

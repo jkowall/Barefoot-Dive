@@ -14,6 +14,14 @@
 - Folded the runtime and gas-ledger tables of nested Cave base and scenario plans behind disclosures so Cave Review no longer repeats two full table sets; the charts, aggregate status, and diagnostics stay visible.
 - Presented the Tools library as a list with mode tags, consolidated the duplicate page-local button and field components onto the shared controls, and refreshed Tank Bank and Saved Plans cards, filters, and dialogs to the same system.
 - Regenerated the phone, tablet, and desktop visual baselines for the new system.
+- Runtime schedule: the Runtime column now shows whole minutes; the Time column, the profile graph, and the profile data table keep exact mm:ss values.
+- Gas ledger: used, reserve, and remaining gas follow the cylinder-capacity preference (ft³ or L), and cylinders are described by rated ft³ capacity when the imperial preference is active; remaining pressure keeps the PSI/bar preference. The Cave reserve margin uses the same unit.
+- Deco and bailout gases have an "Include in plan" switch so a gas can be removed from a calculation (lost or not carried) without deleting its entry; excluded gases and their cylinders are left out of the resolved plan input.
+- Plan Setup order: Decompression and gas policies now sits above the gas cylinders.
+- Cave thirds and cave sixths reserve policies lock each ad hoc cylinder's minimum-pressure field to the policy fraction of the starting pressure (one third or two thirds); when an entered minimum is higher, the field shows that value and says it governs. Reserve arithmetic is unchanged: the effective reserve was already the larger of the policy reserve and the cylinder minimum.
+- SAC/RMV inputs in Plan (bottom, deco, bailout, bailout deco, rock-bottom stressed rate) follow the cylinder-capacity preference (ft³/min or L/min) with canonical L/min retained.
+- The bottom-gas switch depth is shown only when a travel gas is in use.
+- The overfilled-cylinder message is a clearer warning: the plan proceeds with the entered starting pressure.
 
 ## [0.2.2] - 2026-08-24
 
