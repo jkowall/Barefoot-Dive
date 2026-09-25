@@ -37,6 +37,8 @@ export type CalculatedCaveSession = {
   readonly diagnostics: readonly Diagnostic[];
   readonly inputSignature: string;
   readonly sourceSignature: string;
+  /** Superseded by an unavailable Tank Bank source; see `WorkspaceCalculation` in `workspaceStatus.ts`. */
+  readonly sourceInvalidated?: boolean;
 };
 
 export type CaveWorkspaceSession = {

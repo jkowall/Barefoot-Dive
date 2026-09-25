@@ -755,6 +755,45 @@ test("blocks Plan when its Tank Bank record is quarantined and names the stored 
   expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(damaged);
 });
 
+/** Makes the Tank Bank unreadable, then restores its exact stored text, reopening `workspace` after each step. */
+async function interruptTankBank(page: Page, workspace: "Plan" | "Cave") {
+  const reopen = async () => {
+    await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+    await page.getByRole("button", { name: workspace, exact: true }).first().click();
+  };
+  const stored = await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank") ?? "");
+  await page.evaluate(() => localStorage.setItem("barefoot-dive:tank-bank", JSON.stringify({ schemaVersion: 2, records: [] })));
+  await reopen();
+  await expect(page.getByRole("status").filter({ hasText: /^Source unavailable$/ })).toBeVisible();
+  await page.evaluate((raw) => localStorage.setItem("barefoot-dive:tank-bank", raw), stored);
+  await reopen();
+}
+
+test("keeps an earlier Plan result hidden after an unavailable source returns unchanged", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await interruptTankBank(page, "Plan");
+  // The record and every input are byte-identical to the calculation, but the source went missing in between.
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await expect(unavailableSourceNotice(page)).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeHidden();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+
+  await page.getByRole("button", { name: "Update plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+});
+
 test("calculates CCR, cave, and the Tools library without a remote dependency", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByText("CCR", { exact: true }).first().click();
@@ -932,6 +971,30 @@ test("blocks Cave while its Tank Bank cylinder is archived, like Plan, until the
   await page.getByRole("button", { name: "Update cave plan" }).click();
   await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
   await expect(calculatedCave).toContainText("Tx18/45");
+});
+
+test("keeps an earlier Cave result hidden after an unavailable source returns unchanged", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await interruptTankBank(page, "Cave");
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeHidden();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+
+  await page.getByRole("button", { name: "Update cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeVisible();
 });
 
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {

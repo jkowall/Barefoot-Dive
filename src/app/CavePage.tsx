@@ -59,6 +59,7 @@ import {
 import { PlannerEditor, readTankBank } from "./PlanPage";
 import { PlanResultView } from "./PlanResultView";
 import { resolvePlanInput, tankSourceSignature, type PlanDraft } from "./planning";
+import { invalidateForUnavailableSource, workspaceStatus, type WorkspaceStatus } from "./workspaceStatus";
 
 type CompletionEvent = {
   readonly revision: number;
@@ -144,11 +145,9 @@ function scenarioLabel(kind: CaveScenarioKind): string {
   }[kind];
 }
 
-type CaveWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed" | "source-unavailable";
-
 const AUTO_RECALCULATE_MS = 400;
 
-const statusLabel: Record<CaveWorkspaceStatus, string> = {
+const statusLabel: Record<WorkspaceStatus, string> = {
   draft: "Draft",
   updating: "Updating",
   current: "Current",
@@ -157,7 +156,7 @@ const statusLabel: Record<CaveWorkspaceStatus, string> = {
   "source-unavailable": "Source unavailable",
 };
 
-const statusDescription: Record<CaveWorkspaceStatus, string> = {
+const statusDescription: Record<WorkspaceStatus, string> = {
   draft: "No cave calculation yet. Review route, gas access, and scenarios, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous cave results are hidden.",
   current: "The result matches every current route, scenario, gas, and limit input.",
@@ -238,24 +237,13 @@ export default function CavePage({
   }, [dive, draft.mode, limits, normalizedRoute, scenarios]);
   const inputSignature = input === undefined ? undefined : JSON.stringify(input);
   const sourceSignature = tankSourceSignature(draft, tankBank, "cave");
-  const calculatedIsCurrent = inputSignature !== undefined && calculated?.inputSignature === inputSignature;
-  const attemptedCurrentInput = inputSignature !== undefined && session.attemptedInputSignature === inputSignature;
-  const sourceChanged = Boolean(
-    calculated
-    && calculated.sourceSignature !== sourceSignature
-    && !calculatedIsCurrent,
-  );
-  const status: CaveWorkspaceStatus = !resolved.ok
-    ? "source-unavailable"
-    : calculatedIsCurrent
-      ? "current"
-      : attemptedCurrentInput
-        ? "needs-attention"
-        : sourceChanged
-          ? "source-changed"
-          : calculated
-            ? "updating"
-            : "draft";
+  const status = workspaceStatus({
+    inputSignature,
+    sourceSignature,
+    calculated,
+    attemptedInputSignature: session.attemptedInputSignature,
+  });
+  const calculatedIsCurrent = status === "current";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
     revision: (current?.revision ?? 0) + 1,
@@ -330,6 +318,11 @@ export default function CavePage({
     });
     return () => cancelAnimationFrame(frame);
   }, [onSessionChange, pendingRouteId, route]);
+
+  // A source that becomes unavailable supersedes the earlier result, even if it later returns unchanged.
+  useEffect(() => {
+    if (!resolved.ok) onSessionChange(invalidateForUnavailableSource);
+  }, [onSessionChange, resolved.ok]);
 
   useEffect(() => {
     if (status !== "updating") return;

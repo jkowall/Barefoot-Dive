@@ -56,6 +56,7 @@ import {
 } from "./planning";
 import { PlanResultView } from "./PlanResultView";
 import type { PlanWorkspaceSession, PlanWorkspaceView } from "./planWorkspace";
+import { invalidateForUnavailableSource, workspaceStatus, type WorkspaceStatus } from "./workspaceStatus";
 
 const diagnosticItems = (diagnostics: readonly Diagnostic[]): readonly WarningItem[] => diagnostics.map((item, index) => ({
   id: `${item.code}-${index}`,
@@ -537,11 +538,9 @@ type CompletionEvent = {
   readonly description: string;
 };
 
-type PlanWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed" | "source-unavailable";
-
 const AUTO_RECALCULATE_MS = 400;
 
-const statusLabel: Record<PlanWorkspaceStatus, string> = {
+const statusLabel: Record<WorkspaceStatus, string> = {
   draft: "Draft",
   updating: "Updating",
   current: "Current",
@@ -550,7 +549,7 @@ const statusLabel: Record<PlanWorkspaceStatus, string> = {
   "source-unavailable": "Source unavailable",
 };
 
-const statusDescription: Record<PlanWorkspaceStatus, string> = {
+const statusDescription: Record<WorkspaceStatus, string> = {
   draft: "No calculation yet. Review the setup, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous results are hidden.",
   current: "The calculated result matches every current input.",
@@ -592,24 +591,13 @@ export default function PlanPage({
   const input = resolved.input;
   const inputSignature = input === undefined ? undefined : JSON.stringify(input);
   const sourceSignature = tankSourceSignature(draft, tankBank);
-  const calculatedIsCurrent = inputSignature !== undefined && session.calculated?.inputSignature === inputSignature;
-  const attemptedCurrentInput = inputSignature !== undefined && session.attemptedInputSignature === inputSignature;
-  const sourceChanged = Boolean(
-    session.calculated
-    && session.calculated.sourceSignature !== sourceSignature
-    && !calculatedIsCurrent,
-  );
-  const status: PlanWorkspaceStatus = !resolved.ok
-    ? "source-unavailable"
-    : calculatedIsCurrent
-      ? "current"
-      : attemptedCurrentInput
-        ? "needs-attention"
-        : sourceChanged
-          ? "source-changed"
-          : session.calculated
-            ? "updating"
-            : "draft";
+  const status = workspaceStatus({
+    inputSignature,
+    sourceSignature,
+    calculated: session.calculated,
+    attemptedInputSignature: session.attemptedInputSignature,
+  });
+  const calculatedIsCurrent = status === "current";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
     revision: (current?.revision ?? 0) + 1,
@@ -650,6 +638,11 @@ export default function PlanPage({
       if (announce) showCompletion("Plan calculation complete", "Current inputs match the displayed result; review all diagnostics before saving.");
     }
   }, [input, inputSignature, onSessionChange, showCompletion, sourceSignature]);
+
+  // A source that becomes unavailable supersedes the earlier result, even if it later returns unchanged.
+  useEffect(() => {
+    if (!resolved.ok) onSessionChange(invalidateForUnavailableSource);
+  }, [onSessionChange, resolved.ok]);
 
   useEffect(() => {
     if (status !== "updating") return;
