@@ -3,8 +3,9 @@ import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POL
 import type { CcrDiveInput, DivePlanInput } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
 import { calculateDivePlan } from "../engine/planner";
+import type { TankRecord } from "../storage";
 import { SavedPlansStore } from "../storage/savedPlans";
-import type { SavedPlanRecord, StorageLike, TankRecord } from "../storage/types";
+import type { SavedPlanRecord, StorageLike } from "../storage/types";
 import { DEFAULT_PLAN_DRAFT, resolvePlanInput } from "./planning";
 import { buildRecalculation } from "./recalculation";
 
