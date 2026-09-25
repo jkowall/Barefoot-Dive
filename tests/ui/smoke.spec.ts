@@ -14,7 +14,7 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   const footer = page.getByRole("contentinfo");
   const versions = footer.locator(".bf-app-footer__versions");
   await expect(versions.getByText("App", { exact: true })).toBeVisible();
-  await expect(versions.getByText("0.5.0", { exact: true })).toBeVisible();
+  await expect(versions.getByText("0.5.1", { exact: true })).toBeVisible();
   await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
   await expect(versions.getByText("barefoot-dive-engine-0.3.0", { exact: true })).toBeVisible();
   const projectLinks = footer.getByRole("navigation", { name: "Project links" });
@@ -81,7 +81,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.5.0 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
+  await expect(settings.getByText("App 0.5.1 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 

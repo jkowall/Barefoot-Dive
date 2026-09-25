@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the `0.5.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.5.1` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,13 +11,14 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: `0.5.0` evaluation build
+## Current: `0.5.1` evaluation build
 
 - Unit-safe ZH-L16C/GF engine, OC planning, CCR decompression/exposure with a low setpoint from the surface and a high setpoint below separate switch-up and switch-down depths, exact-trigger-state CCR bailout to open circuit, dil-out, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
 - Engine 0.3.0: every ascent leg re-checks its arrival ceiling, and new open-water OC plans charge the bottom RMV until the first stop, with a Setup switch back to the original deco-RMV-from-end-of-bottom rule.
 - Gas-only open-water planning with per-gas minimum volumes to carry, and bailout surface/coverage checks plus mid-leg switches that keep open-circuit ascents breathable.
 - Experimental cave route context with accessible cylinders, stage drop/recovery, gas-derived OC turn constraints, CCR bailout-derived limits, and required failure scenarios.
 - Tank Bank, immutable Saved Plan revisions, all eleven Tools calculators, responsive offline PWA, and iOS/Android shells.
+- Tank Bank integrity: invalid stored cylinders are quarantined one record at a time, and Plan and Cave stop instead of calculating while a gas's Tank Bank cylinder is unavailable or selected for another gas.
 - Representative DecoTengu and pinned Abysner comparison coverage with known input and schedule-distribution differences documented.
 - Experimental compatibility presets for Barefoot, Shearwater Petrel 3, and MultiDeco conventions.
 - Task-oriented Gas & depth, Consumption & cylinders, and Emergency & exposure Tools categories; focused responsive workspaces; ephemeral per-session inputs; Tank Bank snapshot/manual-detachment; and narrow, explicit Plan patches. Emergency Gas remains an entered-schedule check, not a generated decompression/bailout plan; OC cylinder context is optional and CCR bailout-cylinder context is required.
