@@ -71,6 +71,25 @@ test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await expect(page).toHaveScreenshot(`cave-${testInfo.project.name}.png`, { fullPage: true });
 });
 
+test("shared Tank Bank cylinder on a Cave route leg visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
+  const leg = page.locator(".bf-route-editor").first();
+  await leg.getByRole("checkbox", { name: "Oxygen cylinder", exact: true }).uncheck();
+  await page.getByLabel("Oxygen cylinder source").selectOption({ label: "New cylinder · Air" });
+  await expect(leg.getByRole("checkbox", { name: "New cylinder", exact: true })).toBeChecked({ indeterminate: true });
+  await expect(leg.getByRole("checkbox", { name: "New cylinder", exact: true })).toBeDisabled();
+  await prepareLongCapture(page);
+  // Keep the pointer off the leg so no field is captured in its hover state.
+  await page.mouse.move(0, 0);
+  await expect(leg).toHaveScreenshot(`cave-route-shared-${testInfo.project.name}.png`);
+});
+
 test("calculated cave output visual baseline", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
   await page.goto("/");
