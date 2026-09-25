@@ -14,7 +14,6 @@ import {
   type CaveScenarioKind,
   type CaveScenarioRequest,
   type Propulsion,
-  type RouteLeg,
   type StageAction,
 } from "../cave";
 import type { Diagnostic } from "../domain/types";
@@ -33,6 +32,15 @@ import {
 } from "../ui";
 import { ActionButton, NumberField, SelectField } from "./controls";
 import { collectCaveDiagnostics } from "./caveDiagnostics";
+import {
+  normalizeCaveRoute,
+  routeCylinderAccess,
+  routeCylinders,
+  routeStageCylinder,
+  withCylinderAccess,
+  withStageCylinder,
+  type RouteCylinder,
+} from "./caveRoute";
 import {
   caveScenarioKinds,
   type CaveLimitsDraft,
@@ -83,17 +91,18 @@ function RouteEditor({
 }: {
   readonly containerRef?: Ref<HTMLElement>;
   readonly route: RouteDraft;
-  readonly cylinders: readonly { readonly id: string; readonly name: string }[];
+  readonly cylinders: readonly RouteCylinder[];
   readonly preferences: UnitPreferences;
   readonly onChange: (next: RouteDraft) => void;
   readonly onRemove?: () => void;
 }) {
   const set = <K extends keyof RouteDraft>(key: K, value: RouteDraft[K]) => onChange({ ...route, [key]: value });
-  const accessible = route.accessibleCylinderIds ?? cylinders.map((cylinder) => cylinder.id);
-  const toggleCylinder = (id: string, checked: boolean) => set(
-    "accessibleCylinderIds",
-    checked ? [...new Set([...accessible, id])] : accessible.filter((candidate) => candidate !== id),
-  );
+  const stage = routeStageCylinder(route, cylinders);
+  // Access and stages are set per cylinder, so a cylinder used by several gases stays locked until each gas has its own.
+  const shared = cylinders.filter((cylinder) => cylinder.gases.length > 1);
+  const sharedNote = shared.length > 0
+    ? `${shared.map((cylinder) => `“${cylinder.name}”`).join(", ")} ${shared.length === 1 ? "is" : "are"} selected for more than one gas. Give each gas its own cylinder before setting access or a stage with it on this leg.`
+    : undefined;
   return <article className="bf-route-editor" ref={containerRef}>
     <header className="bf-row-header">
       <div><p className="bf-eyebrow">PENETRATION LEG</p><h3>{route.id}</h3></div>
@@ -118,18 +127,36 @@ function RouteEditor({
         value={route.stageAction}
       />
       {route.stageAction !== "none" && <FieldGroup label="Stage cylinder">
-        <select aria-label="Stage cylinder" onChange={(event) => set("stageCylinderId", event.currentTarget.value || undefined)} value={route.stageCylinderId ?? ""}>
+        <select
+          aria-label="Stage cylinder"
+          onChange={(event) => {
+            const id = event.currentTarget.value;
+            onChange(withStageCylinder(route, cylinders.find((cylinder) => cylinder.id === id)));
+          }}
+          value={stage?.id ?? ""}
+        >
           <option value="">Select cylinder</option>
-          {cylinders.map((cylinder) => <option key={cylinder.id} value={cylinder.id}>{cylinder.name}</option>)}
+          {cylinders.map((cylinder) => <option disabled={cylinder.gases.length > 1} key={cylinder.id} value={cylinder.id}>{cylinder.name}</option>)}
         </select>
       </FieldGroup>}
     </div>
-    <FieldGroup label="Cylinders accessible on this leg" hint="A dropped stage must be absent after its drop point until a recovery leg.">
+    <FieldGroup error={sharedNote} hint="A dropped stage must be absent after its drop point until a recovery leg." label="Cylinders accessible on this leg">
       <div className="bf-check-grid">
-        {cylinders.map((cylinder) => <label className="bf-check" key={cylinder.id}>
-          <input checked={accessible.includes(cylinder.id)} onChange={(event) => toggleCylinder(cylinder.id, event.currentTarget.checked)} type="checkbox" />
-          <span>{cylinder.name}</span>
-        </label>)}
+        {cylinders.map((cylinder) => {
+          const access = routeCylinderAccess(route, cylinder);
+          return <label className="bf-check" key={cylinder.id}>
+            <input
+              checked={access === "accessible"}
+              disabled={cylinder.gases.length > 1}
+              onChange={(event) => onChange(withCylinderAccess(route, cylinder, event.currentTarget.checked, cylinders))}
+              ref={(input) => {
+                if (input) input.indeterminate = access === "mixed";
+              }}
+              type="checkbox"
+            />
+            <span>{cylinder.name}</span>
+          </label>;
+        })}
       </div>
     </FieldGroup>
   </article>;
@@ -145,24 +172,29 @@ function scenarioLabel(kind: CaveScenarioKind): string {
   }[kind];
 }
 
+/** Cave adds one blocking state to the shared workspace statuses: a cylinder used by several gases. */
+type CaveWorkspaceStatus = WorkspaceStatus | "cylinder-shared";
+
 const AUTO_RECALCULATE_MS = 400;
 
-const statusLabel: Record<WorkspaceStatus, string> = {
+const statusLabel: Record<CaveWorkspaceStatus, string> = {
   draft: "Draft",
   updating: "Updating",
   current: "Current",
   "needs-attention": "Needs attention",
   "source-changed": "Source changed",
   "source-unavailable": "Source unavailable",
+  "cylinder-shared": "Cylinder shared",
 };
 
-const statusDescription: Record<WorkspaceStatus, string> = {
+const statusDescription: Record<CaveWorkspaceStatus, string> = {
   draft: "No cave calculation yet. Review route, gas access, and scenarios, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous cave results are hidden.",
   current: "The result matches every current route, scenario, gas, and limit input.",
   "needs-attention": "Current cave inputs could not produce a result. Fix the diagnostics in Setup.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the cave plan.",
   "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; the cave plan is not calculated until then.",
+  "cylinder-shared": "One Tank Bank cylinder is selected for more than one gas. Give each gas its own cylinder, or switch the extra gases off, in Setup; the cave plan is not calculated until then.",
 };
 
 export default function CavePage({
@@ -202,47 +234,40 @@ export default function CavePage({
     return readTankBank(tanks);
   }, [tanks, tankRevision]);
   const resolved = useMemo(() => resolvePlanInput(draft, tankBank, "cave"), [draft, tankBank]);
-  const cylinders = useMemo(
-    () => resolved.cylinders.map((cylinder) => ({ id: cylinder.id, name: cylinder.name })),
-    [resolved.cylinders],
-  );
-  const normalizedRoute = useMemo<readonly RouteLeg[]>(() => route.map((leg) => ({
-    id: leg.id,
-    startDepthM: meters(leg.startDepthM),
-    endDepthM: meters(leg.endDepthM),
-    durationSeconds: seconds(leg.durationMinutes * 60),
-    distanceM: meters(leg.distanceM),
-    propulsion: leg.propulsion,
-    accessibleCylinderIds: leg.accessibleCylinderIds ?? cylinders.map((cylinder) => cylinder.id),
-    ...(leg.stageAction === "none" ? {} : { stageAction: leg.stageAction }),
-    ...(leg.stageAction !== "none" && leg.stageCylinderId ? { stageCylinderId: leg.stageCylinderId } : {}),
-  })), [cylinders, route]);
+  const cylinders = useMemo(() => routeCylinders(draft, resolved), [draft, resolved]);
+  const normalizedRoute = useMemo(() => normalizeCaveRoute(route, cylinders), [cylinders, route]);
   const scenarios = useMemo<readonly CaveScenarioRequest[]>(() => enabledScenarios.map((kind) => ({
     kind,
     targetLegId: targetLegId || route.at(-1)?.id,
     ...(limits.scenarioTargetDistanceM === undefined ? {} : { targetDistanceM: meters(limits.scenarioTargetDistanceM) }),
   })), [enabledScenarios, limits.scenarioTargetDistanceM, route, targetLegId]);
-  // No dive input exists while a selected Tank Bank source is unavailable, so there is no cave input to calculate or match.
+  // No dive input exists while a selected Tank Bank source is unavailable, and no route while a
+  // cylinder is used by several gases, so there is no cave input to calculate or match.
   const dive = resolved.input;
-  const input = useMemo<CavePlanInput | undefined>(() => dive && {
+  const legs = normalizedRoute.legs;
+  const input = useMemo<CavePlanInput | undefined>(() => dive && legs && {
     mode: draft.mode,
     dive,
-    route: normalizedRoute,
+    route: legs,
     reserve: dive.reservePolicy,
     scenarios,
     ...(limits.turnPressureBar === undefined ? {} : { turnPressureBar: barGauge(limits.turnPressureBar) }),
     ...(limits.turnTimeMinutes === undefined ? {} : { turnTimeSeconds: seconds(limits.turnTimeMinutes * 60) }),
     ...(limits.maximumDistanceM === undefined ? {} : { maximumPenetrationDistanceM: meters(limits.maximumDistanceM) }),
     ...(limits.maximumTimeMinutes === undefined ? {} : { maximumPenetrationTimeSeconds: seconds(limits.maximumTimeMinutes * 60) }),
-  }, [dive, draft.mode, limits, normalizedRoute, scenarios]);
+  }, [dive, draft.mode, legs, limits, scenarios]);
   const inputSignature = input === undefined ? undefined : JSON.stringify(input);
   const sourceSignature = tankSourceSignature(draft, tankBank, "cave");
-  const status = workspaceStatus({
-    inputSignature,
-    sourceSignature,
-    calculated,
-    attemptedInputSignature: session.attemptedInputSignature,
-  });
+  // workspaceStatus reads a missing input as an unavailable source, so a shared cylinder is reported
+  // first once every source loads.
+  const status: CaveWorkspaceStatus = resolved.ok && !normalizedRoute.ok
+    ? "cylinder-shared"
+    : workspaceStatus({
+        inputSignature,
+        sourceSignature,
+        calculated,
+        attemptedInputSignature: session.attemptedInputSignature,
+      });
   const calculatedIsCurrent = status === "current";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
@@ -469,7 +494,9 @@ export default function CavePage({
           ? <ActionButton disabled>Updating cave plan…</ActionButton>
           : status === "source-unavailable"
             ? <ActionButton disabled>Resolve Tank Bank source</ActionButton>
-            : <ActionButton disabled>Fix inputs</ActionButton>;
+            : status === "cylinder-shared"
+              ? <ActionButton disabled>Resolve shared cylinder</ActionButton>
+              : <ActionButton disabled>Fix inputs</ActionButton>;
   const action = session.view === "review" && reviewAvailable
     ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
     : setupAction;
@@ -512,6 +539,7 @@ export default function CavePage({
       {caveStatusWarning}
       {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />}
       <WarningList items={diagnosticsToItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
+      <WarningList items={diagnosticsToItems(normalizedRoute.diagnostics)} title="Shared Tank Bank cylinders" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
         {route.map((leg, index) => <RouteEditor
