@@ -97,6 +97,17 @@ describe("runtimeScheduleRows", () => {
     expect(rows[0]!.travelGasName).toBeUndefined();
   });
 
+  it("counts only the ascent as included travel when the arrival switch takes time", () => {
+    // Under the Shearwater preset a gas switch lasts 5 s; it belongs to the stop, not the ascent.
+    const rows = runtimeScheduleRows([
+      segment("stop", 0, 60, 9, 9),
+      segment("ascent", 60, 18, 9, 6),
+      segment("gas-switch", 78, 5, 6, 6, "Oxygen"),
+      segment("stop", 83, 60, 6, 6, "Oxygen"),
+    ]);
+    expect(rows[1]).toMatchObject({ startRuntimeSeconds: 60, durationSeconds: 83, includedTravelSeconds: 18, arrivalSwitch: "gas-switch", travelGasName: "EAN50" });
+  });
+
   it("keeps a setpoint switch made when leaving a stop as its own row", () => {
     const rows = runtimeScheduleRows([
       segment("stop", 0, 60, 9, 9, "Diluent", 1.3),

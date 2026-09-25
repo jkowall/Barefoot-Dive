@@ -125,6 +125,26 @@ describe("depth entry", () => {
     expect(resolveDepthEntry(40, "imperial", { bound: "setpoint-switch", gridM: 3.048 })).toBeCloseTo(12.192, 9);
   });
 
+  it("moves a retyped deco switch onto the stop it displays as, only when that stop is shallower", () => {
+    // A 6.1 m oxygen switch entered in metres reads 20 ft; retyping 20 ft means the 6 m stop.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "max-ppo2" })).toBe(6);
+    // Never deeper: a 5.95 m switch also reads 20 ft and stays where it is.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 5.95, bound: "max-ppo2" })).toBe(5.95);
+    // Other retyped depths keep the stored value.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1 })).toBe(6.1);
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "setpoint-switch" })).toBe(6.1);
+  });
+
+  it("never moves a CCR switch depth deeper than typed", () => {
+    // 12 m reads 39 ft, but 39 ft is 11.887 m: a switch-up typed at a 39 ft maximum depth stays in the descent.
+    expect(resolveDepthEntry(39, "imperial", { bound: "setpoint-switch" })).toBeCloseTo(39 / 3.280839895, 9);
+    for (let feet = 0; feet <= 330; feet += 1) {
+      const resolved = resolveDepthEntry(feet, "imperial", { bound: "setpoint-switch" });
+      expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
+      expect(depthInputValue(resolved, "imperial")).toBe(feet);
+    }
+  });
+
   it("never aliases a travel-to-bottom switch or a free depth", () => {
     expect(resolveDepthEntry(20, "imperial", { bound: "min-ppo2" })).toBeCloseTo(6.096, 9);
     expect(resolveDepthEntry(20, "imperial")).toBeCloseTo(6.096, 9);

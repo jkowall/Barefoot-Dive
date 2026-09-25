@@ -71,7 +71,10 @@ export type DepthEntryBound =
   | "max-ppo2"
   /** Travel-to-bottom switch depth, limited by a minimum and a maximum PPO₂: never aliased. */
   | "min-ppo2"
-  /** CCR setpoint switch depth, compared with stop depths exactly: aliases to the nearest stop-grid depth. */
+  /**
+   * CCR setpoint switch depth, compared with stop depths exactly: may alias shallower onto the stop grid,
+   * never deeper, so a switch-up typed at the planned maximum depth stays within the descent.
+   */
   | "setpoint-switch";
 
 /**
@@ -80,8 +83,10 @@ export type DepthEntryBound =
  * Retyping the value shown for `focusM` (the stored depth when the field took focus) keeps that depth,
  * so a 6 m switch shown as 20 ft stays 6 m. Otherwise the typed value converts exactly, except that a
  * switch depth may alias to a stop-grid depth that displays as the same value, because the diver
- * switches at the stop (20 ft typed is the 6 m stop). A deco or bailout switch only ever moves
- * shallower, which never raises its PPO₂; a travel-to-bottom switch never moves.
+ * switches at the stop (20 ft typed is the 6 m stop). An aliased switch only ever moves shallower,
+ * which never raises a deco or bailout gas's PPO₂ and keeps a CCR switch-up within the descent. A
+ * retyped deco or bailout switch also moves onto that stop when the stop is shallower than the stored
+ * depth, so a 6.1 m oxygen switch shown as 20 ft becomes the 6 m stop. A travel-to-bottom switch never moves.
  */
 export function resolveDepthEntry(
   typed: number,
@@ -91,13 +96,16 @@ export function resolveDepthEntry(
   const { focusM, gridM = 3, bound = "free" } = options;
   if (!Number.isFinite(typed)) return meters(typed);
   const shown = Number(typed.toFixed(depthInputDecimals(units)));
-  if (focusM !== undefined && Number.isFinite(focusM) && depthInputValue(focusM, units) === shown) return meters(focusM);
   const exact = depthToCanonical(typed, units);
-  if (bound === "free" || bound === "min-ppo2" || !(gridM > 0)) return exact;
-  const gridDepth = bound === "max-ppo2"
+  // The deepest stop-grid depth no deeper than the typed value, when it displays as that value.
+  const gridDepth = (bound === "max-ppo2" || bound === "setpoint-switch") && gridM > 0
     ? Math.floor((exact + 1e-9) / gridM) * gridM
-    : Math.round(exact / gridM) * gridM;
-  return depthInputValue(gridDepth, units) === shown ? meters(gridDepth) : exact;
+    : undefined;
+  const alias = gridDepth !== undefined && depthInputValue(gridDepth, units) === shown ? gridDepth : undefined;
+  if (focusM !== undefined && Number.isFinite(focusM) && depthInputValue(focusM, units) === shown) {
+    return bound === "max-ppo2" && alias !== undefined && alias < focusM ? meters(alias) : meters(focusM);
+  }
+  return alias === undefined ? exact : meters(alias);
 }
 
 /** CCR setpoint switch depth entry: 20 ft, or a displayed 19.7 ft, is the 6 m stop. */

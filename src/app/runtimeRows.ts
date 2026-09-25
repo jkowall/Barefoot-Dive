@@ -114,7 +114,7 @@ export function foldTravelIntoStops(rows: readonly GroupedRuntimeSegment[]): rea
       durationSeconds: travel.durationSeconds + arrivalSeconds + stop.durationSeconds,
       ...(travel.startDepthM === undefined ? {} : { startDepthM: travel.startDepthM }),
       count: stop.count + 1 + (arrival ? 1 : 0),
-      includedTravelSeconds: travel.durationSeconds + arrivalSeconds,
+      includedTravelSeconds: travel.durationSeconds,
       ...(arrival ? { arrivalSwitch: arrival.kind } : {}),
       ...(travel.gasName === stop.gasName ? {} : { travelGasName: travel.gasName }),
     });

@@ -64,6 +64,12 @@ describe("diagnostic depths in the user's unit", () => {
     expect(formatDiagnostic(mentioned, "imperial")).toBe("Between 11.5 m and 5 ft.");
   });
 
+  it("leaves minutes that print like the depth alone", () => {
+    // RESERVE_CROSSED prints the crossing depth and runtime with one decimal each.
+    const diagnostic: Diagnostic = { code: "RESERVE_CROSSED", severity: "error", message: "Tx18/45 cylinder crosses reserve at 21.3 m and 21.3 min.", depthM: meters(21.336) };
+    expect(formatDiagnostic(diagnostic, "imperial")).toBe("Tx18/45 cylinder crosses reserve at 70 ft and 21.3 min.");
+  });
+
   it("leaves messages without a depth unchanged", () => {
     const diagnostic: Diagnostic = { code: "EXAMPLE", severity: "error", message: "Reaches PPO₂ 1.60 bar at target depth.", depthM: meters(45) };
     expect(formatDiagnostic(diagnostic, "imperial")).toBe(diagnostic.message);

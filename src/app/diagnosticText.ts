@@ -12,13 +12,14 @@ function feetMention(mention: DepthMention): string {
 }
 
 /**
- * Where `metric` is printed in `text` at or after `from`, as a whole number: "21.3 m" inside
- * "121.3 m" is a different depth and is skipped. Returns -1 when it is not printed.
+ * Where `metric` is printed in `text` at or after `from`, as a whole depth: "21.3 m" inside
+ * "121.3 m" or "21.3 min" is something else and is skipped. Returns -1 when it is not printed.
  */
 function printedAt(text: string, metric: string, from: number): number {
   for (let at = text.indexOf(metric, from); at >= 0; at = text.indexOf(metric, at + 1)) {
     const before = at > 0 ? text[at - 1]! : "";
-    if (!/[\d.]/.test(before)) return at;
+    const after = text[at + metric.length] ?? "";
+    if (!/[\d.]/.test(before) && !/[\p{L}\p{N}]/u.test(after)) return at;
   }
   return -1;
 }
