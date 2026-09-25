@@ -26,6 +26,15 @@ The user chooses a task category and capability in the focused Tools workspace. 
 
 Emergency Gas has a stricter flow. The user enters an explicit ascent/stop schedule and the RMV/team assumptions, optionally adding cylinder context for OC gas-pressure bounds; CCR Simplified Bailout requires one cylinder. The current input snapshot recalculates automatically after a short pause. During that pause the old result is not displayed and Plan application is disabled; invalid inputs produce current diagnostics instead of preserving an old answer. It is not a generated decompression or bailout plan. Any safety or compatibility interpretation still requires independent fixtures, analyzer-first verification, and qualified review.
 
+## Tank Bank read and quarantine flow
+
+1. Tank Bank, Plan, Cave, and Tools read the same stored Tank Bank. Reads never write.
+2. If the stored container cannot be read (a storage read error, corrupt JSON, not a record list, an unsupported schema version, or a legacy bare array with an invalid record), the read fails whole. Tank Bank shows "Tank Bank could not be read" with the diagnostic instead of an empty bank and disables Add cylinder and Save cylinder; every write is refused, so the stored data stays as it was. Plan, Cave, and Tools offer no Tank Bank records. When local storage is missing entirely at startup, Tank Bank instead shows "Tank Bank unavailable".
+3. Otherwise each record is validated on its own. Valid records load everywhere. An invalid record is quarantined: Tank Bank shows a "Quarantined cylinder records" notice naming its stored position, its name or id, and the failing fields, and the record is not listed in the Active or Archived view or offered to Plan, Cave, or Tools.
+4. Creating, editing, duplicating, archiving, restoring, or deleting a valid cylinder writes the bank back with every quarantined record's exact stored text, in the same order relative to the other records. The app cannot edit or delete a quarantined record; the diver re-creates the cylinder to plan with it.
+5. A Plan or Cave gas already sourced from a record that stops loading falls back to its ad hoc fields, as recorded in the [architecture known risks](architecture.md#known-risks-and-assumptions).
+6. Saved Plans do not quarantine. One invalid saved record makes the library unreadable and blocks saving new snapshots until the stored data is repaired or cleared.
+
 ## Local/offline and native flow
 
 The PWA service worker serves the built assets after installation. Capacitor shells serve the same local bundle. Tank Bank and saved plans read/write browser/WebView `localStorage`. There is no account check, network calculation, sync, analytics, subscription, signing, store submission, or deployment flow.
