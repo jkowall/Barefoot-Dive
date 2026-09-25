@@ -1122,6 +1122,49 @@ test("marks a saved cave snapshot unsafe when a nested failure scenario is inval
   await expect(page.getByText(/scooter failure: Scooter failure must target a scooter-propelled leg/)).toBeVisible();
 });
 
+test("flags a gas added after a Cave leg was edited until the diver sets it", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  const leg = page.locator(".bf-route-editor").first();
+  const access = (name: string) => leg.getByRole("checkbox", { name, exact: true });
+  await access("Oxygen cylinder").uncheck();
+  await page.getByRole("button", { name: "Add deco gas" }).click();
+  // A new deco gas switches at 21 m by default, deeper than this 18 m cave plan allows.
+  await page.locator(".bf-gas-editor").filter({ hasText: "New deco gas" }).getByRole("spinbutton", { name: /^Switch depth/ }).fill("30");
+
+  // The new gas is unticked on the edited leg and named on the leg and in Setup, without blocking.
+  const message = "Deco gas New deco gas (“New deco gas cylinder”) joined the plan after the cylinders on leg route-1 were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.";
+  await expect(access("New deco gas cylinder")).not.toBeChecked();
+  await expect(page.getByRole("region", { name: "Leg cylinders to confirm" })).toContainText(message);
+  await expect(leg).toContainText("“New deco gas cylinder” joined the plan after this leg's cylinders were set and is treated as not carried here.");
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(calculatedCave.getByRole("region", { name: "Aggregate cave diagnostics" })).toContainText(message);
+
+  // The saved snapshot keeps the warning with the result it explains.
+  await page.getByRole("button", { name: "Save cave snapshot" }).click();
+  await page.getByLabel("Plan name").fill("Cave gas not set regression");
+  await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Cave snapshot saved locally" })).toBeVisible();
+
+  // Keeping it not carried clears the warning and leaves the calculated input, and so the result, current.
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await leg.getByRole("button", { name: "Keep not carried" }).click();
+  await expect(page.getByRole("region", { name: "Leg cylinders to confirm" })).toHaveCount(0);
+  await expect(leg.getByRole("button", { name: "Keep not carried" })).toHaveCount(0);
+  await expect(access("New deco gas cylinder")).not.toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await page.getByRole("radiogroup", { name: "Cave workspace" }).getByText("Review", { exact: true }).click();
+  await expect(calculatedCave).toBeVisible();
+  await expect(calculatedCave).not.toContainText("joined the plan");
+
+  await page.getByRole("button", { name: /^Saved plans/ }).first().click();
+  const record = page.getByRole("heading", { name: "Cave gas not set regression" }).locator("../..");
+  await record.getByRole("button", { name: "Open" }).click();
+  await expect(page.getByRole("region", { name: "Stored cave calculation diagnostics" })).toContainText(message);
+});
+
 test("moves an applicable Tool result into the planner", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Tools", exact: true }).first().click();

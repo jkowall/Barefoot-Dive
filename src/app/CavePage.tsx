@@ -37,8 +37,11 @@ import {
   routeCylinderAccess,
   routeCylinders,
   routeStageCylinder,
+  unsetGasNotices,
+  unsetRouteCylinders,
   withCylinderAccess,
   withStageCylinder,
+  withUnsetGasesKept,
   type RouteCylinder,
 } from "./caveRoute";
 import {
@@ -103,6 +106,10 @@ function RouteEditor({
   const sharedNote = shared.length > 0
     ? `${shared.map((cylinder) => `“${cylinder.name}”`).join(", ")} ${shared.length === 1 ? "is" : "are"} selected for more than one gas. Give each gas its own cylinder before setting access or a stage with it on this leg.`
     : undefined;
+  // A gas that joined the plan after this leg's cylinders were set is treated as not carried here until the diver sets it.
+  const unset = unsetRouteCylinders(route, cylinders);
+  const unsetNames = unset.map((cylinder) => `“${cylinder.name}”`);
+  const unsetList = unsetNames.length < 2 ? unsetNames.join("") : `${unsetNames.slice(0, -1).join(", ")} and ${unsetNames.at(-1)}`;
   return <article className="bf-route-editor" ref={containerRef}>
     <header className="bf-row-header">
       <div><p className="bf-eyebrow">PENETRATION LEG</p><h3>{route.id}</h3></div>
@@ -159,6 +166,12 @@ function RouteEditor({
         })}
       </div>
     </FieldGroup>
+    {unset.length > 0 && <div className="bf-inline-fix bf-inline-fix--warning">
+      <p>{unset.length === 1
+        ? `${unsetList} joined the plan after this leg's cylinders were set and is treated as not carried here. Tick it if you carry it on this leg, or keep it not carried.`
+        : `${unsetList} joined the plan after this leg's cylinders were set and are treated as not carried here. Tick any you carry on this leg, or keep them not carried.`}</p>
+      <ActionButton onClick={() => onChange(withUnsetGasesKept(route, cylinders))} quiet small>Keep not carried</ActionButton>
+    </div>}
   </article>;
 }
 
@@ -236,6 +249,8 @@ export default function CavePage({
   const resolved = useMemo(() => resolvePlanInput(draft, tankBank, "cave"), [draft, tankBank]);
   const cylinders = useMemo(() => routeCylinders(draft, resolved), [draft, resolved]);
   const normalizedRoute = useMemo(() => normalizeCaveRoute(route, cylinders), [cylinders, route]);
+  // Derived from the current route, not the calculation, so setting a gas clears them at once.
+  const routeNotices = useMemo(() => unsetGasNotices(route, cylinders), [cylinders, route]);
   const scenarios = useMemo<readonly CaveScenarioRequest[]>(() => enabledScenarios.map((kind) => ({
     kind,
     targetLegId: targetLegId || route.at(-1)?.id,
@@ -444,8 +459,9 @@ export default function CavePage({
       caveInputSnapshot: calculated.input,
       caveResultSnapshot: calculated.result,
       // Cave safety diagnostics are intentionally outside the base decompression
-      // plan, so snapshot them explicitly with the immutable cave result.
-      warnings: calculated.diagnostics,
+      // plan, so snapshot them explicitly with the immutable cave result, together
+      // with the route's gases treated as not carried because they were never set.
+      warnings: [...calculated.diagnostics, ...routeNotices],
     });
     if (!saved.ok) onSessionChange((current) => ({
       ...current,
@@ -540,6 +556,7 @@ export default function CavePage({
       {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />}
       <WarningList items={diagnosticsToItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
       <WarningList items={diagnosticsToItems(normalizedRoute.diagnostics)} title="Shared Tank Bank cylinders" />
+      <WarningList items={diagnosticsToItems(routeNotices)} title="Leg cylinders to confirm" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
         {route.map((leg, index) => <RouteEditor
@@ -630,7 +647,7 @@ export default function CavePage({
           />}
         </div>
       </Panel>
-      <WarningList items={diagnosticsToItems(aggregateCaveDiagnostics)} title="Aggregate cave diagnostics" />
+      <WarningList items={diagnosticsToItems([...aggregateCaveDiagnostics, ...routeNotices])} title="Aggregate cave diagnostics" />
       <Panel title="Failure scenarios">
         <SegmentedControl
           label="Scenario result"

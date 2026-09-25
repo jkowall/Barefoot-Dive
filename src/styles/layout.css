@@ -46,6 +46,9 @@
   font-size: var(--bf-text-sm);
 }
 .bf-inline-fix p { margin: 0; color: var(--bf-text); }
+/* A condition the diver should resolve that does not block the calculation. */
+.bf-inline-fix--warning { border-left-color: var(--bf-warning); background: var(--bf-warning-bg); }
+.bf-route-editor > .bf-inline-fix { margin-top: var(--bf-space-2); }
 .bf-form-grid + .bf-panel__note { margin-top: var(--bf-space-3); }
 
 /* A gas whose selected Tank Bank cylinder cannot be used: why, and the ad hoc values a detach uses. */
