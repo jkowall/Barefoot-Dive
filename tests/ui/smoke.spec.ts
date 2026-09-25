@@ -1151,6 +1151,8 @@ test("flags a gas added after a Cave leg was edited until the diver sets it", as
   // Keeping it not carried clears the warning and leaves the calculated input, and so the result, current.
   await page.getByRole("button", { name: "Edit inputs" }).click();
   await leg.getByRole("button", { name: "Keep not carried" }).click();
+  // The button leaves with the notice; focus moves to the gas it was about.
+  await expect(access("New deco gas cylinder")).toBeFocused();
   await expect(page.getByRole("region", { name: "Leg cylinders to confirm" })).toHaveCount(0);
   await expect(leg.getByRole("button", { name: "Keep not carried" })).toHaveCount(0);
   await expect(access("New deco gas cylinder")).not.toBeChecked();

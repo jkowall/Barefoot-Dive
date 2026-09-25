@@ -109,10 +109,12 @@ export function withUnsetGasesKept(leg: RouteDraft, cylinders: readonly RouteCyl
 export function unsetGasNotices(route: readonly RouteDraft[], cylinders: readonly RouteCylinder[]): readonly Diagnostic[] {
   return route.flatMap((leg, index) => unsetRouteCylinders(leg, cylinders).map((cylinder): Diagnostic => {
     const label = cylinder.gases[0].label;
+    // The leg label is free text; a cleared label falls back to the leg's position.
+    const legName = leg.id.trim() || String(index + 1);
     return {
       code: "ROUTE_GAS_ACCESS_UNSET",
       severity: "warning",
-      message: `${label.charAt(0).toUpperCase()}${label.slice(1)} (“${cylinder.name}”) joined the plan after the cylinders on leg ${leg.id} were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.`,
+      message: `${label.charAt(0).toUpperCase()}${label.slice(1)} (“${cylinder.name}”) joined the plan after the cylinders on leg ${legName} were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.`,
       field: `route.${index}.accessibleCylinderIds`,
       cylinderId: cylinder.id,
     };

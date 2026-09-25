@@ -110,6 +110,12 @@ function RouteEditor({
   const unset = unsetRouteCylinders(route, cylinders);
   const unsetNames = unset.map((cylinder) => `“${cylinder.name}”`);
   const unsetList = unsetNames.length < 2 ? unsetNames.join("") : `${unsetNames.slice(0, -1).join(", ")} and ${unsetNames.at(-1)}`;
+  const checksRef = useRef<HTMLDivElement>(null);
+  const keepUnsetNotCarried = () => {
+    onChange(withUnsetGasesKept(route, cylinders));
+    // The button leaves with the notice; keep keyboard focus on the first gas it was about.
+    checksRef.current?.querySelector<HTMLInputElement>(`input[data-cylinder-id="${CSS.escape(unset[0].id)}"]`)?.focus();
+  };
   return <article className="bf-route-editor" ref={containerRef}>
     <header className="bf-row-header">
       <div><p className="bf-eyebrow">PENETRATION LEG</p><h3>{route.id}</h3></div>
@@ -148,12 +154,13 @@ function RouteEditor({
       </FieldGroup>}
     </div>
     <FieldGroup error={sharedNote} hint="A dropped stage must be absent after its drop point until a recovery leg." label="Cylinders accessible on this leg">
-      <div className="bf-check-grid">
+      <div className="bf-check-grid" ref={checksRef}>
         {cylinders.map((cylinder) => {
           const access = routeCylinderAccess(route, cylinder);
           return <label className="bf-check" key={cylinder.id}>
             <input
               checked={access === "accessible"}
+              data-cylinder-id={cylinder.id}
               disabled={cylinder.gases.length > 1}
               onChange={(event) => onChange(withCylinderAccess(route, cylinder, event.currentTarget.checked, cylinders))}
               ref={(input) => {
@@ -170,7 +177,7 @@ function RouteEditor({
       <p>{unset.length === 1
         ? `${unsetList} joined the plan after this leg's cylinders were set and is treated as not carried here. Tick it if you carry it on this leg, or keep it not carried.`
         : `${unsetList} joined the plan after this leg's cylinders were set and are treated as not carried here. Tick any you carry on this leg, or keep them not carried.`}</p>
-      <ActionButton onClick={() => onChange(withUnsetGasesKept(route, cylinders))} quiet small>Keep not carried</ActionButton>
+      <ActionButton onClick={keepUnsetNotCarried} quiet small>Keep not carried</ActionButton>
     </div>}
   </article>;
 }

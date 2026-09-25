@@ -402,4 +402,12 @@ describe("gases a leg has not set", () => {
     expect(unsetGasNotices([edited], shared)).toEqual([]);
     expect(withUnsetGasesKept(edited, shared).setGasKeys).not.toContain("deco-added");
   });
+
+  it("names a leg whose label was cleared by its position", () => {
+    const cylinders = cylindersFor(caveDraft);
+    const edited = withCylinderAccess({ ...leg, id: " " }, cylinderUsedBy(cylinders, "deco-o2"), false, cylinders);
+    const [notice] = unsetGasNotices([{ ...leg, id: "route-1" }, edited], cylindersFor(withAdded));
+    expect(notice?.message).toContain("joined the plan after the cylinders on leg 2 were set");
+    expect(notice?.field).toBe("route.1.accessibleCylinderIds");
+  });
 });
