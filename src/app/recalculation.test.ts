@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV, EAN50 } from "../domain/defaults";
 import type { CcrDiveInput, DivePlanInput } from "../domain/types";
-import { barAbsolute, fraction, meters, seconds } from "../domain/units";
+import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
 import { calculateDivePlan } from "../engine/planner";
 import { SavedPlansStore } from "../storage/savedPlans";
-import type { SavedPlanRecord, StorageLike } from "../storage/types";
+import type { SavedPlanRecord, StorageLike, TankRecord } from "../storage/types";
 import { DEFAULT_PLAN_DRAFT, resolvePlanInput } from "./planning";
 import { buildRecalculation } from "./recalculation";
 
@@ -114,6 +114,34 @@ describe("saved-plan recalculation across engine versions", () => {
       expect(draft?.calculatedPlan.diagnostics.some((item) => item.code === "DECO_RMV_FROM_FIRST_STOP")).toBe(firstStop);
       expect(draft?.calculatedPlan.gasLedger).toEqual(stored.calculatedPlan.gasLedger);
     }
+  });
+
+  it("stores a Tank Bank gas renamed for a shared identifier and recalculates it from the stored input", () => {
+    const record = (id: string, name: string, waterVolumeL: number): TankRecord => ({
+      id, name, waterVolumeL: liters(waterVolumeL), workingPressureBar: barGauge(232), currentPressureBar: barGauge(210),
+      gas: { id: "air", name: "Air", oxygen: fraction(0.21), helium: fraction(0), role: "bottom" },
+      maximumPPO2: barAbsolute(1.4), role: "bottom", revision: 1, archived: false,
+      createdAt: "2026-09-25T00:00:00.000Z", updatedAt: "2026-09-25T00:00:00.000Z",
+    });
+    const draft = {
+      ...DEFAULT_PLAN_DRAFT,
+      bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: "back-gas" },
+      decoGases: DEFAULT_PLAN_DRAFT.decoGases.map((gas) => gas.key === "deco-o2" ? { ...gas, cylinderId: "pony" } : gas),
+    };
+    const input = resolvePlanInput(draft, [record("back-gas", "Back gas", 24), record("pony", "Pony", 3)]).input!;
+    const storage = new MemoryStorage();
+    const original = save(storage, input);
+    const stored = reload(storage, original.id);
+    expect(stored.normalizedInputSnapshot).toEqual(input);
+    expect(stored.resolvedGasSnapshots.map((gas) => gas.id)).toEqual(["air", "plan-gas-deco-50", "air~2"]);
+    expect(stored.resolvedCylinderSnapshots.map((cylinder) => [cylinder.id, cylinder.gas.id])).toEqual([["back-gas", "air"], ["plan-cylinder-deco-50", "plan-gas-deco-50"], ["pony", "air~2"]]);
+    // Recalculation replays the stored identifiers; it never resolves the Tank Bank again.
+    const draftRevision = buildRecalculation(stored, () => undefined);
+    expect(draftRevision?.normalizedInputSnapshot).toBe(stored.normalizedInputSnapshot);
+    expect(draftRevision?.calculatedPlan.segments).toEqual(original.calculatedPlan.segments);
+    expect(draftRevision?.calculatedPlan.gasLedger).toEqual(original.calculatedPlan.gasLedger);
+    const byGas = storeWith(storage).list({ gas: "air" });
+    expect(byGas.ok && byGas.value.map((item) => item.id)).toEqual([original.id]);
   });
 
   it("reports a malformed stored low setpoint instead of silently falling back to legacy breathing", () => {
