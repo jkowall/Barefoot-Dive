@@ -329,7 +329,7 @@ export function tankSourceUnavailableText(source: Pick<UnavailableTankSource, "r
   }
 }
 
-export const gasRoleLabel: Record<GasRole, string> = {
+const gasRoleLabel: Record<GasRole, string> = {
   bottom: "Bottom gas",
   travel: "Travel gas",
   deco: "Deco gas",
@@ -344,6 +344,92 @@ function unavailableSourceDiagnostic(source: UnavailableTankSource): Diagnostic 
     message: `${gasRoleLabel[source.role]} ${source.adHoc.gas.name}: ${tankSourceUnavailableText(source)} Choose another cylinder or detach it to ad hoc values before calculating.`,
     cylinderId: source.cylinderId,
   };
+}
+
+/** A loaded Tank Bank record and the active gases that select it as their cylinder source, in plan order. */
+export type SelectedTankSource = {
+  readonly record: TankRecord;
+  readonly gases: readonly GasDraft[];
+};
+
+/**
+ * Every loaded Tank Bank record that an active gas selects, with the active gases that select it, in
+ * plan order. Gas-only plans select no cylinders, and a selected record that does not load is an
+ * unavailable source instead.
+ */
+export function selectedTankSources(
+  draft: PlanDraft,
+  tankBank: TankBankSnapshot | readonly TankRecord[],
+  environment: DivePlanInput["environment"] = "open-water",
+): readonly SelectedTankSource[] {
+  if (isGasOnlyPlan(draft, environment)) return [];
+  const bank = snapshotOf(tankBank);
+  const selected = new Map<string, SelectedTankSource>();
+  for (const gas of activeGasDrafts(draft)) {
+    const source = lookupTankSource(gas, bank);
+    if (source.kind !== "record") continue;
+    selected.set(source.record.id, { record: source.record, gases: [...(selected.get(source.record.id)?.gases ?? []), gas] });
+  }
+  return [...selected.values()];
+}
+
+/** A gas as Tank Bank source messages name it, in lower case: "deco gas EAN50". */
+export function gasSourceLabel(gas: Pick<GasDraft, "role" | "name">): string {
+  return `${gasRoleLabel[gas.role].toLowerCase()} ${gas.name.trim() || "Plan gas"}`;
+}
+
+const listText = (items: readonly string[]) => items.length < 2
+  ? items.join("")
+  : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/**
+ * Why one Tank Bank record cannot supply several gases, naming the gases (`gasSourceLabel`, in plan
+ * order) and the record. Plan's `TANK_SOURCE_SHARED` and Cave's `ROUTE_CYLINDER_SHARED` errors share it.
+ */
+export function sharedTankSourceMessage(
+  gasLabels: readonly string[],
+  cylinderName: string,
+  environment: DivePlanInput["environment"] = "open-water",
+): string {
+  const both = gasLabels.length === 2;
+  return sentence(`${listText(gasLabels)} ${both ? "both" : "all"} use Tank Bank cylinder “${cylinderName}”. Choose another cylinder for ${both ? "one of them" : "all but one of them"}; ${environment === "cave" ? "a cave plan" : "a plan"} needs one cylinder per gas.`);
+}
+
+/**
+ * One blocking error per loaded Tank Bank record selected for more than one active gas. Every such gas
+ * resolves to the record's own gas and cylinder, so the input would carry one gas identifier twice,
+ * which domain validation rejects as `GAS_ID_DUPLICATE` without naming the record. The message names
+ * the gases and the record instead; nothing may be calculated until each gas has its own cylinder.
+ */
+export function sharedTankSourceDiagnostics(
+  draft: PlanDraft,
+  tankBank: TankBankSnapshot | readonly TankRecord[],
+  environment: DivePlanInput["environment"] = "open-water",
+): readonly Diagnostic[] {
+  return selectedTankSources(draft, tankBank, environment)
+    .filter((source) => source.gases.length > 1)
+    .map(({ record, gases }): Diagnostic => ({
+      code: "TANK_SOURCE_SHARED",
+      severity: "error",
+      message: sharedTankSourceMessage(gases.map(gasSourceLabel), record.name, environment),
+      cylinderId: record.id,
+    }));
+}
+
+/** A Tank Bank record as a gas's cylinder-source control lists it, naming any other active gas that selects it. */
+export function tankSourceOptionLabel(
+  record: Pick<TankRecord, "name" | "gas">,
+  otherGases: readonly Pick<GasDraft, "role" | "name">[],
+): string {
+  const label = `${record.name} · ${record.gas.name}`;
+  return otherGases.length === 0 ? label : `${label} · used by ${listText(otherGases.map(gasSourceLabel))}`;
+}
+
+/** Why a gas's selected Tank Bank record cannot be calculated while other active gases select it too. */
+export function sharedTankSourceText(otherGases: readonly Pick<GasDraft, "role" | "name">[]): string {
+  return sentence(`${listText(otherGases.map(gasSourceLabel))} also ${otherGases.length === 1 ? "uses" : "use"} this cylinder. Give each gas its own cylinder.`);
 }
 
 function bankGasAndCylinder(draft: GasDraft, bankCylinder: TankRecord): { gas: Gas; cylinder: Cylinder } {

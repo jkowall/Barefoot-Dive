@@ -62,6 +62,27 @@ test("unavailable Tank Bank source visual baseline", async ({ page }, testInfo) 
   await expect(editor).toHaveScreenshot(`plan-source-unavailable-${testInfo.project.name}.png`);
 });
 
+test("Tank Bank cylinder shared by two Plan gases visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  await page.getByLabel("Oxygen cylinder source", { exact: true }).selectOption({ label: "New cylinder · Air" });
+  const includeOxygen = page.getByRole("checkbox", { name: "Include Air in plan" });
+  await includeOxygen.uncheck();
+  const bottomSource = page.getByLabel("Tx18/45 cylinder source", { exact: true });
+  await bottomSource.selectOption({ label: "New cylinder · Air" });
+  await includeOxygen.check();
+  await expect(page.getByRole("status").filter({ hasText: /^Cylinder shared$/ })).toBeVisible();
+  const editor = page.locator(".bf-gas-editor").filter({ has: bottomSource });
+  await prepareLongCapture(page);
+  // Keep the pointer off the editor so no field is captured in its hover state.
+  await page.mouse.move(0, 0);
+  await expect(editor).toHaveScreenshot(`plan-source-shared-${testInfo.project.name}.png`);
+});
+
 test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
   await page.goto("/");
@@ -78,10 +99,15 @@ test("shared Tank Bank cylinder on a Cave route leg visual baseline", async ({ p
   await page.getByRole("button", { name: "Add cylinder" }).click();
   await page.getByRole("button", { name: "Save cylinder" }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
-  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
   const leg = page.locator(".bf-route-editor").first();
-  await leg.getByRole("checkbox", { name: "Oxygen cylinder", exact: true }).uncheck();
+  // A record another active gas uses is not offered, so the oxygen gas takes it first and is switched off
+  // while the bottom gas takes it too.
   await page.getByLabel("Oxygen cylinder source").selectOption({ label: "New cylinder · Air" });
+  await leg.getByRole("checkbox", { name: "New cylinder", exact: true }).uncheck();
+  const includeOxygen = page.getByRole("checkbox", { name: "Include Air in plan" });
+  await includeOxygen.uncheck();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
+  await includeOxygen.check();
   await expect(leg.getByRole("checkbox", { name: "New cylinder", exact: true })).toBeChecked({ indeterminate: true });
   await expect(leg.getByRole("checkbox", { name: "New cylinder", exact: true })).toBeDisabled();
   await prepareLongCapture(page);
