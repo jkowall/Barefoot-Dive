@@ -308,7 +308,8 @@ Use delegation only for concrete, independent, bounded work.
 - Stage explicit intended paths. For the initial repository import, first audit the complete non-ignored inventory before staging it.
 - All commits must be signed with `git commit -S`.
 - Run the applicable verification gate before committing and record the result in the handoff.
-- Do not amend, rebase, force-push, push, open a PR, deploy, sign native artifacts, upload, submit, or publish without explicit user authorization.
+- Do not amend, rebase, force-push, push, deploy, sign native artifacts, upload, submit, or publish without explicit user authorization.
+- Every authorized push includes opening a pull request against `main` for that branch, unless one is already open; do not ask separately. Merging stays with the user.
 - A local build, synced native shell, green CI check, or model completion message is not a deployment or release.
 - Update `CHANGELOG.md` for user-visible changes. Do not bump the application version for internal-only work.
 - Do not create a public safety, validation, compatibility, or parity claim without documented independent evidence and separate authorization.
