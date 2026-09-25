@@ -883,6 +883,72 @@ test("keeps an earlier Plan result hidden after an unavailable source returns un
   await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
 });
 
+test("blocks Plan while one Tank Bank cylinder is selected for two gases and names both", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  // Once the oxygen gas takes the cylinder, the bottom gas's source control names that gas and does not offer it.
+  const bottomSource = page.getByLabel("Tx18/45 cylinder source", { exact: true });
+  const oxygenSource = page.getByLabel("Oxygen cylinder source", { exact: true });
+  await oxygenSource.selectOption({ label: "New cylinder · Air" });
+  const bottomOption = bottomSource.locator("option", { hasText: "New cylinder" });
+  await expect(bottomOption).toHaveText("New cylinder · Air · used by deco gas Oxygen");
+  await expect(bottomOption).toBeDisabled();
+
+  // Switched off, the oxygen gas holds no cylinder, so the bottom gas can take it. Calculate that plan.
+  const includeOxygen = page.getByRole("checkbox", { name: "Include Air in plan" });
+  await includeOxygen.uncheck();
+  await expect(bottomOption).toHaveText("New cylinder · Air");
+  await bottomSource.selectOption({ label: "New cylinder · Air" });
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const current = page.getByRole("status").filter({ hasText: /^Current$/ });
+  await expect(current).toBeVisible();
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+
+  // Switching the oxygen gas back on puts both gases on one record.
+  await includeOxygen.check();
+  const shared = page.getByRole("status").filter({ hasText: /^Cylinder shared$/ });
+  const calculatedPlan = page.getByRole("region", { name: "Calculated plan" });
+  await expect(shared).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resolve shared cylinder" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^(Calculate|Update) plan$/ })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(calculatedPlan).toBeHidden();
+  await expect(page.getByRole("region", { name: "Shared Tank Bank cylinders" })).toContainText(
+    "Bottom gas Tx18/45 and deco gas Oxygen both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a plan needs one cylinder per gas.",
+  );
+  await expect(page.getByText(/Gas identifier .* is duplicated/)).toHaveCount(0);
+  // Each gas's source control shows the record it shares, names the other gas, and is described by its error.
+  await expect(bottomSource.locator("option:checked")).toHaveText("New cylinder · Air · used by deco gas Oxygen");
+  await expect(oxygenSource.locator("option:checked")).toHaveText("New cylinder · Air · used by bottom gas Tx18/45");
+  await expect(bottomSource).toHaveAttribute("aria-invalid", "true");
+  await expect(bottomSource).toHaveAccessibleDescription("Deco gas Oxygen also uses this cylinder. Give each gas its own cylinder.");
+  await expect(oxygenSource).toHaveAccessibleDescription("Bottom gas Tx18/45 also uses this cylinder. Give each gas its own cylinder.");
+  // Nothing recalculates while the cylinder is shared, even after the ordinary 400 ms update window.
+  await page.clock.fastForward(1_000);
+  await expect(shared).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+
+  // No Tank Bank record changed, so the earlier result matches again once the draft returns to it.
+  await includeOxygen.uncheck();
+  await expect(current).toBeVisible();
+  await expect(page.getByRole("region", { name: "Shared Tank Bank cylinders" })).toHaveCount(0);
+  await expect(bottomSource).not.toHaveAttribute("aria-invalid");
+  await expect(bottomSource).toHaveAccessibleDescription("");
+  await expect(page.getByRole("button", { name: "Review plan" })).toBeEnabled();
+
+  // Cave uses the same source controls.
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source", { exact: true }).selectOption({ label: "New cylinder · Air" });
+  const caveOption = page.getByLabel("Oxygen cylinder source", { exact: true }).locator("option", { hasText: "New cylinder" });
+  await expect(caveOption).toHaveText("New cylinder · Air · used by bottom gas Tx18/45");
+  await expect(caveOption).toBeDisabled();
+});
+
 test("calculates CCR, cave, and the Tools library without a remote dependency", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByText("CCR", { exact: true }).first().click();
@@ -1135,17 +1201,23 @@ test("blocks Cave while one Tank Bank cylinder is selected for two gases and kee
   await page.getByRole("button", { name: "Save cylinder" }).click();
 
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
-  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
+  const oxygenSource = page.getByLabel("Oxygen cylinder source");
+  const includeOxygen = page.getByRole("checkbox", { name: "Include Air in plan" });
   const leg = page.locator(".bf-route-editor").first();
   const access = (name: string) => leg.getByRole("checkbox", { name, exact: true });
-  await access("Oxygen cylinder").uncheck();
+  // The source control does not offer a record another active gas uses, so the oxygen gas takes the record
+  // first, is made inaccessible on the leg, and is switched off while the bottom gas takes the record too.
+  await oxygenSource.selectOption({ label: "New cylinder · Air" });
+  await access("New cylinder").uncheck();
+  await includeOxygen.uncheck();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  const current = page.getByRole("status").filter({ hasText: /^Current$/ });
+  await expect(current).toBeVisible();
   await page.getByRole("button", { name: "Edit inputs" }).click();
 
-  // The oxygen gas is pointed at the record the bottom gas already uses.
-  const oxygenSource = page.getByLabel("Oxygen cylinder source");
-  await oxygenSource.selectOption({ label: "New cylinder · Air" });
+  // Switched back on, the oxygen gas shares the record the bottom gas uses.
+  await includeOxygen.check();
   const shared = page.getByRole("status").filter({ hasText: /^Cylinder shared$/ });
   await expect(shared).toBeVisible();
   await expect(page.getByRole("button", { name: "Resolve shared cylinder" })).toBeDisabled();
@@ -1163,11 +1235,17 @@ test("blocks Cave while one Tank Bank cylinder is selected for two gases and kee
   await expect(shared).toBeVisible();
   await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeHidden();
 
-  // Back on its own cylinder, the oxygen gas is still inaccessible, so the earlier result matches again.
+  // Switched off again, the draft is the one calculated, so the earlier result matches again.
+  await includeOxygen.uncheck();
+  await expect(current).toBeVisible();
+
+  // Back on and then on its own cylinder, the oxygen gas is still inaccessible and the bottom gas accessible.
+  await includeOxygen.check();
+  await expect(shared).toBeVisible();
   await oxygenSource.selectOption({ label: "Ad hoc plan cylinder" });
   await expect(access("Oxygen cylinder")).not.toBeChecked();
   await expect(access("New cylinder")).toBeChecked();
-  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Shared Tank Bank cylinders" })).toHaveCount(0);
 });
 
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {

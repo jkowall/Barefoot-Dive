@@ -11,9 +11,14 @@ import {
   DEFAULT_PLAN_DRAFT,
   resolvePlanInput,
   selectableTanks,
+  selectedTankSources,
+  sharedTankSourceDiagnostics,
+  sharedTankSourceText,
   tankBankSnapshot,
+  tankSourceOptionLabel,
   tankSourceSignature,
   withGasPlanning,
+  type GasDraft,
   type PlanDraft,
   type ResolvedPlanInput,
   type TankBankSnapshot,
@@ -318,6 +323,148 @@ describe("unavailable Tank Bank sources", () => {
     expect(snapshot).toEqual({ readable: true, records: [spare], quarantined: [{ id: doubles.id, name: "Doubles 12 L" }, {}] });
     expect(resolvePlanInput(sourced, snapshot).unavailableSources).toMatchObject([{ reason: "quarantined", cylinderName: "Doubles 12 L" }]);
     expect(selectableTanks(snapshot)).toEqual([spare]);
+  });
+});
+
+describe("one Tank Bank cylinder selected for several gases", () => {
+  const record = (id: string, name: string, waterVolumeL: number, gas: Pick<TankRecord["gas"], "id" | "name" | "oxygen">): TankRecord => ({
+    id,
+    name,
+    waterVolumeL: liters(waterVolumeL),
+    workingPressureBar: barGauge(232),
+    currentPressureBar: barGauge(232),
+    minimumPressureBar: barGauge(35),
+    gas: { ...gas, helium: fraction(0), role: "bottom" },
+    maximumPPO2: barAbsolute(1.6),
+    role: "bottom",
+    revision: 1,
+    archived: false,
+    createdAt: "2026-09-25T00:00:00.000Z",
+    updatedAt: "2026-09-25T00:00:00.000Z",
+  });
+  // Tank Bank's new-cylinder defaults; it names a record's gas id after the gas, so this one breathes "air".
+  const newCylinder = record("bank-new", "New cylinder", 24, { id: "air", name: "Air", oxygen: fraction(0.21) });
+  const stage = record("bank-stage", "Stage 11 L", 11, { id: "ean50", name: "EAN50", oxygen: fraction(0.5) });
+  const bank = [newCylinder, stage];
+
+  /** Selects `cylinderId` as the source of each draft gas in `keys`, in either breathing mode. */
+  function withSource(draft: PlanDraft, keys: readonly string[], cylinderId: string | undefined): PlanDraft {
+    const set = (gas: GasDraft): GasDraft => keys.includes(gas.key) ? { ...gas, cylinderId } : gas;
+    return {
+      ...draft,
+      bottomGas: set(draft.bottomGas),
+      travelGas: set(draft.travelGas),
+      decoGases: draft.decoGases.map(set),
+      diluent: set(draft.diluent),
+      bailoutGases: draft.bailoutGases.map(set),
+    };
+  }
+  const shared = withSource(DEFAULT_PLAN_DRAFT, ["bottom", "deco-o2"], newCylinder.id);
+  const messages = (
+    draft: PlanDraft,
+    tankBank: TankBankSnapshot | readonly TankRecord[] = bank,
+    environment?: DivePlanInput["environment"],
+  ) => sharedTankSourceDiagnostics(draft, tankBank, environment).map((item) => item.message);
+
+  it("names both gases and the record where the planner reports only a duplicated gas identifier", () => {
+    expect(sharedTankSourceDiagnostics(shared, bank)).toEqual([{
+      code: "TANK_SOURCE_SHARED",
+      severity: "error",
+      message: "Bottom gas Tx18/45 and deco gas Oxygen both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a plan needs one cylinder per gas.",
+      cylinderId: newCylinder.id,
+    }]);
+
+    // Resolution and domain validation are unchanged: both gases resolve to the record's own gas and to one
+    // cylinder, and the planner rejects that input with the bare identifier message Plan used to show.
+    const resolved = resolvePlanInput(shared, bank);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "plan-gas-deco-50", "air"]);
+    expect(resolved.cylinders.map((cylinder) => cylinder.id)).toEqual([newCylinder.id, "plan-cylinder-deco-50"]);
+    const result = calculateDivePlan(calculable(resolved));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([expect.objectContaining({ code: "GAS_ID_DUPLICATE", message: "Gas identifier air is duplicated.", field: "gases.2.id" })]);
+  });
+
+  it("names every gas on each shared record in plan order, in both breathing modes and in Cave", () => {
+    expect(messages(withSource(DEFAULT_PLAN_DRAFT, ["bottom", "deco-50", "deco-o2"], newCylinder.id))).toEqual([
+      "Bottom gas Tx18/45, deco gas EAN50 and deco gas Oxygen all use Tank Bank cylinder “New cylinder”. Choose another cylinder for all but one of them; a plan needs one cylinder per gas.",
+    ]);
+    const twoRecords = withSource(
+      withSource({ ...DEFAULT_PLAN_DRAFT, travelGasEnabled: true }, ["deco-50", "deco-o2"], stage.id),
+      ["bottom", "travel"],
+      newCylinder.id,
+    );
+    expect(sharedTankSourceDiagnostics(twoRecords, bank).map((item) => [item.cylinderId, item.message])).toEqual([
+      [newCylinder.id, "Bottom gas Tx18/45 and travel gas Travel air both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a plan needs one cylinder per gas."],
+      [stage.id, "Deco gas EAN50 and deco gas Oxygen both use Tank Bank cylinder “Stage 11 L”. Choose another cylinder for one of them; a plan needs one cylinder per gas."],
+    ]);
+    expect(messages(withSource({ ...DEFAULT_PLAN_DRAFT, mode: "ccr" }, ["diluent", "bailout-50"], newCylinder.id))).toEqual([
+      "Diluent Tx18/45 diluent and bailout gas EAN50 bailout both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a plan needs one cylinder per gas.",
+    ]);
+    expect(messages(shared, bank, "cave")).toEqual([
+      "Bottom gas Tx18/45 and deco gas Oxygen both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a cave plan needs one cylinder per gas.",
+    ]);
+  });
+
+  it("lists every loaded record an active gas selects so each source control can name the other gases", () => {
+    const draft = withSource(withSource(DEFAULT_PLAN_DRAFT, ["bottom"], newCylinder.id), ["deco-50"], stage.id);
+    const [ean50, oxygen] = draft.decoGases as [GasDraft, GasDraft];
+    expect(selectedTankSources(draft, bank)).toEqual([
+      { record: newCylinder, gases: [draft.bottomGas] },
+      { record: stage, gases: [ean50] },
+    ]);
+    expect(sharedTankSourceDiagnostics(draft, bank)).toEqual([]);
+    expect(selectedTankSources(shared, bank)).toEqual([{ record: newCylinder, gases: [shared.bottomGas, shared.decoGases[1]] }]);
+
+    expect(tankSourceOptionLabel(stage, [])).toBe("Stage 11 L · EAN50");
+    expect(tankSourceOptionLabel(newCylinder, [draft.bottomGas])).toBe("New cylinder · Air · used by bottom gas Tx18/45");
+    expect(tankSourceOptionLabel(newCylinder, [draft.bottomGas, ean50])).toBe("New cylinder · Air · used by bottom gas Tx18/45 and deco gas EAN50");
+    expect(sharedTankSourceText([oxygen])).toBe("Deco gas Oxygen also uses this cylinder. Give each gas its own cylinder.");
+    expect(sharedTankSourceText([draft.bottomGas, { ...ean50, name: " " }])).toBe(
+      "Bottom gas Tx18/45 and deco gas Plan gas also use this cylinder. Give each gas its own cylinder.",
+    );
+  });
+
+  it("ignores gases that take no part in the calculation and sources that do not load", () => {
+    const withoutOxygen: PlanDraft = { ...shared, decoGases: shared.decoGases.map((gas) => gas.key === "deco-o2" ? { ...gas, enabled: false } : gas) };
+    expect(messages(withoutOxygen)).toEqual([]);
+    expect(selectedTankSources(withoutOxygen, bank)).toEqual([{ record: newCylinder, gases: [shared.bottomGas] }]);
+
+    const travel = withSource(DEFAULT_PLAN_DRAFT, ["bottom", "travel"], newCylinder.id);
+    expect(messages(travel)).toEqual([]);
+    expect(messages({ ...travel, travelGasEnabled: true })).toHaveLength(1);
+
+    const loop = withSource(DEFAULT_PLAN_DRAFT, ["diluent", "bailout-bottom"], newCylinder.id);
+    expect(messages(loop)).toEqual([]);
+    expect(messages({ ...loop, mode: "ccr" })).toHaveLength(1);
+
+    // Gas-only plans carry no cylinders, but Cave always plans with them.
+    const gasOnly: PlanDraft = { ...shared, gasPlanning: "gas-only" };
+    expect(messages(gasOnly)).toEqual([]);
+    expect(resolvePlanInput(gasOnly, bank).gases.map((gas) => gas.id)).toEqual(["plan-gas-bottom", "plan-gas-deco-50", "plan-gas-deco-o2"]);
+    expect(messages(gasOnly, bank, "cave")).toHaveLength(1);
+
+    // A record that does not load is reported once per gas as an unavailable source, never as shared.
+    const unloaded: readonly (TankBankSnapshot | readonly TankRecord[])[] = [
+      [{ ...newCylinder, archived: true }, stage],
+      [stage],
+      { readable: true, records: [stage], quarantined: [{ id: newCylinder.id, name: "New cylinder" }] },
+      { readable: false, message: "Stored data failed runtime validation." },
+    ];
+    for (const tankBank of unloaded) {
+      expect(messages(shared, tankBank)).toEqual([]);
+      expect(resolvePlanInput(shared, tankBank).unavailableSources.map((source) => source.gasKey)).toEqual(["bottom", "deco-o2"]);
+    }
+  });
+
+  it("resolves and calculates once each gas has its own cylinder", () => {
+    for (const separated of [
+      withSource(shared, ["deco-o2"], undefined),
+      withSource(shared, ["deco-o2"], stage.id),
+      withSource(shared, ["bottom"], undefined),
+    ]) {
+      expect(sharedTankSourceDiagnostics(separated, bank)).toEqual([]);
+      expect(calculateDivePlan(calculable(resolvePlanInput(separated, bank))).ok).toBe(true);
+    }
   });
 });
 

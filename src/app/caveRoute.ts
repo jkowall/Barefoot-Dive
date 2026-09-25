@@ -2,12 +2,12 @@ import type { RouteLeg } from "../cave";
 import type { Cylinder, Diagnostic, Gas } from "../domain/types";
 import { meters, seconds } from "../domain/units";
 import type { RouteDraft } from "./caveWorkspace";
-import { activeGasDrafts, gasRoleLabel, type PlanDraft } from "./planning";
+import { activeGasDrafts, gasSourceLabel, sharedTankSourceMessage, type PlanDraft } from "./planning";
 
 /** An active gas as a route leg records it. */
 export type RouteGas = {
   readonly key: string;
-  /** Role and name for diagnostics, lower case: "deco gas EAN50". */
+  /** Role and name for diagnostics, lower case (`gasSourceLabel`): "deco gas EAN50". */
   readonly label: string;
 };
 
@@ -40,8 +40,7 @@ export function routeCylinders(
   activeGasDrafts(draft).forEach((gas, index) => {
     const cylinderId = resolved.gases[index]?.cylinderId;
     if (!cylinderId) return;
-    const label = `${gasRoleLabel[gas.role].toLowerCase()} ${gas.name.trim() || "Plan gas"}`;
-    gasesByCylinder.set(cylinderId, [...(gasesByCylinder.get(cylinderId) ?? []), { key: gas.key, label }]);
+    gasesByCylinder.set(cylinderId, [...(gasesByCylinder.get(cylinderId) ?? []), { key: gas.key, label: gasSourceLabel(gas) }]);
   });
   return resolved.cylinders.map((cylinder) => ({
     id: cylinder.id,
@@ -135,18 +134,11 @@ export function withStageCylinder(leg: RouteDraft, cylinder: RouteCylinder | und
   return { ...leg, stageGasKey: cylinder?.gases[0]?.key };
 }
 
-const listText = (items: readonly string[]) => items.length < 2
-  ? items.join("")
-  : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
-
 function sharedCylinderDiagnostic(cylinder: RouteCylinder): Diagnostic {
-  const labels = cylinder.gases.map((gas) => gas.label);
-  const both = labels.length === 2;
-  const message = `${listText(labels)} ${both ? "both" : "all"} use Tank Bank cylinder “${cylinder.name}”. Choose another cylinder for ${both ? "one of them" : "all but one of them"}; a cave plan needs one cylinder per gas.`;
   return {
     code: "ROUTE_CYLINDER_SHARED",
     severity: "error",
-    message: message.charAt(0).toUpperCase() + message.slice(1),
+    message: sharedTankSourceMessage(cylinder.gases.map((gas) => gas.label), cylinder.name, "cave"),
     cylinderId: cylinder.id,
   };
 }

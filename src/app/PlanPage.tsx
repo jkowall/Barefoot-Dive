@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type Ref, type SetStateAction } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type Dispatch, type Ref, type SetStateAction } from "react";
 import { calculateDivePlan } from "../engine/planner";
 import type { Diagnostic, GasRole, PlannerConventionId } from "../domain/types";
 import type { SavedPlansStore, TankBankStore, TankRecord } from "../storage";
@@ -44,7 +44,11 @@ import {
   isGasOnlyPlan,
   resolvePlanInput,
   selectableTanks,
+  selectedTankSources,
+  sharedTankSourceDiagnostics,
+  sharedTankSourceText,
   tankBankSnapshot,
+  tankSourceOptionLabel,
   tankSourceSignature,
   tankSourceUnavailableText,
   withGasPlanning,
@@ -106,6 +110,7 @@ function GasEditor({
   containerRef,
   value,
   tanks,
+  selectedBy,
   unavailable,
   preferences,
   onChange,
@@ -119,6 +124,8 @@ function GasEditor({
   readonly value: GasDraft;
   /** Cylinders the gas can be sourced from (loaded, not archived). */
   readonly tanks: readonly TankRecord[];
+  /** The active gases that select each loaded Tank Bank record, by record id, from `selectedTankSources`. */
+  readonly selectedBy: ReadonlyMap<string, readonly GasDraft[]>;
   /** Set when the selected Tank Bank cylinder cannot be used; the gas is then held out of every calculation. */
   readonly unavailable?: UnavailableTankSource;
   readonly preferences: UnitPreferences;
@@ -134,7 +141,12 @@ function GasEditor({
   readonly gasOnly?: boolean;
 }) {
   const sourceRef = useRef<HTMLSelectElement>(null);
+  const sharedErrorId = useId();
   const selected = gasOnly ? undefined : tanks.find((tank) => tank.id === value.cylinderId);
+  // One cylinder cannot supply two gases, so a record another active gas selects is named and not offered.
+  const otherGases = (tankId: string) => (selectedBy.get(tankId) ?? []).filter((gas) => gas.key !== value.key);
+  const sharedWith = selected ? otherGases(selected.id) : [];
+  const sharedError = sharedWith.length > 0 ? sharedTankSourceText(sharedWith) : undefined;
   const gas = selected?.gas;
   const change = <K extends keyof GasDraft>(key: K, next: GasDraft[K]) => onChange({ ...value, [key]: next });
   const included = value.enabled !== false;
@@ -190,8 +202,10 @@ function GasEditor({
       />}
     </div>}
     {included && !gasOnly && <div className="bf-form-grid bf-form-grid--gas">
-      <FieldGroup label="Cylinder source">
+      <FieldGroup error={sharedError} errorId={sharedErrorId} label="Cylinder source">
         <select
+          aria-describedby={sharedError ? sharedErrorId : undefined}
+          aria-invalid={sharedError ? true : undefined}
           aria-label={`${value.name} cylinder source`}
           onChange={(event) => change("cylinderId", event.currentTarget.value || undefined)}
           ref={sourceRef}
@@ -199,7 +213,10 @@ function GasEditor({
         >
           {unavailable && <option disabled value={unavailable.cylinderId}>Unavailable · {unavailable.cylinderName ?? "selected cylinder"}</option>}
           <option value="">Ad hoc plan cylinder</option>
-          {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} · {tank.gas.name}</option>)}
+          {tanks.map((tank) => {
+            const others = otherGases(tank.id);
+            return <option disabled={others.length > 0} key={tank.id} value={tank.id}>{tankSourceOptionLabel(tank, others)}</option>;
+          })}
         </select>
       </FieldGroup>
       {selected || unavailable ? null : <>
@@ -348,6 +365,7 @@ export function PlannerEditor({
   const gasOnly = isGasOnlyPlan(draft, environment);
   const tanks = selectableTanks(tankBank);
   const unavailableByGas = new Map(unavailableSources.map((source) => [source.gasKey, source]));
+  const selectedBy = new Map(selectedTankSources(draft, tankBank, environment).map((source) => [source.record.id, source.gases]));
   const gasNote = gasOnly
     ? "Gas-only planning: enter mixes only. Results give the minimum surface volume to carry for each gas, including the reserve policy. Cylinder capacity, pressures, and unusable residual gas are not checked. Deco and bailout gases are eligible only at or shallower than their switch depth."
     : `Tank Bank cylinders are copied into this calculation as snapshots. ${preferences.cylinderCapacity === "imperial" ? "Rated capacity is converted with the cylinder working pressure." : "Capacity is the physical internal water volume."} Deco and bailout gases are eligible only at or shallower than their switch depth.`;
@@ -447,9 +465,9 @@ export function PlannerEditor({
       title="Open-circuit gases"
     >
       <p className="bf-panel__note">{gasNote}</p>
-      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} unavailable={unavailableByGas.get(draft.bottomGas.key)} value={draft.bottomGas} />
+      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} unavailable={unavailableByGas.get(draft.bottomGas.key)} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
-      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} unavailable={unavailableByGas.get(draft.travelGas.key)} value={draft.travelGas} />}
+      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} tanks={tanks} unavailable={unavailableByGas.get(draft.travelGas.key)} value={draft.travelGas} />}
       {draft.decoGases.map((gas, index) => <GasEditor
         gasOnly={gasOnly}
         containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
@@ -458,6 +476,7 @@ export function PlannerEditor({
         onRemove={() => set("decoGases", draft.decoGases.filter((_, gasIndex) => gasIndex !== index))}
         preferences={preferences}
         reserveKind={draft.reserve.kind}
+        selectedBy={selectedBy}
         switchable
         tanks={tanks}
         unavailable={unavailableByGas.get(gas.key)}
@@ -508,7 +527,7 @@ export function PlannerEditor({
             value={draft.diluentPreBailoutUseL === undefined ? undefined : surfaceGasInputValue(draft.diluentPreBailoutUseL, preferences.cylinderCapacity)}
           />
         </div>}
-        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} unavailable={unavailableByGas.get(draft.diluent.key)} value={draft.diluent} />
+        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} tanks={tanks} unavailable={unavailableByGas.get(draft.diluent.key)} value={draft.diluent} />
       </Panel>
       <Panel
         actions={<ActionButton onClick={() => addGas("bailoutGases", "bailout")} quiet>Add bailout gas</ActionButton>}
@@ -522,6 +541,7 @@ export function PlannerEditor({
           onRemove={() => set("bailoutGases", draft.bailoutGases.filter((_, gasIndex) => gasIndex !== index))}
           preferences={preferences}
           reserveKind={draft.reserve.kind}
+          selectedBy={selectedBy}
           switchable
           tanks={tanks}
           unavailable={unavailableByGas.get(gas.key)}
@@ -538,24 +558,29 @@ type CompletionEvent = {
   readonly description: string;
 };
 
+/** Plan adds one blocking state to the shared workspace statuses: one Tank Bank cylinder selected for several gases. */
+type PlanWorkspaceStatus = WorkspaceStatus | "cylinder-shared";
+
 const AUTO_RECALCULATE_MS = 400;
 
-const statusLabel: Record<WorkspaceStatus, string> = {
+const statusLabel: Record<PlanWorkspaceStatus, string> = {
   draft: "Draft",
   updating: "Updating",
   current: "Current",
   "needs-attention": "Needs attention",
   "source-changed": "Source changed",
   "source-unavailable": "Source unavailable",
+  "cylinder-shared": "Cylinder shared",
 };
 
-const statusDescription: Record<WorkspaceStatus, string> = {
+const statusDescription: Record<PlanWorkspaceStatus, string> = {
   draft: "No calculation yet. Review the setup, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous results are hidden.",
   current: "The calculated result matches every current input.",
   "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics in Setup.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the plan.",
   "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; nothing is calculated until then.",
+  "cylinder-shared": "One Tank Bank cylinder is selected for more than one gas. Give each gas its own cylinder, or switch the extra gases off, in Setup; nothing is calculated until then.",
 };
 
 export default function PlanPage({
@@ -587,16 +612,22 @@ export default function PlanPage({
     return readTankBank(tanks);
   }, [tanks, tankRevision]);
   const resolved = useMemo(() => resolvePlanInput(draft, tankBank), [draft, tankBank]);
-  // No input exists while a selected Tank Bank source is unavailable, so nothing can be calculated or match.
-  const input = resolved.input;
+  const sharedSources = useMemo(() => sharedTankSourceDiagnostics(draft, tankBank), [draft, tankBank]);
+  // No input exists while a selected Tank Bank source is unavailable, or while one record is selected for
+  // several gases (the planner would reject the repeated gas), so nothing can be calculated or match.
+  const input = sharedSources.length > 0 ? undefined : resolved.input;
   const inputSignature = input === undefined ? undefined : JSON.stringify(input);
   const sourceSignature = tankSourceSignature(draft, tankBank);
-  const status = workspaceStatus({
-    inputSignature,
-    sourceSignature,
-    calculated: session.calculated,
-    attemptedInputSignature: session.attemptedInputSignature,
-  });
+  // workspaceStatus reads a missing input as an unavailable source, which takes precedence, so a shared
+  // cylinder is reported first only once every source loads.
+  const status: PlanWorkspaceStatus = resolved.ok && sharedSources.length > 0
+    ? "cylinder-shared"
+    : workspaceStatus({
+        inputSignature,
+        sourceSignature,
+        calculated: session.calculated,
+        attemptedInputSignature: session.attemptedInputSignature,
+      });
   const calculatedIsCurrent = status === "current";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
@@ -690,7 +721,9 @@ export default function PlanPage({
           ? <ActionButton disabled>Updating plan…</ActionButton>
           : status === "source-unavailable"
             ? <ActionButton disabled>Resolve Tank Bank source</ActionButton>
-            : <ActionButton disabled>Fix inputs</ActionButton>;
+            : status === "cylinder-shared"
+              ? <ActionButton disabled>Resolve shared cylinder</ActionButton>
+              : <ActionButton disabled>Fix inputs</ActionButton>;
   const action = session.view === "review" && reviewAvailable
     ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
     : setupAction;
@@ -728,6 +761,7 @@ export default function PlanPage({
     {session.view === "setup" ? <div className="bf-plan-setup">
       {status === "needs-attention" && <WarningList items={diagnosticItems(session.diagnostics)} title="Calculation diagnostics" />}
       <WarningList items={diagnosticItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
+      <WarningList items={diagnosticItems(sharedSources)} title="Shared Tank Bank cylinders" />
       <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
     </div> : calculatedIsCurrent && session.calculated ? <PlanResultView
       completion={completion ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} /> : undefined}

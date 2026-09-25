@@ -15,7 +15,14 @@ import {
   type RouteCylinder,
 } from "./caveRoute";
 import { createInitialCaveWorkspaceSession, type RouteDraft } from "./caveWorkspace";
-import { activeGasDrafts, resolvePlanInput, type GasDraft, type PlanDraft, type TankBankSnapshot } from "./planning";
+import {
+  activeGasDrafts,
+  resolvePlanInput,
+  sharedTankSourceDiagnostics,
+  type GasDraft,
+  type PlanDraft,
+  type TankBankSnapshot,
+} from "./planning";
 
 const tank = (id: string, name: string, oxygen: number, archived = false): TankRecord => ({
   id,
@@ -306,6 +313,13 @@ describe("a Tank Bank cylinder selected for several gases", () => {
     expect(normalizeCaveRoute([leg], cylindersFor(allThree)).diagnostics).toEqual([expect.objectContaining({
       message: "Bottom gas Tx18/45, deco gas EAN50 and deco gas Oxygen all use Tank Bank cylinder “Back gas 12 L”. Choose another cylinder for all but one of them; a cave plan needs one cylinder per gas.",
     })]);
+  });
+
+  it("names the gases and the record exactly as the Tank Bank source check does for Plan", () => {
+    for (const draft of [sharedDraft, withSource(sharedDraft, "deco-50", backGas.id)]) {
+      expect(normalizeCaveRoute([leg], cylindersFor(draft)).diagnostics.map((item) => [item.cylinderId, item.message]))
+        .toEqual(sharedTankSourceDiagnostics(draft, bank, "cave").map((item) => [item.cylinderId, item.message]));
+    }
   });
 
   it("leaves every gas's recorded access and stage untouched until the gases have their own cylinders again", () => {

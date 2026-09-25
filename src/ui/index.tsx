@@ -88,9 +88,10 @@ export function SegmentedControl<T extends string>({ label, value, options, onCh
   return <fieldset className="bf-segmented"><legend>{label}</legend><div role="radiogroup" aria-label={label}>{options.map((option) => <label data-selected={option.value === value || undefined} key={option.value}><input checked={option.value === value} disabled={option.disabled} name={id} onChange={() => onChange?.(option.value)} type="radio" value={option.value} /><span>{option.label}</span></label>)}</div></fieldset>;
 }
 
-export function FieldGroup({ label, hint, error, children }: { readonly label: string; readonly hint?: string; readonly error?: string; readonly children: ReactNode }) {
+/** `errorId` identifies the error text so the control inside can reference it with `aria-describedby`. */
+export function FieldGroup({ label, hint, error, errorId, children }: { readonly label: string; readonly hint?: string; readonly error?: string; readonly errorId?: string; readonly children: ReactNode }) {
   const id = useId();
-  return <div aria-labelledby={id} className="bf-field-group" role="group"><span id={id}>{label}</span><div className="bf-field-group__control">{children}</div>{error ? <p className="bf-field-group__error">{error}</p> : hint && <p className="bf-field-group__hint">{hint}</p>}</div>;
+  return <div aria-labelledby={id} className="bf-field-group" role="group"><span id={id}>{label}</span><div className="bf-field-group__control">{children}</div>{error ? <p className="bf-field-group__error" id={errorId}>{error}</p> : hint && <p className="bf-field-group__hint">{hint}</p>}</div>;
 }
 
 export function Panel({ title, eyebrow, actions, children, className = "" }: { readonly title?: string; readonly eyebrow?: string; readonly actions?: ReactNode; readonly children: ReactNode; readonly className?: string }) {
