@@ -120,11 +120,16 @@ function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
   const rows = runtimeRows(plan, preferences);
   const ledger = plan.gasLedger.map((entry) => ledgerRow(entry, preferences));
   const gasOnly = plan.gasLedger.some((entry) => entry.gasOnly);
+  // Plans on the first-stop boundary carry an info diagnostic; say so for the older rule too.
+  const decoRmvFromBottomEnd = plan.mode === "oc" &&
+    plan.environment === "open-water" &&
+    !plan.diagnostics.some((item) => item.code === "DECO_RMV_FROM_FIRST_STOP");
   const ledgerView = ledger.length === 0
     ? <p className="bf-panel__note">No open-circuit gas is breathed on this plan. Loop oxygen and diluent use are not modeled{plan.mode === "ccr" ? "; bailout gas is accounted for in the CCR bailout plan" : ""}.</p>
     : <>
       <GasLedger rows={ledger} />
       {gasOnly && <p className="bf-panel__note">Minimum to carry is the surface volume for expected use plus the reserve policy. It excludes unusable residual gas and any per-cylinder minimum pressure.</p>}
+      {decoRmvFromBottomEnd && <p className="bf-panel__note">Gas use charges the deco RMV from the end of bottom time, including the climb to the first stop (the rule before 0.5.0).</p>}
     </>;
   return <>
     <Panel title={`${title} profile`}>

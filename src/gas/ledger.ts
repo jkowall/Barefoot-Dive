@@ -11,13 +11,21 @@ import type {
 import { integratedSurfaceGas } from "../calculations";
 import { barGauge, liters, meters, seconds } from "../domain/units";
 
+type Phase = "bottom" | "deco";
+
 type ConsumptionRecord = {
   readonly segment: ProfileSegment;
   readonly cylinder?: Cylinder;
   readonly gasId: string;
   readonly gasName: string;
   readonly usedL: number;
-  readonly phase: "bottom" | "deco";
+  /** The RMV the segment is charged at, which is also the bottom/deco volume split. */
+  readonly phase: Phase;
+  /**
+   * The engine 0.1.0 phase from the end of bottom time. Rock-bottom membership keeps using
+   * it so reserves never move with the deco RMV boundary.
+   */
+  readonly reservePhase: Phase;
 };
 
 export type GasLedgerResult = {
@@ -43,15 +51,52 @@ function findCylinder(
   return { cylinder: candidates.length === 1 ? candidates[0] : undefined, ambiguous: candidates.length > 1 };
 }
 
+/**
+ * Bailout ledgers charge only stops at the deco rate. Other ledgers charge stops and every
+ * segment that starts at or after the deco boundary.
+ */
+function phaseFor(segment: ProfileSegment, bailout: boolean, decoFromRuntimeSeconds: number): Phase {
+  const isDeco = bailout
+    ? segment.kind === "stop"
+    : segment.kind === "stop" || segment.startRuntimeSeconds >= decoFromRuntimeSeconds;
+  return isDeco ? "deco" : "bottom";
+}
+
+/** Open-circuit plans that opted in to the first-stop boundary; never bailout or CCR ledgers. */
+function usesFirstStopBoundary(input: DivePlanInput, bailout: boolean): boolean {
+  return !bailout && input.mode === "oc" && input.decoRmvFrom === "first-stop";
+}
+
+/**
+ * Runtime of arrival at the first stop: the start of the first stop, or of a switch made at
+ * that depth just before it, which is part of the stop rather than the climb. There is none
+ * on a no-stop ascent.
+ */
+function firstStopArrivalRuntime(
+  segments: readonly ProfileSegment[],
+  bottomEndRuntimeSeconds: Seconds,
+): number {
+  let index = segments.findIndex((segment) =>
+    segment.kind === "stop" && segment.startRuntimeSeconds >= bottomEndRuntimeSeconds);
+  if (index < 0) return Number.POSITIVE_INFINITY;
+  const stopDepthM = segments[index].startDepthM;
+  const atStopDepth = (segment: ProfileSegment) =>
+    Math.abs(segment.startDepthM - stopDepthM) < 1e-9 && Math.abs(segment.endDepthM - stopDepthM) < 1e-9;
+  while (
+    index > 0 &&
+    segments[index - 1].startRuntimeSeconds >= bottomEndRuntimeSeconds &&
+    atStopDepth(segments[index - 1])
+  ) index -= 1;
+  return segments[index].startRuntimeSeconds;
+}
+
 function surfaceGasForSegment(
   segment: ProfileSegment,
   input: DivePlanInput,
   bailout: boolean,
-  bottomEndRuntimeSeconds: Seconds,
+  phase: Phase,
 ): number {
-  const isDeco = bailout
-    ? segment.kind === "stop"
-    : segment.kind === "stop" || segment.startRuntimeSeconds >= bottomEndRuntimeSeconds;
+  const isDeco = phase === "deco";
   const rmv = bailout
     ? (isDeco ? input.rmv.bailoutDecoLpm : input.rmv.bailoutLpm)
     : (isDeco ? input.rmv.decoLpm : input.rmv.bottomLpm);
@@ -104,7 +149,7 @@ function rockBottomReserve(
   const multiplier = input.reservePolicy.teamSize * input.reservePolicy.stressedRmvLpm;
   return records
     .filter((record) =>
-      record.phase === "deco" ||
+      record.reservePhase === "deco" ||
       record.segment.kind === "exit" ||
       record.segment.kind === "bailout" ||
       record.segment.kind === "ascent"
@@ -192,6 +237,11 @@ export function calculateGasLedger(
   const missing = new Set<string>();
   const ambiguous = new Set<string>();
   let bailoutStarted = !options.bailout;
+  const bailout = Boolean(options.bailout);
+  const firstStopBoundary = usesFirstStopBoundary(input, bailout);
+  const decoFromRuntime = firstStopBoundary
+    ? firstStopArrivalRuntime(segments, options.bottomEndRuntimeSeconds)
+    : options.bottomEndRuntimeSeconds;
 
   for (const segment of segments) {
     if (segment.startRuntimeSeconds < (options.startRuntimeSeconds ?? 0)) continue;
@@ -203,23 +253,15 @@ export function calculateGasLedger(
     if (!assignment.cylinder) {
       (assignment.ambiguous ? ambiguous : missing).add(segment.gasId);
     }
-    const phase = options.bailout
-      ? (segment.kind === "stop" ? "deco" : "bottom")
-      : (segment.kind === "stop" || segment.startRuntimeSeconds >= options.bottomEndRuntimeSeconds
-          ? "deco"
-          : "bottom");
+    const phase = phaseFor(segment, bailout, decoFromRuntime);
     records.push({
       segment,
       cylinder: assignment.cylinder,
       gasId: segment.gasId,
       gasName: segment.gasName,
-      usedL: surfaceGasForSegment(
-        segment,
-        input,
-        Boolean(options.bailout),
-        options.bottomEndRuntimeSeconds,
-      ),
+      usedL: surfaceGasForSegment(segment, input, bailout, phase),
       phase,
+      reservePhase: phaseFor(segment, bailout, options.bottomEndRuntimeSeconds),
     });
   }
 
@@ -247,6 +289,13 @@ export function calculateGasLedger(
     });
   }
 
+  if (firstStopBoundary && records.length > 0) {
+    diagnostics.push({
+      code: "DECO_RMV_FROM_FIRST_STOP",
+      severity: "info",
+      message: "Gas use is charged at the bottom RMV until the first stop, or for the whole ascent on a no-stop dive, and at the deco RMV from the first stop on.",
+    });
+  }
   if (gasOnly && records.length > 0) {
     diagnostics.push({
       code: "GAS_ONLY_VOLUMES",
@@ -265,7 +314,12 @@ export function calculateGasLedger(
         segment.durationSeconds > 0
       )
       .reduce((total, segment) =>
-        total + surfaceGasForSegment(segment, input, false, options.bottomEndRuntimeSeconds), 0);
+        total + surfaceGasForSegment(
+          segment,
+          input,
+          false,
+          phaseFor(segment, false, options.bottomEndRuntimeSeconds),
+        ), 0);
     return { gasId: option.gasId, volumeL: option.preBailoutUseL + earlierOpenCircuitUse };
   })();
 
