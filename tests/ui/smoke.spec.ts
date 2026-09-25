@@ -1497,6 +1497,17 @@ test("reloads the production PWA while offline after first load", async ({ page,
   await context.setOffline(false);
 });
 
+test("ships breakpoints that Safari and iOS 15.4 can parse", async ({ page, request }) => {
+  const stylesheets = await page.locator('link[rel="stylesheet"]').evaluateAll((links) => links.map((link) => (link as HTMLLinkElement).href));
+  expect(stylesheets).not.toHaveLength(0);
+  for (const href of stylesheets) {
+    const queries = (await (await request.get(href)).text()).match(/@media[^{]+/g) ?? [];
+    expect(queries).not.toHaveLength(0);
+    // Range syntax such as (width>=900px) needs Safari/iOS 16.4; older WebKit ignores the whole query.
+    expect(queries.filter((query) => /[<>=]/.test(query))).toEqual([]);
+  }
+});
+
 test("keeps a Tool draft through the library and Plan navigation, then resets it on reload", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Tools", exact: true }).first().click();
