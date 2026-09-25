@@ -53,7 +53,7 @@ import {
   ZHL16C_MODEL_VERSION,
 } from "./zhl16c";
 
-export const ENGINE_VERSION = "barefoot-dive-engine-0.2.1";
+export const ENGINE_VERSION = "barefoot-dive-engine-0.3.0";
 const MAX_ASCENT_ITERATIONS = 10_000;
 const MAX_DECOMPRESSION_SECONDS = 48 * 60 * 60;
 const EPSILON = 1e-8;

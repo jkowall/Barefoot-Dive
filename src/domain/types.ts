@@ -251,6 +251,14 @@ export type OcDiveInput = BaseDiveInput & {
   readonly bottomGas: Gas;
   readonly travelGas?: Gas;
   readonly decoGases: readonly Gas[];
+  /**
+   * Where the gas ledger switches from the bottom RMV to the deco RMV. Absent means the
+   * engine 0.1.0 boundary: every segment from the end of bottom time, including the ascent
+   * to the first stop, uses the deco RMV. "first-stop" keeps the bottom RMV until the first
+   * stop begins, or for the whole ascent when there is no stop. Reserves and decompression
+   * are unaffected. Open water only: cave plans reject it until it has cave review.
+   */
+  readonly decoRmvFrom?: "first-stop";
 };
 
 export type CcrDiveInput = BaseDiveInput & {

@@ -398,6 +398,26 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       ));
     }
   }
+  // Stored inputs are replayed verbatim, so an unknown or misplaced value is rejected
+  // rather than ignored.
+  const decoRmvFrom = (input as { readonly decoRmvFrom?: unknown }).decoRmvFrom;
+  if (decoRmvFrom !== undefined) {
+    if (input.mode !== "oc") {
+      errors.push(error(
+        "DECO_RMV_BOUNDARY_OC_ONLY",
+        "The deco RMV boundary applies to open-circuit plans only. CCR bailout charges only stops at the bailout deco RMV.",
+        "decoRmvFrom",
+      ));
+    } else if (decoRmvFrom !== "first-stop") {
+      errors.push(error("DECO_RMV_BOUNDARY_INVALID", "The deco RMV boundary must be \"first-stop\" or absent.", "decoRmvFrom"));
+    } else if (input.environment === "cave") {
+      errors.push(error(
+        "DECO_RMV_BOUNDARY_CAVE_UNSUPPORTED",
+        "Cave turn limits keep the end-of-bottom-time deco RMV boundary until the first-stop boundary has cave review.",
+        "decoRmvFrom",
+      ));
+    }
+  }
   const gasIds = new Set<string>();
   gases.forEach((gas, index) => {
     if (gasIds.has(gas.id)) errors.push(error("GAS_ID_DUPLICATE", `Gas identifier ${gas.id} is duplicated.`, `gases.${index}.id`));
