@@ -127,6 +127,20 @@ test("calculated cave output visual baseline", async ({ page }, testInfo) => {
   await expect(results).toHaveScreenshot(`cave-results-${testInfo.project.name}.png`);
 });
 
+test("gas not set on an edited Cave route leg visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  const leg = page.locator(".bf-route-editor").first();
+  await leg.getByRole("checkbox", { name: "Oxygen cylinder", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Add deco gas" }).click();
+  await expect(leg.getByRole("button", { name: "Keep not carried" })).toBeVisible();
+  await prepareLongCapture(page);
+  // Keep the pointer off the leg so no field is captured in its hover state.
+  await page.mouse.move(0, 0);
+  await expect(leg).toHaveScreenshot(`cave-route-unset-${testInfo.project.name}.png`);
+});
+
 test("Tools library visual baseline", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
   await page.goto("/");
