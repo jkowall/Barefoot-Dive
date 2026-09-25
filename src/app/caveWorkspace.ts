@@ -10,6 +10,11 @@ import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./planning";
 
 export type CaveWorkspaceView = "setup" | "review";
 
+/**
+ * A route leg as the diver edits it. Cylinder access and the stage are recorded by gas draft key,
+ * not cylinder id, because a gas's cylinder id changes with its Tank Bank source; `caveRoute.ts`
+ * maps them to the current cylinder ids when it builds the cave input.
+ */
 export type RouteDraft = {
   readonly id: string;
   readonly startDepthM: number;
@@ -17,9 +22,14 @@ export type RouteDraft = {
   readonly durationMinutes: number;
   readonly distanceM: number;
   readonly propulsion: Propulsion;
-  readonly accessibleCylinderIds?: readonly string[];
+  /**
+   * Gases whose cylinders are accessible on this leg. Undefined means every plan cylinder; the first
+   * access edit records the gases then taking part.
+   */
+  readonly accessibleGasKeys?: readonly string[];
   readonly stageAction: StageAction;
-  readonly stageCylinderId?: string;
+  /** The gas whose cylinder is dropped or recovered on this leg. */
+  readonly stageGasKey?: string;
 };
 
 export type CaveLimitsDraft = {

@@ -1086,6 +1086,90 @@ test("keeps an earlier Cave result hidden after an unavailable source returns un
   await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeVisible();
 });
 
+test("keeps Cave leg access and the stage with each gas when its cylinder source changes", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  const bottomSource = page.getByLabel("Tx18/45 cylinder source");
+  await bottomSource.selectOption({ label: "New cylinder · Air" });
+  const leg = page.locator(".bf-route-editor").first();
+  const access = (name: string) => leg.getByRole("checkbox", { name, exact: true });
+  await expect(access("New cylinder")).toBeChecked();
+  // Untick and re-tick a cylinder so the leg records its own access list.
+  await access("EAN50 cylinder").uncheck();
+  await access("EAN50 cylinder").check();
+
+  // Back to the ad hoc cylinder: the bottom gas stays accessible on the leg under its new cylinder id.
+  await bottomSource.selectOption({ label: "Ad hoc plan cylinder" });
+  await expect(leg.getByRole("checkbox")).toHaveCount(3);
+  for (const name of ["Tx18/45 cylinder", "EAN50 cylinder", "Oxygen cylinder"]) await expect(access(name)).toBeChecked();
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(calculatedCave).toContainText("Tx18/45");
+
+  // A stage dropped on the leg stays with its gas when that gas is sourced from Tank Bank and detached again.
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await leg.getByRole("combobox", { name: "Stage action" }).selectOption("drop");
+  const stageCylinder = leg.getByRole("combobox", { name: "Stage cylinder" });
+  await stageCylinder.selectOption({ label: "EAN50 cylinder" });
+  const ean50Source = page.getByLabel("EAN50 cylinder source");
+  await ean50Source.selectOption({ label: "New cylinder · Air" });
+  await expect(stageCylinder.locator("option:checked")).toHaveText("New cylinder");
+  await expect(access("New cylinder")).toBeChecked();
+  await expect(access("EAN50 cylinder")).toHaveCount(0);
+  await ean50Source.selectOption({ label: "Ad hoc plan cylinder" });
+  await expect(stageCylinder.locator("option:checked")).toHaveText("EAN50 cylinder");
+  await expect(access("EAN50 cylinder")).toBeChecked();
+  await expect(page.getByRole("region", { name: "Shared Tank Bank cylinders" })).toHaveCount(0);
+});
+
+test("blocks Cave while one Tank Bank cylinder is selected for two gases and keeps each gas's leg access", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ label: "New cylinder · Air" });
+  const leg = page.locator(".bf-route-editor").first();
+  const access = (name: string) => leg.getByRole("checkbox", { name, exact: true });
+  await access("Oxygen cylinder").uncheck();
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+
+  // The oxygen gas is pointed at the record the bottom gas already uses.
+  const oxygenSource = page.getByLabel("Oxygen cylinder source");
+  await oxygenSource.selectOption({ label: "New cylinder · Air" });
+  const shared = page.getByRole("status").filter({ hasText: /^Cylinder shared$/ });
+  await expect(shared).toBeVisible();
+  await expect(page.getByRole("button", { name: "Resolve shared cylinder" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^(Calculate|Update) cave plan$/ })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Shared Tank Bank cylinders" })).toContainText(
+    "Bottom gas Tx18/45 and deco gas Oxygen both use Tank Bank cylinder “New cylinder”. Choose another cylinder for one of them; a cave plan needs one cylinder per gas.",
+  );
+  // The leg shows the two gases' different access as mixed and cannot overwrite either one.
+  await expect(access("New cylinder")).toBeChecked({ indeterminate: true });
+  await expect(access("New cylinder")).toBeDisabled();
+  await expect(leg.getByRole("group", { name: "Cylinders accessible on this leg" })).toContainText("“New cylinder” is selected for more than one gas.");
+  // Nothing recalculates while the cylinder is shared, even after the ordinary 400 ms update window.
+  await page.clock.fastForward(1_000);
+  await expect(shared).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeHidden();
+
+  // Back on its own cylinder, the oxygen gas is still inaccessible, so the earlier result matches again.
+  await oxygenSource.selectOption({ label: "Ad hoc plan cylinder" });
+  await expect(access("Oxygen cylinder")).not.toBeChecked();
+  await expect(access("New cylinder")).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+});
+
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();

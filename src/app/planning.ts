@@ -329,7 +329,7 @@ export function tankSourceUnavailableText(source: Pick<UnavailableTankSource, "r
   }
 }
 
-const gasRoleLabel: Record<GasRole, string> = {
+export const gasRoleLabel: Record<GasRole, string> = {
   bottom: "Bottom gas",
   travel: "Travel gas",
   deco: "Deco gas",
