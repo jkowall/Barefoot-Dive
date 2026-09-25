@@ -112,10 +112,13 @@ describe("depth entry", () => {
   it("never moves a deco switch deeper than the typed depth", () => {
     expect(resolveDepthEntry(70, "imperial", { bound: "max-ppo2" })).toBeCloseTo(70 / 3.280839895, 9);
     expect(resolveDepthEntry(19, "imperial", { bound: "max-ppo2" })).toBeCloseTo(19 / 3.280839895, 9);
-    for (let feet = 0; feet <= 330; feet += 1) {
-      const resolved = resolveDepthEntry(feet, "imperial", { bound: "max-ppo2" });
-      expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
-      expect(depthInputValue(resolved, "imperial")).toBe(feet);
+    // On the 3 m grid and the 10 ft (3.048 m) grid.
+    for (const gridM of [3, 3.048]) {
+      for (let feet = 0; feet <= 330; feet += 1) {
+        const resolved = resolveDepthEntry(feet, "imperial", { bound: "max-ppo2", gridM });
+        expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
+        expect(depthInputValue(resolved, "imperial")).toBe(feet);
+      }
     }
   });
 
@@ -138,10 +141,13 @@ describe("depth entry", () => {
   it("never moves a CCR switch depth deeper than typed", () => {
     // 12 m reads 39 ft, but 39 ft is 11.887 m: a switch-up typed at a 39 ft maximum depth stays in the descent.
     expect(resolveDepthEntry(39, "imperial", { bound: "setpoint-switch" })).toBeCloseTo(39 / 3.280839895, 9);
-    for (let feet = 0; feet <= 330; feet += 1) {
-      const resolved = resolveDepthEntry(feet, "imperial", { bound: "setpoint-switch" });
-      expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
-      expect(depthInputValue(resolved, "imperial")).toBe(feet);
+    // On the 3 m grid and the 10 ft (3.048 m) grid.
+    for (const gridM of [3, 3.048]) {
+      for (let feet = 0; feet <= 330; feet += 1) {
+        const resolved = resolveDepthEntry(feet, "imperial", { bound: "setpoint-switch", gridM });
+        expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
+        expect(depthInputValue(resolved, "imperial")).toBe(feet);
+      }
     }
   });
 
