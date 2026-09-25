@@ -13,13 +13,12 @@ import {
   WarningList,
   type WarningItem,
 } from "../ui";
-import { ActionButton, NumberField, OptionalNumberField, SelectField, TextField, ToggleField } from "./controls";
+import { ActionButton, DepthField, NumberField, OptionalNumberField, SelectField, TextField, ToggleField } from "./controls";
+import { formatDiagnostic } from "./diagnosticText";
 import {
   capacityLabel,
   capacityInputValue,
   capacityUnit,
-  depthInputValue,
-  depthToCanonical,
   depthUnit,
   formatDepth,
   formatPressure,
@@ -36,12 +35,12 @@ import {
   surfaceGasRateInputValue,
   surfaceGasRateUnit,
   surfaceGasUnit,
-  switchDepthToCanonical,
   waterVolumeFromRatedCapacity,
   type UnitPreferences,
 } from "./helpers";
 import {
   isGasOnlyPlan,
+  PLAN_STOP_INCREMENT_M,
   resolvePlanInput,
   selectableTanks,
   selectedTankSources,
@@ -62,11 +61,14 @@ import { PlanResultView } from "./PlanResultView";
 import type { PlanWorkspaceSession, PlanWorkspaceView } from "./planWorkspace";
 import { invalidateForUnavailableSource, workspaceStatus, type WorkspaceStatus } from "./workspaceStatus";
 
-const diagnosticItems = (diagnostics: readonly Diagnostic[]): readonly WarningItem[] => diagnostics.map((item, index) => ({
-  id: `${item.code}-${index}`,
-  message: item.field ? `${item.message} (${item.field})` : item.message,
-  severity: item.severity,
-}));
+const diagnosticItems = (diagnostics: readonly Diagnostic[], units: UnitPreferences["depth"]): readonly WarningItem[] => diagnostics.map((item, index) => {
+  const message = formatDiagnostic(item, units);
+  return {
+    id: `${item.code}-${index}`,
+    message: item.field ? `${message} (${item.field})` : message,
+    severity: item.severity,
+  };
+});
 
 /** Every stored Tank Bank record, archived included, so an unavailable Plan or Cave source can say why. */
 export function readTankBank(store?: TankBankStore): TankBankSnapshot {
@@ -159,6 +161,18 @@ function GasEditor({
     : enteredMinimumBar > policyMinimumBar
       ? `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy; the entered cylinder minimum is higher than ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure, so it governs.`
       : `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy: ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure.`;
+  // A deco or bailout switch may align shallower onto the stop grid (20 ft is the 6 m stop); the
+  // travel-to-bottom switch has a minimum PPO₂ as well as a maximum, so it is taken exactly.
+  const switchDepthField = showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <DepthField
+    bound={value.role === "bottom" ? "min-ppo2" : "max-ppo2"}
+    gridM={PLAN_STOP_INCREMENT_M}
+    hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
+    label={`Switch depth (${depthUnit(preferences.depth)})`}
+    min={0}
+    onChange={(next) => change("switchDepthM", next)}
+    units={preferences.depth}
+    valueM={value.switchDepthM ?? 0}
+  />;
   return <article className="bf-gas-editor" data-excluded={included ? undefined : ""} ref={containerRef}>
     <header className="bf-row-header">
       <div>
@@ -193,13 +207,7 @@ function GasEditor({
       <NumberField label="O₂ (%)" max={100} min={0} onChange={(next) => change("oxygenPercent", next)} step={0.1} value={value.oxygenPercent} />
       <NumberField label="He (%)" max={100} min={0} onChange={(next) => change("heliumPercent", next)} step={0.1} value={value.heliumPercent} />
       <NumberField label="Max PPO₂ (bar)" min={0.1} onChange={(next) => change("maximumPPO2Bar", next)} step={0.05} value={value.maximumPPO2Bar} />
-      {showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <NumberField
-        hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
-        label={`Switch depth (${depthUnit(preferences.depth)})`}
-        min={0}
-        onChange={(next) => change("switchDepthM", depthToCanonical(next, preferences.depth))}
-        value={depthInputValue(value.switchDepthM ?? 0, preferences.depth)}
-      />}
+      {switchDepthField}
     </div>}
     {included && !gasOnly && <div className="bf-form-grid bf-form-grid--gas">
       <FieldGroup error={sharedError} errorId={sharedErrorId} label="Cylinder source">
@@ -257,13 +265,7 @@ function GasEditor({
         />
         <NumberField label="Cylinder max PPO₂ (bar)" min={0.1} onChange={(next) => change("maximumPPO2Bar", next)} step={0.05} value={value.maximumPPO2Bar} />
       </>}
-      {showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <NumberField
-        hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
-        label={`Switch depth (${depthUnit(preferences.depth)})`}
-        min={0}
-        onChange={(next) => change("switchDepthM", depthToCanonical(next, preferences.depth))}
-        value={depthInputValue(value.switchDepthM ?? 0, preferences.depth)}
-      />}
+      {switchDepthField}
     </div>}
   </article>;
 }
@@ -336,7 +338,7 @@ function ReserveEditor({ value, preferences, onChange, gasOnly = false }: {
     />}
     {value.kind === "rock-bottom" && <>
       <NumberField label="Team size" min={1} onChange={(teamSize) => onChange({ ...value, teamSize })} value={value.teamSize} />
-      <NumberField label={`Stressed SAC/RMV per diver (${surfaceGasRateUnit(preferences.cylinderCapacity)})`} min={0.1} onChange={(next) => onChange({ ...value, stressedRmvLpm: surfaceGasRateInputToCanonical(next, preferences.cylinderCapacity, [value.stressedRmvLpm]) })} step={surfaceGasRateInputStep()} value={surfaceGasRateInputValue(value.stressedRmvLpm, preferences.cylinderCapacity)} />
+      <NumberField label={`Stressed SAC/RMV per diver (${surfaceGasRateUnit(preferences.cylinderCapacity)})`} min={0.1} onChange={(next) => onChange({ ...value, stressedRmvLpm: surfaceGasRateInputToCanonical(next, preferences.cylinderCapacity, [value.stressedRmvLpm]) })} step={surfaceGasRateInputStep(preferences.cylinderCapacity)} value={surfaceGasRateInputValue(value.stressedRmvLpm, preferences.cylinderCapacity)} />
     </>}
   </div>;
 }
@@ -375,7 +377,7 @@ export function PlannerEditor({
     label={`${label} (${rateUnit})`}
     min={0.1}
     onChange={(next) => set(key, surfaceGasRateInputToCanonical(next, preferences.cylinderCapacity, [draft[key]]))}
-    step={surfaceGasRateInputStep()}
+    step={surfaceGasRateInputStep(preferences.cylinderCapacity)}
     value={surfaceGasRateInputValue(draft[key], preferences.cylinderCapacity)}
   />;
   const updateArray = (key: "decoGases" | "bailoutGases", index: number, value: GasDraft) => {
@@ -411,11 +413,12 @@ export function PlannerEditor({
           options={[{ value: "oc", label: "Open circuit" }, { value: "ccr", label: "CCR" }]}
           value={draft.mode}
         />
-        <NumberField
+        <DepthField
           label={`Maximum depth (${depthUnit(preferences.depth)})`}
           min={1}
-          onChange={(next) => set("depthM", depthToCanonical(next, preferences.depth))}
-          value={depthInputValue(draft.depthM, preferences.depth)}
+          onChange={(next) => set("depthM", next)}
+          units={preferences.depth}
+          valueM={draft.depthM}
         />
         {showBottomTime && <NumberField label="Time at target depth (min)" min={0.1} onChange={(bottomTimeMinutes) => set("bottomTimeMinutes", bottomTimeMinutes)} step={0.5} value={draft.bottomTimeMinutes} />}
       </div>
@@ -486,20 +489,26 @@ export function PlannerEditor({
       <Panel title="CCR loop">
         <p className="bf-panel__note">{gasNote}</p>
         <div className="bf-form-grid bf-form-grid--gas">
-          <NumberField label="Low setpoint (bar)" max={1.6} min={0.5} onChange={(lowSetpointBar) => set("lowSetpointBar", lowSetpointBar)} step={0.05} value={draft.lowSetpointBar} />
+          <NumberField label="Low setpoint (bar)" max={1.6} min={0.5} onChange={(lowSetpointBar) => set("lowSetpointBar", lowSetpointBar)} step={0.01} value={draft.lowSetpointBar} />
           <NumberField label="High setpoint (bar)" max={1.6} min={0.5} onChange={(setpointBar) => set("setpointBar", setpointBar)} step={0.05} value={draft.setpointBar} />
-          <NumberField
+          <DepthField
+            bound="setpoint-switch"
+            gridM={PLAN_STOP_INCREMENT_M}
             label={`Switch up to high setpoint (${depthUnit(preferences.depth)})`}
             min={0}
-            onChange={(next) => set("setpointActivationDepthM", switchDepthToCanonical(next, preferences.depth))}
-            value={depthInputValue(draft.setpointActivationDepthM, preferences.depth)}
+            onChange={(next) => set("setpointActivationDepthM", next)}
+            units={preferences.depth}
+            valueM={draft.setpointActivationDepthM}
           />
-          <NumberField
+          <DepthField
+            bound="setpoint-switch"
+            gridM={PLAN_STOP_INCREMENT_M}
             hint="Applied when leaving this depth on ascent, after any stop there. The plan never holds the high setpoint shallower than the loop can reach it."
             label={`Switch down to low setpoint (${depthUnit(preferences.depth)})`}
             min={0}
-            onChange={(next) => set("setpointDeactivationDepthM", switchDepthToCanonical(next, preferences.depth))}
-            value={depthInputValue(draft.setpointDeactivationDepthM, preferences.depth)}
+            onChange={(next) => set("setpointDeactivationDepthM", next)}
+            units={preferences.depth}
+            valueM={draft.setpointDeactivationDepthM}
           />
         </div>
         <ToggleField
@@ -759,9 +768,9 @@ export default function PlanPage({
       </div>
     </section>
     {session.view === "setup" ? <div className="bf-plan-setup">
-      {status === "needs-attention" && <WarningList items={diagnosticItems(session.diagnostics)} title="Calculation diagnostics" />}
-      <WarningList items={diagnosticItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
-      <WarningList items={diagnosticItems(sharedSources)} title="Shared Tank Bank cylinders" />
+      {status === "needs-attention" && <WarningList items={diagnosticItems(session.diagnostics, preferences.depth)} title="Calculation diagnostics" />}
+      <WarningList items={diagnosticItems(resolved.diagnostics, preferences.depth)} title="Tank Bank sources unavailable" />
+      <WarningList items={diagnosticItems(sharedSources, preferences.depth)} title="Shared Tank Bank cylinders" />
       <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
     </div> : calculatedIsCurrent && session.calculated ? <PlanResultView
       completion={completion ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} /> : undefined}
@@ -772,7 +781,7 @@ export default function PlanPage({
       <p>{statusDescription[status]}</p>
     </Panel>}
     <SavePlanDialog
-      defaultName={`${draft.mode.toUpperCase()} · ${Math.round(draft.depthM)} m · ${draft.bottomTimeMinutes} min`}
+      defaultName={`${draft.mode.toUpperCase()} · ${formatDepth(draft.depthM, preferences.depth)} · ${draft.bottomTimeMinutes} min`}
       onCancel={() => setSaveOpen(false)}
       onSave={save}
       open={saveOpen}

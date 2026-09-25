@@ -178,6 +178,14 @@ export function isGasOnlyPlan(draft: PlanDraft, environment: DivePlanInput["envi
   return environment !== "cave" && draft.gasPlanning === "gas-only";
 }
 
+/** Stop increment the resolved plan uses; entered switch depths align to this grid. */
+export const PLAN_STOP_INCREMENT_M: number = DEFAULT_PLANNER_SETTINGS.stopIncrementM;
+
+/**
+ * Tank Bank sources and revisions for the mode's gases. Every gas that can be sourced counts,
+ * including an excluded deco or bailout gas and a travel gas that is switched off, so turning a
+ * gas on or off recalculates as an ordinary edit instead of reading as a changed source.
+ */
 export function tankSourceSignature(
   draft: PlanDraft,
   tankBank: TankBankSnapshot | readonly TankRecord[],
@@ -186,8 +194,10 @@ export function tankSourceSignature(
   if (isGasOnlyPlan(draft, environment)) return "[]";
   const bank = snapshotOf(tankBank);
   const tanks = bank.readable ? bank.records : [];
-  const selectedDrafts = activeGasDrafts(draft);
-  return JSON.stringify(selectedDrafts.flatMap((gas) => {
+  const sourceableDrafts = draft.mode === "oc"
+    ? [draft.bottomGas, draft.travelGas, ...draft.decoGases]
+    : [draft.diluent, ...draft.bailoutGases];
+  return JSON.stringify(sourceableDrafts.flatMap((gas) => {
     if (!gas.cylinderId) return [];
     const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
     return [{ gasKey: gas.key, tankId: gas.cylinderId, revision: tank?.revision ?? null }];
@@ -538,6 +548,13 @@ function reservePolicy(draft: ReserveDraft): ReservePolicy {
   }
 }
 
+/** A gas without a switch depth, for both the gas and the cylinder snapshot that carries it. */
+function withoutSwitchDepth(item: ResolvedGas): ResolvedGas {
+  const gas: { -readonly [Key in keyof Gas]: Gas[Key] } = { ...item.gas };
+  delete gas.switchDepthM;
+  return item.cylinder ? { ...item, gas, cylinder: { ...item.cylinder, gas } } : { ...item, gas };
+}
+
 /**
  * Resolves the active gases against the Tank Bank. A gas whose selected Tank Bank cylinder is
  * archived, missing, quarantined, or unreadable is never replaced by its ad hoc fields: the
@@ -553,7 +570,7 @@ export function resolvePlanInput(
   const selectedDrafts = activeGasDrafts(draft);
   const gasOnly = isGasOnlyPlan(draft, environment);
   const unavailableSources: UnavailableTankSource[] = [];
-  const resolved = withDistinctTankGasIds(selectedDrafts.map((item): ResolvedGas => {
+  const resolvedDrafts = withDistinctTankGasIds(selectedDrafts.map((item): ResolvedGas => {
     if (gasOnly) return { gas: resolveGasOnly(item) };
     const source = lookupTankSource(item, bank);
     if (source.kind === "record") return { ...bankGasAndCylinder(item, source.record), recordId: source.record.id };
@@ -561,6 +578,12 @@ export function resolvePlanInput(
     if (source.kind === "unavailable") unavailableSources.push({ gasKey: item.key, role: item.role, ...source.source, adHoc });
     return adHoc;
   }));
+  // An OC bottom-gas switch depth is only the travel-to-bottom switch. Without a travel gas the
+  // field is hidden, so a value kept from earlier, or stored on its Tank Bank record, must not
+  // reach the calculation.
+  const resolved = draft.mode === "oc" && !draft.travelGasEnabled && resolvedDrafts[0]?.gas.switchDepthM !== undefined
+    ? [withoutSwitchDepth(resolvedDrafts[0]), ...resolvedDrafts.slice(1)]
+    : resolvedDrafts;
   const gases = resolved.map((item) => item.gas);
   const cylinders = [...new Map(resolved.flatMap((item) => item.cylinder ? [[item.cylinder.id, item.cylinder] as const] : [])).values()];
   if (unavailableSources.length > 0) {

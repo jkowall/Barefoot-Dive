@@ -5,6 +5,7 @@ import {
   DEFAULT_PLANNER_SETTINGS,
   DEFAULT_RESERVE_POLICY,
   DEFAULT_RMV,
+  OXYGEN,
 } from "./defaults";
 import type { CcrDiveInput, Cylinder, OcDiveInput } from "./types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "./units";
@@ -176,5 +177,70 @@ describe("deco RMV boundary validation", () => {
       bailoutGases: [{ ...diluent, id: "bailout", role: "bailout" }],
       decoRmvFrom: "first-stop",
     })).toContain("DECO_RMV_BOUNDARY_OC_ONLY");
+  });
+});
+
+function ccrInput(overrides: Partial<CcrDiveInput> = {}): CcrDiveInput {
+  return {
+    mode: "ccr",
+    environment: "open-water",
+    depthM: meters(45),
+    bottomTimeSeconds: seconds(30 * 60),
+    diluent: { ...AIR, id: "dil", role: "diluent" },
+    setpointBar: barAbsolute(1.3),
+    setpointActivationDepthM: meters(6),
+    bailoutGases: [{ ...AIR, id: "bo", role: "bailout" }],
+    cylinders: [],
+    settings: DEFAULT_PLANNER_SETTINGS,
+    environmentSettings: DEFAULT_ENVIRONMENT,
+    rmv: DEFAULT_RMV,
+    reservePolicy: DEFAULT_RESERVE_POLICY,
+    ...overrides,
+  };
+}
+
+describe("limit diagnostics state the value and the limit", () => {
+  const codes = (result: ReturnType<typeof validateDiveInput>) => [...(result.ok ? [] : result.errors), ...result.warnings].map((item) => item.code);
+  const find = (result: ReturnType<typeof validateDiveInput>, code: string) =>
+    [...(result.ok ? [] : result.errors), ...result.warnings].find((item) => item.code === code);
+
+  it("prints the surface low-setpoint limit rounded down, so the printed value is accepted", () => {
+    const rejected = validateDiveInput(ccrInput({ lowSetpointBar: barAbsolute(0.94) }));
+    const diagnostic = find(rejected, "CCR_LOW_SETPOINT_NOT_ACHIEVABLE");
+    expect(diagnostic?.message).toContain("at most 0.93 bar");
+    expect(diagnostic).toMatchObject({ actual: 0.94 });
+    expect(diagnostic?.limit).toBeCloseTo(0.9373, 10);
+    expect(codes(validateDiveInput(ccrInput({ lowSetpointBar: barAbsolute(0.93) })))).not.toContain("CCR_LOW_SETPOINT_NOT_ACHIEVABLE");
+  });
+
+  it("reports oxygen at 20 ft (6.096 m) with its PPO₂ and the deco limit, and accepts the 6 m stop", () => {
+    const at20ft = validateDiveInput({ ...input(), decoGases: [{ ...OXYGEN, switchDepthM: meters(6.096) }] });
+    const diagnostic = find(at20ft, "DECO_SWITCH_UNBREATHABLE");
+    expect(diagnostic?.message).toContain("1.610 bar");
+    expect(diagnostic?.message).toContain("6.1 m");
+    expect(diagnostic?.message).toContain("1.60 bar deco limit");
+    expect(diagnostic?.actual).toBeCloseTo(1.6096, 10);
+    expect(diagnostic).toMatchObject({ limit: 1.6, depthM: 6.096, gasId: OXYGEN.id });
+    expect(codes(validateDiveInput({ ...input(), decoGases: [{ ...OXYGEN, switchDepthM: meters(6) }] }))).not.toContain("DECO_SWITCH_UNBREATHABLE");
+  });
+
+  it("reports the assigned cylinder's limit at the switch depth", () => {
+    const oxygen = { ...OXYGEN, switchDepthM: meters(6.096), cylinderId: "o2" };
+    const cylinder: Cylinder = { id: "o2", name: "O₂ stage", waterVolumeL: liters(7), workingPressureBar: barGauge(200), currentPressureBar: barGauge(200), gas: oxygen, maximumPPO2: barAbsolute(1.6), revision: 1 };
+    const diagnostic = find(validateDiveInput({ ...input(), decoGases: [oxygen], cylinders: [cylinder] }), "CYLINDER_PPO2_LIMIT_EXCEEDED");
+    expect(diagnostic?.message).toContain("above the assigned cylinder's 1.60 bar maximum");
+    expect(diagnostic).toMatchObject({ limit: 1.6, cylinderId: "o2", gasId: OXYGEN.id, depthM: 6.096 });
+  });
+
+  it("reports how far the loop can reach at an unachievable switch-up depth", () => {
+    const diagnostic = find(validateDiveInput(ccrInput({ setpointActivationDepthM: meters(3) })), "CCR_SETPOINT_NOT_ACHIEVABLE");
+    expect(diagnostic?.message).toContain("at the 3.0 m switch-up depth, where the loop reaches at most 1.23 bar");
+    expect(diagnostic?.limit).toBeCloseTo(1.2373, 10);
+  });
+
+  it("lists every depth a switch-down warning prints, rounded on its safe side", () => {
+    const diagnostic = find(validateDiveInput(ccrInput({ lowSetpointBar: barAbsolute(0.7), setpointDeactivationDepthM: meters(0) })), "CCR_SWITCH_DOWN_DEEPENED");
+    expect(diagnostic?.message).toContain("shallower than 3.7 m, so the plan switches to the low setpoint at 3.7 m instead of 0.0 m");
+    expect(diagnostic?.depthMentions?.map((mention) => mention.rounding)).toEqual(["up", "up", "nearest"]);
   });
 });

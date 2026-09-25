@@ -20,8 +20,7 @@ import {
   capacityInputValue,
   capacityLabel,
   capacityUnit,
-  depthInputValue,
-  depthUnit,
+  formatDepthBound,
   formatPressure,
   pressureInputStep,
   pressureInputToCanonical,
@@ -289,7 +288,7 @@ export function TankBankPage({
       ...DEFAULT_ENVIRONMENT,
     });
     return result.ok
-      ? `${depthInputValue(result.value.depthM, units.depth)} ${depthUnit(units.depth)}`
+      ? formatDepthBound(result.value.depthM, units.depth, "upper")
       : "—";
   };
   const cylinderCapacityLabel = capacityLabel(units.cylinderCapacity);

@@ -27,7 +27,15 @@ const PHASE_TOP = 250;
 const PHASE_HEIGHT = 14;
 const EPSILON = 1e-6;
 
-const depthNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+const wholeNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const oneDecimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+/** Feet read as whole numbers; metres keep one decimal. */
+const depthFormatter = (unit: string): Intl.NumberFormat => unit === "ft" ? wholeNumber : oneDecimal;
+/** A ceiling is a depth to stay below, so it rounds deeper at display precision. */
+function formatCeiling(value: number, unit: string): string {
+  const factor = unit === "ft" ? 1 : 10;
+  return depthFormatter(unit).format(Math.ceil(value * factor - 1e-7) / factor);
+}
 
 function formatRuntime(valueSeconds: number): string {
   const total = Math.max(0, Math.round(valueSeconds));
@@ -95,6 +103,7 @@ export function ProfileChart({
   title = "Dive profile timeline",
   unit = "m",
 }: ProfileChartProps) {
+  const depthNumber = depthFormatter(unit);
   const titleId = useId();
   const instructionsId = useId();
   const markersId = useId();
@@ -139,7 +148,7 @@ export function ProfileChart({
     ? undefined
     : endpointCeiling <= EPSILON
       ? `None at ${formatRuntime(selectedSegment.endRuntimeSeconds)}`
-      : `${depthNumber.format(endpointCeiling)} ${unit} at ${formatRuntime(selectedSegment.endRuntimeSeconds)}`;
+      : `${formatCeiling(endpointCeiling, unit)} ${unit} at ${formatRuntime(selectedSegment.endRuntimeSeconds)}`;
   const selectedCeilingValue = endpointCeiling !== undefined && endpointCeiling > EPSILON
     ? endpointCeiling
     : undefined;
@@ -287,7 +296,7 @@ export function ProfileChart({
               textAnchor={ceilingLabelAnchor}
               x={ceilingLabelX}
               y={ceilingLabelY}
-            >Ceiling {depthNumber.format(selectedCeilingValue)} {unit} · {formatRuntime(selectedSegment.endRuntimeSeconds)}</text>
+            >Ceiling {formatCeiling(selectedCeilingValue, unit)} {unit} · {formatRuntime(selectedSegment.endRuntimeSeconds)}</text>
           </g>}
           <line className="bf-profile__crosshair" x1={selectedX} x2={selectedX} y1={PLOT_TOP} y2={PLOT_BOTTOM} />
           <circle className="bf-profile__current" cx={selectedX} cy={selectedY} r="5.5" />
@@ -359,7 +368,7 @@ export function ProfileChart({
           <tbody>{segments.map((segment) => <tr key={segment.id}>
             <td>{formatRuntime(segment.startRuntimeSeconds)}–{formatRuntime(segment.endRuntimeSeconds)}</td>
             <td>{depthNumber.format(segment.startDepth)} → {depthNumber.format(segment.endDepth)}</td>
-            <td>{segment.endpointCeiling === undefined ? "—" : depthNumber.format(segment.endpointCeiling)}</td>
+            <td>{segment.endpointCeiling === undefined ? "—" : formatCeiling(segment.endpointCeiling, unit)}</td>
             <td>{phaseLabel(segment.kind)}</td>
             <td>{segment.breathingLabel}</td>
           </tr>)}</tbody>

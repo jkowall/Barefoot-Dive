@@ -60,3 +60,30 @@ export function roundDepthShallower(depthM: Meters, incrementM: Meters): Meters 
 export function roundDepthDeeper(depthM: Meters, incrementM: Meters): Meters {
   return meters(Math.max(0, Math.ceil((depthM - 1e-9) / incrementM) * incrementM));
 }
+
+/**
+ * Round a limit for display so the printed value is on its safe side: an upper bound (a maximum)
+ * rounds down and a lower bound (a minimum) rounds up. Re-entering the printed value then always
+ * satisfies the limit, which rounding to nearest does not guarantee (0.9373 would print as 0.94).
+ */
+export function roundBound(value: number, decimals: number, bound: "upper" | "lower"): number {
+  const factor = 10 ** decimals;
+  const scaled = value * factor;
+  // The tolerance absorbs binary noise such as 0.93 * 100 = 92.99999999999999.
+  return (bound === "upper" ? Math.floor(scaled + 1e-7) : Math.ceil(scaled - 1e-7)) / factor;
+}
+
+export function formatBound(value: number, decimals: number, bound: "upper" | "lower"): string {
+  return roundBound(value, decimals, bound).toFixed(decimals);
+}
+
+/** How a depth printed in a diagnostic message was rounded, so a display can restate it in feet. */
+export type DepthRounding = "nearest" | "up" | "down";
+
+/** A depth as printed in diagnostic messages: canonical metres with one decimal. */
+export function formatMessageDepth(depthM: number, rounding: DepthRounding = "nearest"): string {
+  const value = rounding === "nearest"
+    ? depthM.toFixed(1)
+    : formatBound(depthM, 1, rounding === "down" ? "upper" : "lower");
+  return `${value} m`;
+}

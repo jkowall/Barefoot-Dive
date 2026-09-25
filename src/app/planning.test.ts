@@ -738,3 +738,49 @@ describe("Tank Bank records whose gases share an identifier", () => {
     expect(used(lost, stage.id)).toBeGreaterThan(0);
   });
 });
+
+describe("hidden inputs and Tank Bank source tracking", () => {
+  const bankTank = (revision: number, switchDepthM?: number): TankRecord => ({
+    id: "o2-stage",
+    name: "O₂ stage",
+    waterVolumeL: liters(7),
+    workingPressureBar: barGauge(200),
+    currentPressureBar: barGauge(200),
+    gas: { id: "bank-o2", name: "Oxygen", oxygen: fraction(1), helium: fraction(0), role: "deco", ...(switchDepthM === undefined ? {} : { switchDepthM: meters(switchDepthM) }) },
+    maximumPPO2: barAbsolute(1.6),
+    revision,
+    createdAt: "2026-09-24T00:00:00.000Z",
+    updatedAt: "2026-09-24T00:00:00.000Z",
+  });
+
+  it("drops a hidden bottom-gas switch depth when no travel gas is in use", () => {
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, switchDepthM: 30 } };
+    const withoutTravel = resolvePlanInput(draft, []);
+    const input = calculable(withoutTravel);
+    expect(input.mode === "oc" && "switchDepthM" in input.bottomGas).toBe(false);
+    const bottomCylinder = withoutTravel.cylinders.find((cylinder) => cylinder.id === withoutTravel.gases[0]!.cylinderId);
+    expect(bottomCylinder && "switchDepthM" in bottomCylinder.gas).toBe(false);
+    const withTravel = calculable(resolvePlanInput({ ...draft, travelGasEnabled: true }, []));
+    expect(withTravel.mode === "oc" && withTravel.bottomGas.switchDepthM).toBe(30);
+  });
+
+  it("drops a Tank Bank switch depth on the bottom gas when no travel gas is in use", () => {
+    const tank = { ...bankTank(1, 6), id: "bank-bottom" };
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: tank.id } };
+    const input = calculable(resolvePlanInput(draft, [tank]));
+    expect(input.mode === "oc" && "switchDepthM" in input.bottomGas).toBe(false);
+  });
+
+  it("treats switching a Tank Bank gas on or off as an edit, not a changed source", () => {
+    const draft: PlanDraft = {
+      ...DEFAULT_PLAN_DRAFT,
+      decoGases: [DEFAULT_PLAN_DRAFT.decoGases[0]!, { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, cylinderId: "o2-stage" }],
+    };
+    const excluded: PlanDraft = { ...draft, decoGases: [draft.decoGases[0]!, { ...draft.decoGases[1]!, enabled: false }] };
+    const tanks = [bankTank(1)];
+    expect(tankSourceSignature(excluded, tanks)).toBe(tankSourceSignature(draft, tanks));
+    expect(tankSourceSignature({ ...draft, travelGasEnabled: true }, tanks)).toBe(tankSourceSignature(draft, tanks));
+    expect(tankSourceSignature(draft, [bankTank(2)])).not.toBe(tankSourceSignature(draft, tanks));
+    expect(tankSourceSignature(excluded, [bankTank(2)])).not.toBe(tankSourceSignature(excluded, tanks));
+  });
+});

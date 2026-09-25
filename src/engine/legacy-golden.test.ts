@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV, EAN50, OXYGEN } from "../domain/defaults";
-import type { CcrDiveInput, DivePlan, Gas, OcDiveInput } from "../domain/types";
+import type { CcrDiveInput, Diagnostic, DivePlan, Gas, OcDiveInput } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
 import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from "./planner";
 import { calculateCavePlan, type CavePlanInput } from "../cave";
@@ -15,17 +15,15 @@ function hash(value: unknown): string {
 const digest = (plan: DivePlan | undefined): unknown => plan && ({ id: plan.id, segments: plan.segments, stops: plan.stops, summary: plan.summary, gasLedger: plan.gasLedger, diagnostics: plan.diagnostics, safetyStatus: plan.safetyStatus, bailout: digest(plan.bailoutPlan) });
 const tx1845: Gas = { id: "tx18-45", name: "Tx18/45", oxygen: fraction(0.18), helium: fraction(0.45), role: "bottom" };
 
-/**
- * Byte-identity guard for legacy inputs. These digests were captured from engine 0.1.0
- * before low setpoints, dil-out, gas-only planning, and the hypoxic-leg fixes were added.
- * Legacy CCR breathing (open-circuit diluent above the activation depth) and non-hypoxic
- * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same. Engine 0.2.1
- * re-checks every ascent leg's arrival ceiling, which deliberately changes schedules whose legs
- * arrived above the ceiling (mostly bailouts and nitrogen-to-helium switches; see
- * ascent-ceiling.test.ts). None of these seven inputs is affected.
- */
-it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => {
+/** Every legacy fixture calculation, shared by the digest guard and the emitted-codes pin. */
+function legacyResults() {
   const out: Record<string, string> = {};
+  const diagnostics: Diagnostic[] = [];
+  const collect = (plan: DivePlan | undefined) => {
+    if (!plan) return;
+    diagnostics.push(...plan.diagnostics);
+    collect(plan.bailoutPlan);
+  };
   const oc: OcDiveInput = { mode: "oc", environment: "open-water", depthM: meters(45), bottomTimeSeconds: seconds(25 * 60), bottomGas: tx1845, decoGases: [{ ...EAN50, switchDepthM: meters(21) }, { ...OXYGEN, switchDepthM: meters(6) }], cylinders: [], settings: DEFAULT_PLANNER_SETTINGS, environmentSettings: DEFAULT_ENVIRONMENT, rmv: DEFAULT_RMV, reservePolicy: DEFAULT_RESERVE_POLICY };
   const r1 = calculateDivePlan(oc); out.ocTrimix = hash(r1.ok ? digest(r1.value) : r1);
   const ocAir: OcDiveInput = { ...oc, depthM: meters(30), bottomTimeSeconds: seconds(20 * 60), bottomGas: AIR, decoGases: [] };
@@ -53,6 +51,25 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
     { id: "bottom", kind: "bottom", startDepthM: meters(30), endDepthM: meters(30), durationSeconds: seconds(24 * 60), gas: eventDiluent, strategy: { kind: "ccr", diluent: eventDiluent, setpointBar: barAbsolute(1.2) } },
   ];
   const r7 = calculateEventDivePlan(eventInput, events); out.eventCcrShearwater = hash(r7.ok ? digest(r7.value) : r7);
+  for (const result of [r1, r2, r3, r4, r5, r7]) if (result.ok) collect(result.value);
+  if (r6.ok) {
+    collect(r6.value.base);
+    for (const scenario of r6.value.scenarios) { diagnostics.push(...scenario.diagnostics); collect(scenario.plan); }
+  }
+  return { out, diagnostics };
+}
+
+/**
+ * Byte-identity guard for legacy inputs. These digests were captured from engine 0.1.0
+ * before low setpoints, dil-out, gas-only planning, and the hypoxic-leg fixes were added.
+ * Legacy CCR breathing (open-circuit diluent above the activation depth) and non-hypoxic
+ * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same. Engine 0.2.1
+ * re-checks every ascent leg's arrival ceiling, which deliberately changes schedules whose legs
+ * arrived above the ceiling (mostly bailouts and nitrogen-to-helium switches; see
+ * ascent-ceiling.test.ts). None of these seven inputs is affected.
+ */
+it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => {
+  const { out } = legacyResults();
   expect(out).toEqual({
     ocTrimix: "d1a70220",
     ocAir: "c92c4bef",
@@ -73,4 +90,21 @@ it("pins the 0.5.0 default OC draft on the first-stop RMV boundary", () => {
   expect(input.mode === "oc" && input.decoRmvFrom).toBe("first-stop");
   const result = calculateDivePlan(input);
   expect(hash(result.ok ? digest(result.value) : result)).toBe("ffcebeb7");
+  // The digest hashes this diagnostic too, so its text is frozen like the legacy codes below.
+  expect(result.ok && result.value.diagnostics.map((item) => item.code)).toEqual(["DECO_RMV_FROM_FIRST_STOP"]);
+});
+
+/**
+ * The digests hash these diagnostics, so their text and fields are frozen. Pinning the codes makes
+ * an edit to one of them fail here with its name, instead of as an unexplained digest change.
+ * Diagnostics outside this list and the default-draft pin above (invalid inputs, low-setpoint
+ * warnings) can be reworded freely.
+ */
+it("pins the diagnostic codes the legacy fixtures emit", () => {
+  const { diagnostics } = legacyResults();
+  expect([...new Set(diagnostics.map((item) => item.code))].sort()).toEqual([
+    "CCR_LOOP_CONSUMABLES_NOT_MODELED",
+    "CYLINDER_UNASSIGNED",
+    "RESERVE_CROSSED",
+  ]);
 });

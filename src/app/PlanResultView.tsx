@@ -14,7 +14,8 @@ import {
   type WarningItem,
 } from "../ui";
 import { ActionButton } from "./controls";
-import { groupRuntimeSegments } from "./runtimeRows";
+import { formatDiagnostic } from "./diagnosticText";
+import { runtimeScheduleRows, type GroupedRuntimeSegment } from "./runtimeRows";
 import {
   depthFromCanonical,
   depthUnit,
@@ -26,10 +27,10 @@ import {
   type UnitPreferences,
 } from "./helpers";
 
-function warningsFor(plan: DivePlan): readonly WarningItem[] {
+function warningsFor(plan: DivePlan, preferences: UnitPreferences): readonly WarningItem[] {
   return plan.diagnostics.map((diagnostic, index) => ({
     id: `${diagnostic.code}-${index}`,
-    message: diagnostic.message,
+    message: formatDiagnostic(diagnostic, preferences.depth),
     severity: diagnostic.severity,
   }));
 }
@@ -64,13 +65,27 @@ function profileReserveCrossings(plan: DivePlan, preferences: UnitPreferences): 
   });
 }
 
+function rowInstruction(row: GroupedRuntimeSegment): string {
+  if (row.includedTravelSeconds === undefined) return row.kind.replaceAll("-", " ");
+  const arrival = row.arrivalSwitch ? `, ${row.arrivalSwitch.replaceAll("-", " ")} on arrival` : "";
+  return `stop (incl. ${formatDuration(row.includedTravelSeconds)} ascent${arrival})`;
+}
+
+/**
+ * A folded row starts when the diver leaves the previous stop, so a gas switched on arrival is shown
+ * after the travel gas ("EAN50 → Oxygen"); the row's start runtime is never paired with the new gas alone.
+ */
+function rowGas(row: GroupedRuntimeSegment): string {
+  return row.travelGasName === undefined ? row.gasName : `${row.travelGasName} → ${row.gasName}`;
+}
+
 function runtimeRows(plan: DivePlan, preferences: UnitPreferences): readonly RuntimeRow[] {
-  return groupRuntimeSegments(plan.segments).map((segment) => ({
+  return runtimeScheduleRows(plan.segments).map((segment) => ({
     runtime: String(Math.round(segment.startRuntimeSeconds / 60)),
     depth: formatDepth(segment.endDepthM, preferences.depth),
     duration: formatDuration(segment.durationSeconds),
-    gas: segment.gasName,
-    event: segment.kind.replaceAll("-", " "),
+    gas: rowGas(segment),
+    event: rowInstruction(segment),
   }));
 }
 
@@ -189,7 +204,7 @@ export function PlanResultView({
       <div className="bf-metric-grid">
         <ResultMetric label="Runtime" value={formatDuration(plan.summary.runtimeSeconds)} />
         <ResultMetric label="TTS" value={formatDuration(plan.summary.ttsSeconds)} />
-        <ResultMetric label="Deco" value={formatDuration(plan.summary.decompressionSeconds)} />
+        <ResultMetric detail="Time at stops" label="Deco" value={formatDuration(plan.summary.decompressionSeconds)} />
         <ResultMetric label="Maximum depth" value={formatDepth(plan.summary.maximumDepthM, preferences.depth)} />
         <ResultMetric
           detail={`${plan.metadata.conventionId} · ${plan.metadata.engineVersion}`}
@@ -200,7 +215,7 @@ export function PlanResultView({
         />
       </div>
     </Panel>
-    <WarningList items={warningsFor(plan)} title="Plan diagnostics" />
+    <WarningList items={warningsFor(plan, preferences)} title="Plan diagnostics" />
     <ScheduleAndLedger compact={compact} plan={plan} preferences={preferences} title="Primary" />
     {plan.bailoutPlan && <>
       <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
@@ -215,7 +230,7 @@ export function PlanResultView({
           />
         </div>
       </Panel>
-      <WarningList items={warningsFor(plan.bailoutPlan)} title="Bailout diagnostics" />
+      <WarningList items={warningsFor(plan.bailoutPlan, preferences)} title="Bailout diagnostics" />
       <ScheduleAndLedger compact={compact} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
     </>}
   </section>;

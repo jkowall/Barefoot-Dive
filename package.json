@@ -1,6 +1,6 @@
 {
   "name": "barefoot-dive",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "private": true,
   "packageManager": "npm@11.12.1",
