@@ -29,7 +29,7 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
   const r2 = calculateDivePlan(ocAir); out.ocAir = hash(r2.ok ? digest(r2.value) : r2);
   const ccr: CcrDiveInput = { mode: "ccr", environment: "open-water", depthM: meters(45), bottomTimeSeconds: seconds(30 * 60), diluent: { ...AIR, id: "dil", role: "diluent" }, setpointBar: barAbsolute(1.3), setpointActivationDepthM: meters(6), bailoutGases: [{ ...tx1845, id: "bo", role: "bailout" }, { ...EAN50, id: "bo50", role: "bailout", switchDepthM: meters(21) }], bailoutTriggerSecondsAtDepth: seconds(15 * 60), cylinders: [], settings: DEFAULT_PLANNER_SETTINGS, environmentSettings: DEFAULT_ENVIRONMENT, rmv: DEFAULT_RMV, reservePolicy: DEFAULT_RESERVE_POLICY };
   const r3 = calculateDivePlan(ccr); out.ccrLegacy = hash(r3.ok ? digest(r3.value) : r3);
-  const draftOc = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input;
+  const draftOc = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!;
   const r4 = calculateDivePlan(draftOc); out.draftOc = hash(r4.ok ? digest(r4.value) : r4);
   const draftCcrLegacy = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, mode: "ccr" }, []).input as CcrDiveInput;
   const legacyOnly: CcrDiveInput = { mode: "ccr", environment: draftCcrLegacy.environment, depthM: draftCcrLegacy.depthM, bottomTimeSeconds: draftCcrLegacy.bottomTimeSeconds, diluent: draftCcrLegacy.diluent, setpointBar: draftCcrLegacy.setpointBar, setpointActivationDepthM: draftCcrLegacy.setpointActivationDepthM, bailoutGases: draftCcrLegacy.bailoutGases, cylinders: draftCcrLegacy.cylinders, settings: draftCcrLegacy.settings, environmentSettings: draftCcrLegacy.environmentSettings, rmv: draftCcrLegacy.rmv, reservePolicy: draftCcrLegacy.reservePolicy };

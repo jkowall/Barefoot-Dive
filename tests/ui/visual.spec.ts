@@ -46,6 +46,22 @@ test("selected profile scrubber visual baseline", async ({ page }, testInfo) => 
   await expect(panel).toHaveScreenshot(`profile-selected-${testInfo.project.name}.png`);
 });
 
+test("unavailable Tank Bank source visual baseline", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  const editor = page.locator(".bf-gas-editor").filter({ has: page.getByRole("alert") });
+  await expect(editor).toBeVisible();
+  await prepareLongCapture(page);
+  await expect(editor).toHaveScreenshot(`plan-source-unavailable-${testInfo.project.name}.png`);
+});
+
 test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("barefoot-dive:safety-acknowledged", "true"));
   await page.goto("/");

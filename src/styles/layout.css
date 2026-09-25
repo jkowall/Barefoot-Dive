@@ -46,6 +46,29 @@
   font-size: var(--bf-text-sm);
 }
 .bf-inline-fix p { margin: 0; color: var(--bf-text); }
+.bf-form-grid + .bf-panel__note { margin-top: var(--bf-space-3); }
+
+/* A gas whose selected Tank Bank cylinder cannot be used: why, and the ad hoc values a detach uses. */
+.bf-source-unavailable {
+  display: grid;
+  justify-items: start;
+  gap: var(--bf-space-2);
+  margin-bottom: var(--bf-space-3);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  border-left: 3px solid var(--bf-danger);
+  background: var(--bf-danger-bg);
+  font-size: var(--bf-text-sm);
+}
+.bf-source-unavailable p { margin: 0; color: var(--bf-text); line-height: 1.45; }
+.bf-source-unavailable__values {
+  display: grid;
+  justify-self: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--bf-space-2) var(--bf-space-3);
+  margin: 0;
+}
+.bf-source-unavailable__values dt { color: var(--bf-text-faint); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); letter-spacing: .06em; text-transform: uppercase; }
+.bf-source-unavailable__values dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--bf-text); font-family: var(--bf-font-mono); font-weight: 500; }
 
 .bf-form-grid {
   display: grid;
@@ -149,6 +172,7 @@
 
 @media (min-width: 600px) {
   .bf-form-grid--gas, .bf-form-grid--route { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .bf-source-unavailable__values { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 @media (min-width: 720px) {

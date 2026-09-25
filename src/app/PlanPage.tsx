@@ -43,11 +43,16 @@ import {
 import {
   isGasOnlyPlan,
   resolvePlanInput,
+  selectableTanks,
+  tankBankSnapshot,
   tankSourceSignature,
+  tankSourceUnavailableText,
   withGasPlanning,
   type GasDraft,
   type PlanDraft,
   type ReserveDraft,
+  type TankBankSnapshot,
+  type UnavailableTankSource,
 } from "./planning";
 import { PlanResultView } from "./PlanResultView";
 import type { PlanWorkspaceSession, PlanWorkspaceView } from "./planWorkspace";
@@ -58,15 +63,49 @@ const diagnosticItems = (diagnostics: readonly Diagnostic[]): readonly WarningIt
   severity: item.severity,
 }));
 
-function activeTanks(store?: TankBankStore): readonly TankRecord[] {
-  const result = store?.list({ archived: false });
-  return result?.ok ? result.value : [];
+/** Every stored Tank Bank record, archived included, so an unavailable Plan or Cave source can say why. */
+export function readTankBank(store?: TankBankStore): TankBankSnapshot {
+  return tankBankSnapshot(store?.list());
+}
+
+/**
+ * A gas whose selected Tank Bank cylinder cannot be used: why, and exactly the ad hoc values a
+ * detach would calculate with. The cylinder fields stay read-only until the diver detaches.
+ */
+function UnavailableSourceNotice({ source, preferences, reserveKind, onDetach }: {
+  readonly source: UnavailableTankSource;
+  readonly preferences: UnitPreferences;
+  readonly reserveKind?: ReserveDraft["kind"];
+  readonly onDetach: () => void;
+}) {
+  const { gas, cylinder } = source.adHoc;
+  const policyFraction = reserveKind === "thirds" ? 1 / 3 : reserveKind === "sixths" ? 2 / 3 : undefined;
+  const enteredMinimumBar = cylinder.minimumPressureBar ?? 0;
+  const minimumBar = policyFraction === undefined ? enteredMinimumBar : Math.max(cylinder.currentPressureBar * policyFraction, enteredMinimumBar);
+  const values: readonly (readonly [string, string])[] = [
+    ["Gas", gas.name],
+    ["O₂", `${+(gas.oxygen * 100).toFixed(1)}%`],
+    ["He", `${+(gas.helium * 100).toFixed(1)}%`],
+    ["Capacity", `${capacityInputValue(cylinder.waterVolumeL, cylinder.workingPressureBar, preferences.cylinderCapacity).toFixed(1)} ${capacityUnit(preferences.cylinderCapacity)} ${preferences.cylinderCapacity === "imperial" ? "rated" : "water volume"}`],
+    ["Working pressure", formatPressure(cylinder.workingPressureBar, preferences.pressure)],
+    ["Starting pressure", formatPressure(cylinder.currentPressureBar, preferences.pressure)],
+    [policyFraction === undefined ? "Cylinder minimum" : "Cylinder minimum (reserve policy)", formatPressure(minimumBar, preferences.pressure)],
+    ["Cylinder max PPO₂", `${cylinder.maximumPPO2.toFixed(2)} bar`],
+  ];
+  return <div className="bf-source-unavailable" role="alert">
+    <p><strong>Tank Bank source unavailable.</strong> {tankSourceUnavailableText(source)} This gas is not calculated until you choose another cylinder or detach it to these ad hoc values:</p>
+    <dl className="bf-source-unavailable__values">
+      {values.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    </dl>
+    <ActionButton onClick={onDetach} quiet small>Detach to ad hoc values</ActionButton>
+  </div>;
 }
 
 function GasEditor({
   containerRef,
   value,
   tanks,
+  unavailable,
   preferences,
   onChange,
   onRemove,
@@ -77,7 +116,10 @@ function GasEditor({
 }: {
   readonly containerRef?: Ref<HTMLElement>;
   readonly value: GasDraft;
+  /** Cylinders the gas can be sourced from (loaded, not archived). */
   readonly tanks: readonly TankRecord[];
+  /** Set when the selected Tank Bank cylinder cannot be used; the gas is then held out of every calculation. */
+  readonly unavailable?: UnavailableTankSource;
   readonly preferences: UnitPreferences;
   readonly onChange: (next: GasDraft) => void;
   readonly onRemove?: () => void;
@@ -90,6 +132,7 @@ function GasEditor({
   /** Gas-only planning: mix, PPO₂ ceiling, and switch depth only; no cylinder or Tank Bank source. */
   readonly gasOnly?: boolean;
 }) {
+  const sourceRef = useRef<HTMLSelectElement>(null);
   const selected = gasOnly ? undefined : tanks.find((tank) => tank.id === value.cylinderId);
   const gas = selected?.gas;
   const change = <K extends keyof GasDraft>(key: K, next: GasDraft[K]) => onChange({ ...value, [key]: next });
@@ -122,6 +165,16 @@ function GasEditor({
       </div>
     </header>
     {!included && <p className="bf-panel__note">Excluded from this calculation. The entered values are kept; switch it back on to plan with this gas.</p>}
+    {included && !gasOnly && unavailable && <UnavailableSourceNotice
+      onDetach={() => {
+        change("cylinderId", undefined);
+        // The detach button leaves with the notice; keep keyboard focus on this gas's source control.
+        sourceRef.current?.focus();
+      }}
+      preferences={preferences}
+      reserveKind={reserveKind}
+      source={unavailable}
+    />}
     {included && gasOnly && <div className="bf-form-grid bf-form-grid--gas">
       <TextField label="Gas name" onChange={(next) => change("name", next)} value={value.name} />
       <NumberField label="O₂ (%)" max={100} min={0} onChange={(next) => change("oxygenPercent", next)} step={0.1} value={value.oxygenPercent} />
@@ -140,13 +193,15 @@ function GasEditor({
         <select
           aria-label={`${value.name} cylinder source`}
           onChange={(event) => change("cylinderId", event.currentTarget.value || undefined)}
+          ref={sourceRef}
           value={value.cylinderId ?? ""}
         >
+          {unavailable && <option disabled value={unavailable.cylinderId}>Unavailable · {unavailable.cylinderName ?? "selected cylinder"}</option>}
           <option value="">Ad hoc plan cylinder</option>
           {tanks.map((tank) => <option key={tank.id} value={tank.id}>{tank.name} · {tank.gas.name}</option>)}
         </select>
       </FieldGroup>
-      {selected ? null : <>
+      {selected || unavailable ? null : <>
         <TextField label="Gas name" onChange={(next) => change("name", next)} value={value.name} />
         <NumberField label="O₂ (%)" max={100} min={0} onChange={(next) => change("oxygenPercent", next)} step={0.1} value={value.oxygenPercent} />
         <NumberField label="He (%)" max={100} min={0} onChange={(next) => change("heliumPercent", next)} step={0.1} value={value.heliumPercent} />
@@ -271,14 +326,17 @@ function ReserveEditor({ value, preferences, onChange, gasOnly = false }: {
 export function PlannerEditor({
   draft,
   onChange,
-  tanks,
+  tankBank,
+  unavailableSources,
   preferences,
   environment = "open-water",
   showBottomTime = true,
 }: {
   readonly draft: PlanDraft;
   readonly onChange: (next: PlanDraft) => void;
-  readonly tanks: readonly TankRecord[];
+  readonly tankBank: TankBankSnapshot;
+  /** Active gases whose selected Tank Bank cylinder cannot be used, from `resolvePlanInput`. */
+  readonly unavailableSources: readonly UnavailableTankSource[];
   readonly preferences: UnitPreferences;
   readonly environment?: "open-water" | "cave";
   readonly showBottomTime?: boolean;
@@ -287,6 +345,8 @@ export function PlannerEditor({
   const pendingGasRef = useRef<HTMLElement>(null);
   const set = <K extends keyof PlanDraft>(key: K, value: PlanDraft[K]) => onChange({ ...draft, [key]: value });
   const gasOnly = isGasOnlyPlan(draft, environment);
+  const tanks = selectableTanks(tankBank);
+  const unavailableByGas = new Map(unavailableSources.map((source) => [source.gasKey, source]));
   const gasNote = gasOnly
     ? "Gas-only planning: enter mixes only. Results give the minimum surface volume to carry for each gas, including the reserve policy. Cylinder capacity, pressures, and unusable residual gas are not checked. Deco and bailout gases are eligible only at or shallower than their switch depth."
     : `Tank Bank cylinders are copied into this calculation as snapshots. ${preferences.cylinderCapacity === "imperial" ? "Rated capacity is converted with the cylinder working pressure." : "Capacity is the physical internal water volume."} Deco and bailout gases are eligible only at or shallower than their switch depth.`;
@@ -347,7 +407,10 @@ export function PlannerEditor({
         {environment !== "cave" && <SegmentedControl
           label="Gas planning"
           onChange={(gasPlanning) => onChange(withGasPlanning(draft, gasPlanning, tanks))}
-          options={[{ value: "cylinders", label: "Cylinders" }, { value: "gas-only", label: "Gas only" }]}
+          options={[
+            { value: "cylinders", label: "Cylinders" },
+            { value: "gas-only", label: "Gas only", disabled: unavailableSources.length > 0 },
+          ]}
           value={draft.gasPlanning}
         />}
         <SelectField<PlannerConventionId>
@@ -368,6 +431,7 @@ export function PlannerEditor({
         {rateField("Bailout SAC/RMV", "bailoutRmvLpm")}
         {rateField("Bailout deco SAC/RMV", "bailoutDecoRmvLpm")}
       </div>
+      {environment !== "cave" && unavailableSources.length > 0 && <p className="bf-panel__note">Gas only is off while a Tank Bank source is unavailable: that cylinder's mix cannot be carried into a gas-only plan. Choose another cylinder or detach the gas first.</p>}
       <ReserveEditor gasOnly={gasOnly} onChange={(reserve) => set("reserve", reserve)} preferences={preferences} value={draft.reserve} />
     </Panel>
 
@@ -376,9 +440,9 @@ export function PlannerEditor({
       title="Open-circuit gases"
     >
       <p className="bf-panel__note">{gasNote}</p>
-      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} value={draft.bottomGas} />
+      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} unavailable={unavailableByGas.get(draft.bottomGas.key)} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
-      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} value={draft.travelGas} />}
+      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} unavailable={unavailableByGas.get(draft.travelGas.key)} value={draft.travelGas} />}
       {draft.decoGases.map((gas, index) => <GasEditor
         gasOnly={gasOnly}
         containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
@@ -389,6 +453,7 @@ export function PlannerEditor({
         reserveKind={draft.reserve.kind}
         switchable
         tanks={tanks}
+        unavailable={unavailableByGas.get(gas.key)}
         value={gas}
       />)}
     </Panel> : <>
@@ -436,7 +501,7 @@ export function PlannerEditor({
             value={draft.diluentPreBailoutUseL === undefined ? undefined : surfaceGasInputValue(draft.diluentPreBailoutUseL, preferences.cylinderCapacity)}
           />
         </div>}
-        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} value={draft.diluent} />
+        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} tanks={tanks} unavailable={unavailableByGas.get(draft.diluent.key)} value={draft.diluent} />
       </Panel>
       <Panel
         actions={<ActionButton onClick={() => addGas("bailoutGases", "bailout")} quiet>Add bailout gas</ActionButton>}
@@ -452,6 +517,7 @@ export function PlannerEditor({
           reserveKind={draft.reserve.kind}
           switchable
           tanks={tanks}
+          unavailable={unavailableByGas.get(gas.key)}
           value={gas}
         />)}
       </Panel>
@@ -465,7 +531,7 @@ type CompletionEvent = {
   readonly description: string;
 };
 
-type PlanWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed";
+type PlanWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed" | "source-unavailable";
 
 const AUTO_RECALCULATE_MS = 400;
 
@@ -475,6 +541,7 @@ const statusLabel: Record<PlanWorkspaceStatus, string> = {
   current: "Current",
   "needs-attention": "Needs attention",
   "source-changed": "Source changed",
+  "source-unavailable": "Source unavailable",
 };
 
 const statusDescription: Record<PlanWorkspaceStatus, string> = {
@@ -483,6 +550,7 @@ const statusDescription: Record<PlanWorkspaceStatus, string> = {
   current: "The calculated result matches every current input.",
   "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics in Setup.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the plan.",
+  "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; nothing is calculated until then.",
 };
 
 export default function PlanPage({
@@ -509,29 +577,33 @@ export default function PlanPage({
   const [completion, setCompletion] = useState<CompletionEvent>();
   const [saveOpen, setSaveOpen] = useState(false);
   const completionRef = useRef<HTMLDivElement>(null);
-  const tankRecords = useMemo(() => {
+  const tankBank = useMemo(() => {
     void tankRevision;
-    return activeTanks(tanks);
+    return readTankBank(tanks);
   }, [tanks, tankRevision]);
-  const resolved = useMemo(() => resolvePlanInput(draft, tankRecords), [draft, tankRecords]);
-  const inputSignature = JSON.stringify(resolved.input);
-  const sourceSignature = tankSourceSignature(draft, tankRecords);
-  const calculatedIsCurrent = session.calculated?.inputSignature === inputSignature;
-  const attemptedCurrentInput = session.attemptedInputSignature === inputSignature;
+  const resolved = useMemo(() => resolvePlanInput(draft, tankBank), [draft, tankBank]);
+  // No input exists while a selected Tank Bank source is unavailable, so nothing can be calculated or match.
+  const input = resolved.input;
+  const inputSignature = input === undefined ? undefined : JSON.stringify(input);
+  const sourceSignature = tankSourceSignature(draft, tankBank);
+  const calculatedIsCurrent = inputSignature !== undefined && session.calculated?.inputSignature === inputSignature;
+  const attemptedCurrentInput = inputSignature !== undefined && session.attemptedInputSignature === inputSignature;
   const sourceChanged = Boolean(
     session.calculated
     && session.calculated.sourceSignature !== sourceSignature
     && !calculatedIsCurrent,
   );
-  const status: PlanWorkspaceStatus = calculatedIsCurrent
-    ? "current"
-    : attemptedCurrentInput
-      ? "needs-attention"
-      : sourceChanged
-        ? "source-changed"
-        : session.calculated
-          ? "updating"
-          : "draft";
+  const status: PlanWorkspaceStatus = !resolved.ok
+    ? "source-unavailable"
+    : calculatedIsCurrent
+      ? "current"
+      : attemptedCurrentInput
+        ? "needs-attention"
+        : sourceChanged
+          ? "source-changed"
+          : session.calculated
+            ? "updating"
+            : "draft";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
     revision: (current?.revision ?? 0) + 1,
@@ -549,7 +621,8 @@ export default function PlanPage({
   }, [completion, session.view]);
 
   const run = useCallback((switchToReview: boolean, announce: boolean) => {
-    const result = calculateDivePlan(resolved.input);
+    if (input === undefined || inputSignature === undefined) return;
+    const result = calculateDivePlan(input);
     const diagnostics = result.ok
       ? [...result.warnings, ...(result.errors ?? [])]
       : [...result.warnings, ...result.errors];
@@ -559,7 +632,7 @@ export default function PlanPage({
       attemptedInputSignature: inputSignature,
       ...(result.ok ? {
         calculated: {
-          input: resolved.input,
+          input,
           plan: result.value,
           inputSignature,
           sourceSignature,
@@ -570,7 +643,7 @@ export default function PlanPage({
     if (result.ok) {
       if (announce) showCompletion("Plan calculation complete", "Current inputs match the displayed result; review all diagnostics before saving.");
     }
-  }, [inputSignature, onSessionChange, resolved.input, showCompletion, sourceSignature]);
+  }, [input, inputSignature, onSessionChange, showCompletion, sourceSignature]);
 
   useEffect(() => {
     if (status !== "updating") return;
@@ -616,7 +689,9 @@ export default function PlanPage({
         ? <ActionButton onClick={() => run(true, true)}>Update plan</ActionButton>
         : status === "updating"
           ? <ActionButton disabled>Updating plan…</ActionButton>
-          : <ActionButton disabled>Fix inputs</ActionButton>;
+          : status === "source-unavailable"
+            ? <ActionButton disabled>Resolve Tank Bank source</ActionButton>
+            : <ActionButton disabled>Fix inputs</ActionButton>;
   const action = session.view === "review" && reviewAvailable
     ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
     : setupAction;
@@ -653,7 +728,8 @@ export default function PlanPage({
     </section>
     {session.view === "setup" ? <div className="bf-plan-setup">
       {status === "needs-attention" && <WarningList items={diagnosticItems(session.diagnostics)} title="Calculation diagnostics" />}
-      <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tanks={tankRecords} />
+      <WarningList items={diagnosticItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
+      <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
     </div> : calculatedIsCurrent && session.calculated ? <PlanResultView
       completion={completion ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} /> : undefined}
       onSave={() => setSaveOpen(true)}

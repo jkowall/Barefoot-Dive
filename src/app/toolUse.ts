@@ -123,7 +123,7 @@ export function describeToolPlanPatch(
       );
       const after = gasLabel(patch.name, patch.oxygenPercent, patch.heliumPercent);
       const cylinder = currentDraft.bottomGas.cylinderId && !patch.preserveCylinderId
-        ? " The current cylinder assignment will be cleared because its Tank Bank gas does not exactly match."
+        ? " The current Tank Bank cylinder assignment will be cleared because its gas does not exactly match or the cylinder is unavailable; the bottom gas then uses the ad hoc cylinder values shown in Plan Setup."
         : "";
       return `Bottom gas: ${before} → ${after}.${cylinder} No other plan fields will change.`;
     }

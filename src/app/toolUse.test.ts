@@ -43,6 +43,7 @@ describe("exact Tools plan patches", () => {
     });
     expect({ ...after, bottomGas: before.bottomGas }).toEqual(before);
     expect(describeToolPlanPatch(before, patch, "imperial")).toContain("will be cleared");
+    expect(describeToolPlanPatch(before, patch, "imperial")).toContain("the bottom gas then uses the ad hoc cylinder values shown in Plan Setup");
   });
 
   it("preserves a cylinder only when App resolves an exact Tank Bank match", () => {

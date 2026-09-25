@@ -6,6 +6,7 @@ import {
 } from "../domain/defaults";
 import type {
   Cylinder,
+  Diagnostic,
   DivePlanInput,
   Gas,
   GasRole,
@@ -14,7 +15,7 @@ import type {
   ReservePolicy,
 } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, litersPerMinute, meters, seconds } from "../domain/units";
-import type { TankRecord } from "../storage";
+import type { StorageResult, TankRecord } from "../storage";
 
 export type GasDraft = {
   readonly key: string;
@@ -75,16 +76,66 @@ export type PlanDraft = {
   readonly gasPlanning: "cylinders" | "gas-only";
 };
 
+/**
+ * What Plan and Cave could read from the Tank Bank. Records include archived cylinders so an
+ * archived source is reported as archived rather than missing.
+ */
+export type TankBankSnapshot =
+  | {
+      readonly readable: true;
+      readonly records: readonly TankRecord[];
+      /** Stored records that failed validation and were quarantined instead of loaded. */
+      readonly quarantined?: readonly { readonly id?: string; readonly name?: string }[];
+    }
+  | { readonly readable: false; readonly message: string };
+
+/** Why a gas's selected Tank Bank cylinder cannot be used. */
+export type TankSourceUnavailableReason = "archived" | "missing" | "quarantined" | "unreadable";
+
+/** An active gas whose selected Tank Bank cylinder cannot be used. */
+export type UnavailableTankSource = {
+  readonly gasKey: string;
+  readonly role: GasRole;
+  readonly cylinderId: string;
+  readonly reason: TankSourceUnavailableReason;
+  /** Stored cylinder name, when the Tank Bank still reports one (archived or quarantined records). */
+  readonly cylinderName?: string;
+  /** Why the whole Tank Bank could not be read (reason `unreadable`). */
+  readonly detail?: string;
+  /** Exactly the gas and cylinder a calculation uses once this gas is detached to its ad hoc fields. */
+  readonly adHoc: { readonly gas: Gas; readonly cylinder: Cylinder };
+};
+
+/**
+ * A draft resolved against the Tank Bank. When any active gas's selected Tank Bank cylinder is
+ * unavailable there is no input: nothing may be calculated until the diver chooses another
+ * cylinder or detaches the gas. Its `gases` and `cylinders` then show each unavailable source as
+ * the ad hoc gas and cylinder that detaching would use, for display only.
+ */
 export type ResolvedPlanInput = {
-  readonly input: DivePlanInput;
   readonly gases: readonly Gas[];
   readonly cylinders: readonly Cylinder[];
-};
+} & (
+  | {
+      readonly ok: true;
+      readonly input: DivePlanInput;
+      readonly unavailableSources: readonly [];
+      readonly diagnostics: readonly [];
+    }
+  | {
+      readonly ok: false;
+      readonly input?: undefined;
+      readonly unavailableSources: readonly UnavailableTankSource[];
+      readonly diagnostics: readonly Diagnostic[];
+    }
+);
 
 /**
  * Change the gas-planning mode. Gas-only plans read the mix from the draft, so a gas that was
  * sourced from a Tank Bank cylinder takes that cylinder's mix, name, and maximum PPO₂ with it.
- * The Tank Bank selection is kept so switching back to cylinders restores it.
+ * The Tank Bank selection is kept so switching back to cylinders restores it. A source that does
+ * not load has no mix to carry, so Plan offers gas-only planning only after every unavailable
+ * source of an active gas is resolved.
  */
 export function withGasPlanning(
   draft: PlanDraft,
@@ -124,10 +175,12 @@ export function isGasOnlyPlan(draft: PlanDraft, environment: DivePlanInput["envi
 
 export function tankSourceSignature(
   draft: PlanDraft,
-  tanks: readonly TankRecord[],
+  tankBank: TankBankSnapshot | readonly TankRecord[],
   environment: DivePlanInput["environment"] = "open-water",
 ): string {
   if (isGasOnlyPlan(draft, environment)) return "[]";
+  const bank = snapshotOf(tankBank);
+  const tanks = bank.readable ? bank.records : [];
   const selectedDrafts = activeGasDrafts(draft);
   return JSON.stringify(selectedDrafts.flatMap((gas) => {
     if (!gas.cylinderId) return [];
@@ -214,30 +267,99 @@ function resolveGasOnly(draft: GasDraft): Gas {
   };
 }
 
-function resolveGasAndCylinder(
-  draft: GasDraft,
-  tankBank: readonly TankRecord[],
-): { gas: Gas; cylinder: Cylinder } {
-  const bankCylinder = draft.cylinderId
-    ? tankBank.find((candidate) => candidate.id === draft.cylinderId && !candidate.archived)
-    : undefined;
-  if (bankCylinder) {
-    const gas: Gas = {
-      ...bankCylinder.gas,
-      name: bankCylinder.gas.name || draft.name,
-      role: draft.role,
-      ...(draft.switchDepthM === undefined ? {} : { switchDepthM: meters(draft.switchDepthM) }),
-      cylinderId: bankCylinder.id,
-    };
-    return {
-      gas,
-      cylinder: {
-        ...bankCylinder,
-        gas,
-        role: bankCylinder.role ?? draft.role,
-      },
-    };
+/**
+ * Plan and Cave's view of one Tank Bank read: every loaded record plus each quarantined record's
+ * id and name, or why the bank could not be read.
+ */
+export function tankBankSnapshot(result: StorageResult<readonly TankRecord[]> | undefined): TankBankSnapshot {
+  if (!result) return { readable: false, message: "Local storage is unavailable." };
+  if (!result.ok) return { readable: false, message: result.error.message };
+  const quarantined = result.diagnostics.flatMap((item) => item.code === "STORAGE_RECORD_QUARANTINED" && item.record
+    ? [{ ...(item.record.id === undefined ? {} : { id: item.record.id }), ...(item.record.name === undefined ? {} : { name: item.record.name }) }]
+    : []);
+  return { readable: true, records: result.value, ...(quarantined.length > 0 ? { quarantined } : {}) };
+}
+
+const snapshotOf = (tankBank: TankBankSnapshot | readonly TankRecord[]): TankBankSnapshot =>
+  "readable" in tankBank ? tankBank : { readable: true, records: tankBank };
+
+/** Cylinders a gas can be sourced from: loaded, not archived. */
+export function selectableTanks(tankBank: TankBankSnapshot): readonly TankRecord[] {
+  return tankBank.readable ? tankBank.records.filter((record) => !record.archived) : [];
+}
+
+type TankSourceLookup =
+  | { readonly kind: "ad-hoc" }
+  | { readonly kind: "record"; readonly record: TankRecord }
+  | { readonly kind: "unavailable"; readonly source: Pick<UnavailableTankSource, "cylinderId" | "reason" | "cylinderName" | "detail"> };
+
+function lookupTankSource(draft: GasDraft, tankBank: TankBankSnapshot): TankSourceLookup {
+  const cylinderId = draft.cylinderId;
+  if (!cylinderId) return { kind: "ad-hoc" };
+  if (!tankBank.readable) return { kind: "unavailable", source: { cylinderId, reason: "unreadable", detail: tankBank.message } };
+  const record = tankBank.records.find((candidate) => candidate.id === cylinderId && !candidate.archived);
+  if (record) return { kind: "record", record };
+  const archived = tankBank.records.find((candidate) => candidate.id === cylinderId);
+  if (archived) return { kind: "unavailable", source: { cylinderId, reason: "archived", cylinderName: archived.name } };
+  const quarantined = tankBank.quarantined?.find((entry) => entry.id === cylinderId);
+  if (quarantined) {
+    return { kind: "unavailable", source: { cylinderId, reason: "quarantined", ...(quarantined.name ? { cylinderName: quarantined.name } : {}) } };
   }
+  return { kind: "unavailable", source: { cylinderId, reason: "missing" } };
+}
+
+/** One sentence naming why a selected Tank Bank cylinder cannot be used. */
+export function tankSourceUnavailableText(source: Pick<UnavailableTankSource, "reason" | "cylinderName" | "detail">): string {
+  const named = source.cylinderName ? `“${source.cylinderName}”` : "The selected Tank Bank cylinder";
+  switch (source.reason) {
+    case "archived":
+      return `${named} is archived in Tank Bank.`;
+    case "quarantined":
+      return `${named} failed validation and is quarantined in Tank Bank.`;
+    case "missing":
+      return "The selected Tank Bank cylinder no longer exists in Tank Bank.";
+    case "unreadable":
+      return `Tank Bank could not be read, so the selected cylinder cannot be loaded${source.detail ? `: ${source.detail}` : "."}`;
+  }
+}
+
+const gasRoleLabel: Record<GasRole, string> = {
+  bottom: "Bottom gas",
+  travel: "Travel gas",
+  deco: "Deco gas",
+  bailout: "Bailout gas",
+  diluent: "Diluent",
+};
+
+function unavailableSourceDiagnostic(source: UnavailableTankSource): Diagnostic {
+  return {
+    code: "TANK_SOURCE_UNAVAILABLE",
+    severity: "error",
+    message: `${gasRoleLabel[source.role]} ${source.adHoc.gas.name}: ${tankSourceUnavailableText(source)} Choose another cylinder or detach it to ad hoc values before calculating.`,
+    cylinderId: source.cylinderId,
+  };
+}
+
+function bankGasAndCylinder(draft: GasDraft, bankCylinder: TankRecord): { gas: Gas; cylinder: Cylinder } {
+  const gas: Gas = {
+    ...bankCylinder.gas,
+    name: bankCylinder.gas.name || draft.name,
+    role: draft.role,
+    ...(draft.switchDepthM === undefined ? {} : { switchDepthM: meters(draft.switchDepthM) }),
+    cylinderId: bankCylinder.id,
+  };
+  return {
+    gas,
+    cylinder: {
+      ...bankCylinder,
+      gas,
+      role: bankCylinder.role ?? draft.role,
+    },
+  };
+}
+
+/** The draft's own gas and cylinder fields: an ad hoc gas, or what detaching a Tank Bank source uses. */
+function adHocGasAndCylinder(draft: GasDraft): { gas: Gas; cylinder: Cylinder } {
   const gas: Gas = {
     id: `plan-gas-${draft.key}`,
     name: draft.name.trim() || "Plan gas",
@@ -285,18 +407,33 @@ function reservePolicy(draft: ReserveDraft): ReservePolicy {
   }
 }
 
+/**
+ * Resolves the active gases against the Tank Bank. A gas whose selected Tank Bank cylinder is
+ * archived, missing, quarantined, or unreadable is never replaced by its ad hoc fields: the
+ * result carries an unavailable source instead of an input until the diver resolves it.
+ */
 export function resolvePlanInput(
   draft: PlanDraft,
-  tankBank: readonly TankRecord[],
+  tankBank: TankBankSnapshot | readonly TankRecord[],
   environment: DivePlanInput["environment"] = "open-water",
 ): ResolvedPlanInput {
+  const bank = snapshotOf(tankBank);
   const selectedDrafts = activeGasDrafts(draft);
   const gasOnly = isGasOnlyPlan(draft, environment);
-  const resolved = gasOnly
-    ? selectedDrafts.map((item) => ({ gas: resolveGasOnly(item), cylinder: undefined }))
-    : selectedDrafts.map((item) => resolveGasAndCylinder(item, tankBank));
+  const unavailableSources: UnavailableTankSource[] = [];
+  const resolved = selectedDrafts.map((item) => {
+    if (gasOnly) return { gas: resolveGasOnly(item), cylinder: undefined };
+    const source = lookupTankSource(item, bank);
+    if (source.kind === "record") return bankGasAndCylinder(item, source.record);
+    const adHoc = adHocGasAndCylinder(item);
+    if (source.kind === "unavailable") unavailableSources.push({ gasKey: item.key, role: item.role, ...source.source, adHoc });
+    return adHoc;
+  });
   const gases = resolved.map((item) => item.gas);
   const cylinders = [...new Map(resolved.flatMap((item) => item.cylinder ? [[item.cylinder.id, item.cylinder] as const] : [])).values()];
+  if (unavailableSources.length > 0) {
+    return { ok: false, gases, cylinders, unavailableSources, diagnostics: unavailableSources.map(unavailableSourceDiagnostic) };
+  }
   const shared = {
     environment,
     depthM: meters(draft.depthM),
@@ -319,8 +456,10 @@ export function resolvePlanInput(
     reservePolicy: reservePolicy(draft.reserve),
     ...(gasOnly ? { gasOnly: true } : {}),
   } as const;
+  const resolvedSources = { ok: true, gases, cylinders, unavailableSources: [], diagnostics: [] } as const;
   if (draft.mode === "oc") {
     return {
+      ...resolvedSources,
       input: {
         ...shared,
         mode: "oc",
@@ -328,11 +467,10 @@ export function resolvePlanInput(
         ...(draft.travelGasEnabled && gases[1] ? { travelGas: gases[1] } : {}),
         decoGases: gases.slice(draft.travelGasEnabled ? 2 : 1),
       },
-      gases,
-      cylinders,
     };
   }
   return {
+    ...resolvedSources,
     input: {
       ...shared,
       mode: "ccr",
@@ -352,8 +490,6 @@ export function resolvePlanInput(
         ? {}
         : { bailoutTriggerSecondsAtDepth: seconds(draft.bailoutTriggerMinutes * 60) }),
     },
-    gases,
-    cylinders,
   };
 }
 

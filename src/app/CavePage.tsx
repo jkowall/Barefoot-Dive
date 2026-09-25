@@ -19,7 +19,7 @@ import {
 } from "../cave";
 import type { Diagnostic } from "../domain/types";
 import { barGauge, meters, seconds } from "../domain/units";
-import type { SavedPlansStore, TankBankStore, TankRecord } from "../storage";
+import type { SavedPlansStore, TankBankStore } from "../storage";
 import {
   CompletionNotice,
   FieldGroup,
@@ -56,7 +56,7 @@ import {
   pressureUnit,
   type UnitPreferences,
 } from "./helpers";
-import { PlannerEditor } from "./PlanPage";
+import { PlannerEditor, readTankBank } from "./PlanPage";
 import { PlanResultView } from "./PlanResultView";
 import { resolvePlanInput, tankSourceSignature, type PlanDraft } from "./planning";
 
@@ -71,11 +71,6 @@ const diagnosticsToItems = (items: readonly Diagnostic[]): readonly WarningItem[
   message: item.field ? `${item.message} (${item.field})` : item.message,
   severity: item.severity,
 }));
-
-function listTanks(store?: TankBankStore): readonly TankRecord[] {
-  const result = store?.list({ archived: false });
-  return result?.ok ? result.value : [];
-}
 
 function RouteEditor({
   containerRef,
@@ -149,7 +144,7 @@ function scenarioLabel(kind: CaveScenarioKind): string {
   }[kind];
 }
 
-type CaveWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed";
+type CaveWorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed" | "source-unavailable";
 
 const AUTO_RECALCULATE_MS = 400;
 
@@ -159,6 +154,7 @@ const statusLabel: Record<CaveWorkspaceStatus, string> = {
   current: "Current",
   "needs-attention": "Needs attention",
   "source-changed": "Source changed",
+  "source-unavailable": "Source unavailable",
 };
 
 const statusDescription: Record<CaveWorkspaceStatus, string> = {
@@ -167,6 +163,7 @@ const statusDescription: Record<CaveWorkspaceStatus, string> = {
   current: "The result matches every current route, scenario, gas, and limit input.",
   "needs-attention": "Current cave inputs could not produce a result. Fix the diagnostics in Setup.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the cave plan.",
+  "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; the cave plan is not calculated until then.",
 };
 
 export default function CavePage({
@@ -201,11 +198,11 @@ export default function CavePage({
   const [saveOpen, setSaveOpen] = useState(false);
   const completionRef = useRef<HTMLDivElement>(null);
   const pendingRouteRef = useRef<HTMLElement>(null);
-  const tankRecords = useMemo(() => {
+  const tankBank = useMemo(() => {
     void tankRevision;
-    return listTanks(tanks);
+    return readTankBank(tanks);
   }, [tanks, tankRevision]);
-  const resolved = useMemo(() => resolvePlanInput(draft, tankRecords, "cave"), [draft, tankRecords]);
+  const resolved = useMemo(() => resolvePlanInput(draft, tankBank, "cave"), [draft, tankBank]);
   const cylinders = useMemo(
     () => resolved.cylinders.map((cylinder) => ({ id: cylinder.id, name: cylinder.name })),
     [resolved.cylinders],
@@ -226,35 +223,39 @@ export default function CavePage({
     targetLegId: targetLegId || route.at(-1)?.id,
     ...(limits.scenarioTargetDistanceM === undefined ? {} : { targetDistanceM: meters(limits.scenarioTargetDistanceM) }),
   })), [enabledScenarios, limits.scenarioTargetDistanceM, route, targetLegId]);
-  const input = useMemo<CavePlanInput>(() => ({
+  // No dive input exists while a selected Tank Bank source is unavailable, so there is no cave input to calculate or match.
+  const dive = resolved.input;
+  const input = useMemo<CavePlanInput | undefined>(() => dive && {
     mode: draft.mode,
-    dive: resolved.input,
+    dive,
     route: normalizedRoute,
-    reserve: resolved.input.reservePolicy,
+    reserve: dive.reservePolicy,
     scenarios,
     ...(limits.turnPressureBar === undefined ? {} : { turnPressureBar: barGauge(limits.turnPressureBar) }),
     ...(limits.turnTimeMinutes === undefined ? {} : { turnTimeSeconds: seconds(limits.turnTimeMinutes * 60) }),
     ...(limits.maximumDistanceM === undefined ? {} : { maximumPenetrationDistanceM: meters(limits.maximumDistanceM) }),
     ...(limits.maximumTimeMinutes === undefined ? {} : { maximumPenetrationTimeSeconds: seconds(limits.maximumTimeMinutes * 60) }),
-  }), [draft.mode, limits, normalizedRoute, resolved.input, scenarios]);
-  const inputSignature = JSON.stringify(input);
-  const sourceSignature = tankSourceSignature(draft, tankRecords, "cave");
-  const calculatedIsCurrent = calculated?.inputSignature === inputSignature;
-  const attemptedCurrentInput = session.attemptedInputSignature === inputSignature;
+  }, [dive, draft.mode, limits, normalizedRoute, scenarios]);
+  const inputSignature = input === undefined ? undefined : JSON.stringify(input);
+  const sourceSignature = tankSourceSignature(draft, tankBank, "cave");
+  const calculatedIsCurrent = inputSignature !== undefined && calculated?.inputSignature === inputSignature;
+  const attemptedCurrentInput = inputSignature !== undefined && session.attemptedInputSignature === inputSignature;
   const sourceChanged = Boolean(
     calculated
     && calculated.sourceSignature !== sourceSignature
     && !calculatedIsCurrent,
   );
-  const status: CaveWorkspaceStatus = calculatedIsCurrent
-    ? "current"
-    : attemptedCurrentInput
-      ? "needs-attention"
-      : sourceChanged
-        ? "source-changed"
-        : calculated
-          ? "updating"
-          : "draft";
+  const status: CaveWorkspaceStatus = !resolved.ok
+    ? "source-unavailable"
+    : calculatedIsCurrent
+      ? "current"
+      : attemptedCurrentInput
+        ? "needs-attention"
+        : sourceChanged
+          ? "source-changed"
+          : calculated
+            ? "updating"
+            : "draft";
   const reviewAvailable = status === "current";
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
     revision: (current?.revision ?? 0) + 1,
@@ -263,6 +264,7 @@ export default function CavePage({
   })), []);
 
   const run = useCallback((switchToReview: boolean, announce: boolean) => {
+    if (input === undefined || inputSignature === undefined) return;
     const result = calculateCavePlan(input);
     const calculationDiagnostics = result.ok
       ? [...result.warnings, ...(result.errors ?? [])]
@@ -472,7 +474,9 @@ export default function CavePage({
         ? <ActionButton onClick={() => run(true, true)}>Update cave plan</ActionButton>
         : status === "updating"
           ? <ActionButton disabled>Updating cave plan…</ActionButton>
-          : <ActionButton disabled>Fix inputs</ActionButton>;
+          : status === "source-unavailable"
+            ? <ActionButton disabled>Resolve Tank Bank source</ActionButton>
+            : <ActionButton disabled>Fix inputs</ActionButton>;
   const action = session.view === "review" && reviewAvailable
     ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
     : setupAction;
@@ -514,7 +518,8 @@ export default function CavePage({
     {session.view === "setup" ? <div className="bf-plan-setup">
       {caveStatusWarning}
       {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />}
-      <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tanks={tankRecords} />
+      <WarningList items={diagnosticsToItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
+      <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
         {route.map((leg, index) => <RouteEditor
           containerRef={leg.id === pendingRouteId ? pendingRouteRef : undefined}
