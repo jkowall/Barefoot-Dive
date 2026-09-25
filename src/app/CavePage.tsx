@@ -173,7 +173,7 @@ function RouteEditor({
         })}
       </div>
     </FieldGroup>
-    {unset.length > 0 && <div className="bf-inline-fix bf-inline-fix--warning">
+    {unset.length > 0 && <div className="bf-inline-fix bf-inline-fix--warning" role="status">
       <p>{unset.length === 1
         ? `${unsetList} joined the plan after this leg's cylinders were set and is treated as not carried here. Tick it if you carry it on this leg, or keep it not carried.`
         : `${unsetList} joined the plan after this leg's cylinders were set and are treated as not carried here. Tick any you carry on this leg, or keep them not carried.`}</p>

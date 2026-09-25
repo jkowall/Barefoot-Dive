@@ -101,6 +101,9 @@ export function withUnsetGasesKept(leg: RouteDraft, cylinders: readonly RouteCyl
   return { ...leg, setGasKeys: [...new Set([...set, ...unsetRouteCylinders(leg, cylinders).map((cylinder) => cylinder.gases[0].key)])] };
 }
 
+/** Diagnostic code for a gas an edited leg treats as not carried because the diver never set it there. */
+export const ROUTE_GAS_ACCESS_UNSET = "ROUTE_GAS_ACCESS_UNSET";
+
 /**
  * One warning per gas an edited leg has not set. The leg treats such a gas as not carried, which the
  * cave input already reflects; the warning only makes that visible. A cylinder used by several gases
@@ -112,7 +115,7 @@ export function unsetGasNotices(route: readonly RouteDraft[], cylinders: readonl
     // The leg label is free text; a cleared label falls back to the leg's position.
     const legName = leg.id.trim() || String(index + 1);
     return {
-      code: "ROUTE_GAS_ACCESS_UNSET",
+      code: ROUTE_GAS_ACCESS_UNSET,
       severity: "warning",
       message: `${label.charAt(0).toUpperCase()}${label.slice(1)} (“${cylinder.name}”) joined the plan after the cylinders on leg ${legName} were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.`,
       field: `route.${index}.accessibleCylinderIds`,

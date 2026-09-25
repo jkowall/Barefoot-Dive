@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { calculateCavePlan, type CavePlanInput } from "../cave";
 import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV, EAN50 } from "../domain/defaults";
 import type { CcrDiveInput, DivePlanInput } from "../domain/types";
 import { barAbsolute, fraction, meters, seconds } from "../domain/units";
 import { calculateDivePlan } from "../engine/planner";
 import { SavedPlansStore } from "../storage/savedPlans";
 import type { SavedPlanRecord, StorageLike } from "../storage/types";
-import { DEFAULT_PLAN_DRAFT, resolvePlanInput } from "./planning";
+import { collectCaveDiagnostics } from "./caveDiagnostics";
+import { normalizeCaveRoute, routeCylinders, unsetGasNotices, withCylinderAccess } from "./caveRoute";
+import { createInitialCaveWorkspaceSession } from "./caveWorkspace";
+import { DEFAULT_PLAN_DRAFT, resolvePlanInput, type GasDraft, type PlanDraft } from "./planning";
 import { buildRecalculation } from "./recalculation";
 
 class MemoryStorage implements StorageLike {
@@ -124,5 +128,54 @@ describe("saved-plan recalculation across engine versions", () => {
     const errors: string[] = [];
     expect(buildRecalculation(corrupted, (message) => errors.push(message))).toBeUndefined();
     expect(errors.join(" ")).toContain("CCR_LOW_SETPOINT_INVALID");
+  });
+});
+
+describe("saved cave recalculation", () => {
+  it("keeps a route's warnings for gases a leg left unset, because the stored route is rerun unchanged", () => {
+    // A leg edited before EAN80 joined the plan leaves EAN80 off that leg and warns about it.
+    const session = createInitialCaveWorkspaceSession();
+    const listed = routeCylinders(session.draft, resolvePlanInput(session.draft, [], "cave"));
+    const oxygen = listed.find((cylinder) => cylinder.gases.some((gas) => gas.key === "deco-o2"))!;
+    const leg = withCylinderAccess(session.route[0]!, oxygen, false, listed);
+    const added: GasDraft = { ...session.draft.decoGases[0]!, key: "deco-added", name: "EAN80", oxygenPercent: 80, switchDepthM: 9 };
+    const draft: PlanDraft = { ...session.draft, decoGases: [...session.draft.decoGases, added] };
+    const resolved = resolvePlanInput(draft, [], "cave");
+    if (!resolved.ok) throw new Error("The cave draft should resolve.");
+    const cylinders = routeCylinders(draft, resolved);
+    const route = normalizeCaveRoute([leg], cylinders);
+    if (!route.ok) throw new Error("The cave route should build.");
+    const notices = unsetGasNotices([leg], cylinders);
+    expect(notices.map((item) => item.cylinderId)).toEqual(["plan-cylinder-deco-added"]);
+
+    const input: CavePlanInput = { mode: "oc", dive: resolved.input, route: route.legs, reserve: resolved.input.reservePolicy, scenarios: [] };
+    const calculated = calculateCavePlan(input);
+    if (!calculated.ok) throw new Error(calculated.errors.map((item) => item.code).join(", "));
+    const storage = new MemoryStorage();
+    // One store for the whole lineage, so each new revision gets its own id.
+    const store = storeWith(storage);
+    const created = store.create({
+      title: "Cave",
+      normalizedInputSnapshot: input.dive,
+      calculatedPlan: calculated.value.base,
+      caveInputSnapshot: input,
+      caveResultSnapshot: calculated.value,
+      warnings: [...collectCaveDiagnostics([...calculated.warnings, ...(calculated.errors ?? [])], calculated.value), ...notices],
+    });
+    if (!created.ok) throw new Error("save failed");
+    const original = reload(storage, created.value.id);
+
+    let parent = original;
+    for (const revision of [2, 3]) {
+      const errors: string[] = [];
+      const draftRevision = buildRecalculation(parent, (message) => errors.push(message));
+      expect(errors).toEqual([]);
+      const revised = store.recalculate(parent.id, draftRevision!);
+      if (!revised.ok) throw new Error("recalculation failed");
+      expect(revised.value).toMatchObject({ revision, lineageId: original.lineageId, parentRevisionId: parent.id });
+      expect(revised.value.warnings.filter((item) => item.code === "ROUTE_GAS_ACCESS_UNSET")).toEqual(notices);
+      parent = revised.value;
+    }
+    expect(reload(storage, original.id)).toEqual(original);
   });
 });

@@ -1136,7 +1136,7 @@ test("flags a gas added after a Cave leg was edited until the diver sets it", as
   const message = "Deco gas New deco gas (“New deco gas cylinder”) joined the plan after the cylinders on leg route-1 were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.";
   await expect(access("New deco gas cylinder")).not.toBeChecked();
   await expect(page.getByRole("region", { name: "Leg cylinders to confirm" })).toContainText(message);
-  await expect(leg).toContainText("“New deco gas cylinder” joined the plan after this leg's cylinders were set and is treated as not carried here.");
+  await expect(leg.getByRole("status")).toContainText("“New deco gas cylinder” joined the plan after this leg's cylinders were set and is treated as not carried here.");
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
   await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
   const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
