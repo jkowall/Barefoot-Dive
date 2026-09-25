@@ -14,7 +14,7 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   const footer = page.getByRole("contentinfo");
   const versions = footer.locator(".bf-app-footer__versions");
   await expect(versions.getByText("App", { exact: true })).toBeVisible();
-  await expect(versions.getByText("0.4.0", { exact: true })).toBeVisible();
+  await expect(versions.getByText("0.5.0", { exact: true })).toBeVisible();
   await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
   await expect(versions.getByText("barefoot-dive-engine-0.3.0", { exact: true })).toBeVisible();
   const projectLinks = footer.getByRole("navigation", { name: "Project links" });
@@ -81,7 +81,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.4.0 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
+  await expect(settings.getByText("App 0.5.0 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 
@@ -438,6 +438,36 @@ test("plans gas volumes only and asks for a volume-based reserve", async ({ page
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Gas planning" })).toHaveCount(0);
+});
+
+test("charges the bottom RMV until the first stop for new OC plans and can switch back", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  const firstStopRule = page.getByRole("checkbox", { name: /^Bottom RMV until first stop/ });
+  await expect(firstStopRule).toBeChecked();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  const bottomGasRow = results.getByRole("row", { name: /^Tx18\/45 cylinder · / }).first();
+  await expect(results.getByText(/charged at the bottom RMV until the first stop/)).toBeVisible();
+  await expect(results.getByText(/the rule before 0\.5\.0/)).toHaveCount(0);
+  const firstStopUse = await bottomGasRow.innerText();
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await page.getByText("Bottom RMV until first stop", { exact: true }).click();
+  await expect(firstStopRule).not.toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(results).toBeHidden();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await page.getByRole("radiogroup", { name: "Plan workspace" }).getByText("Review", { exact: true }).click();
+  await expect(results.getByText(/the rule before 0\.5\.0/)).toBeVisible();
+  await expect(results.getByText(/charged at the bottom RMV until the first stop/)).toHaveCount(0);
+  expect(await bottomGasRow.innerText()).not.toBe(firstStopUse);
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await expect(firstStopRule).toHaveCount(0);
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /^Bottom RMV until first stop/ })).toHaveCount(0);
 });
 
 test("calculates and saves an OC plan, then keeps the snapshot immutable in the library", async ({ page }) => {
