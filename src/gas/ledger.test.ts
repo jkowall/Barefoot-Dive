@@ -6,9 +6,12 @@ import {
   DEFAULT_PLANNER_SETTINGS,
   DEFAULT_RESERVE_POLICY,
   DEFAULT_RMV,
+  EAN50,
+  OXYGEN,
 } from "../domain/defaults";
-import type { Cylinder, OcDiveInput, ProfileSegment, TissueState } from "../domain/types";
+import type { CcrDiveInput, Cylinder, Gas, OcDiveInput, ProfileSegment, TissueState } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, litersPerMinute, meters, seconds } from "../domain/units";
+import { calculateDivePlan } from "../engine/planner";
 import { calculateGasLedger } from "./ledger";
 
 const tissues: TissueState = {
@@ -152,6 +155,175 @@ describe("exact gas ledger integration", () => {
         reservePolicy,
       }, { bottomEndRuntimeSeconds: seconds(1_000) });
       expect(result.entries[0].reserveL).toBeCloseTo(expectedReserveL, 8);
+    }
+  });
+});
+
+/**
+ * Characterization of the RMV phase boundary used since engine 0.1.0. These tests pin
+ * behavior and do not assert that it is the right convention. Open circuit charges every
+ * segment that starts at or after the end of bottom time at the deco RMV, including the
+ * ascent to the first stop and a no-stop ascent. The CCR bailout ledger charges only stop
+ * segments at the bailout deco RMV; every travel leg uses the bailout RMV.
+ */
+describe("RMV phase boundary (engine 0.1.0 rule)", () => {
+  const leg = (
+    id: string,
+    kind: ProfileSegment["kind"],
+    startRuntime: number,
+    duration: number,
+    startDepth: number,
+    endDepth: number,
+    gas: Gas,
+  ): ProfileSegment => ({
+    id,
+    kind,
+    startRuntimeSeconds: seconds(startRuntime),
+    durationSeconds: seconds(duration),
+    startDepthM: meters(startDepth),
+    endDepthM: meters(endDepth),
+    gasId: gas.id,
+    gasName: gas.name,
+    gf: fraction(0.3),
+    ceilingDepthM: meters(0),
+    tissuesAfter: tissues,
+  });
+  const surfaceUse = (segment: ProfileSegment, rmvLpm: number): number => integratedSurfaceGas({
+    startDepthM: segment.startDepthM,
+    endDepthM: segment.endDepthM,
+    durationSeconds: segment.durationSeconds,
+    rmvLpm: litersPerMinute(rmvLpm),
+  }, DEFAULT_ENVIRONMENT.surfacePressureBar, DEFAULT_ENVIRONMENT.metersPerBar);
+
+  it("charges the OC ascent from the bottom to the first stop at the deco RMV", () => {
+    const { input } = fixture();
+    const gas = input.bottomGas;
+    const descent = leg("descent", "descent", 0, 100, 0, 30, gas);
+    const bottom = leg("bottom", "bottom", 100, 600, 30, 30, gas);
+    // 30 m to a 12 m first stop at 9 m/min, averaging 3.1 bar absolute.
+    const toFirstStop = leg("ascent-1", "ascent", 700, 120, 30, 12, gas);
+    const firstStop = leg("stop-12", "stop", 820, 60, 12, 12, gas);
+    const betweenStops = leg("ascent-2", "ascent", 880, 60, 12, 9, gas);
+    const [entry] = calculateGasLedger(
+      [descent, bottom, toFirstStop, firstStop, betweenStops],
+      input,
+      { bottomEndRuntimeSeconds: seconds(700) },
+    ).entries;
+
+    // 2 min x 15 L/min x 3.1 bar = 93 L; the bottom RMV would charge 124 L.
+    expect(surfaceUse(toFirstStop, DEFAULT_RMV.decoLpm)).toBeCloseTo(93, 10);
+    expect(surfaceUse(toFirstStop, DEFAULT_RMV.bottomLpm)).toBeCloseTo(124, 10);
+    expect(entry.bottomUsedL).toBeCloseTo(
+      surfaceUse(descent, DEFAULT_RMV.bottomLpm) + surfaceUse(bottom, DEFAULT_RMV.bottomLpm),
+      10,
+    );
+    expect(entry.decoUsedL).toBeCloseTo(
+      surfaceUse(toFirstStop, DEFAULT_RMV.decoLpm) +
+        surfaceUse(firstStop, DEFAULT_RMV.decoLpm) +
+        surfaceUse(betweenStops, DEFAULT_RMV.decoLpm),
+      10,
+    );
+    expect(entry.bottomUsedL).toBeCloseTo(883.333333, 6);
+    expect(entry.decoUsedL).toBeCloseTo(156.75, 10);
+  });
+
+  it("charges a no-stop OC ascent entirely at the deco RMV", () => {
+    const { input, segment: bottom } = fixture();
+    const ascent = leg("ascent", "ascent", 600, 200, 30, 0, input.bottomGas);
+    const [entry] = calculateGasLedger([bottom, ascent], input, {
+      bottomEndRuntimeSeconds: seconds(600),
+    }).entries;
+    // 200 s x 15 L/min x 2.5 bar = 125 L; the bottom RMV would charge 166.7 L.
+    expect(entry.bottomUsedL).toBeCloseTo(800, 10);
+    expect(entry.decoUsedL).toBeCloseTo(125, 10);
+  });
+
+  it("charges CCR bailout travel legs at the bailout RMV and only stops at the bailout deco RMV", () => {
+    const diluent: Gas = { ...AIR, id: "dil", role: "diluent" };
+    const bailoutGas: Gas = { ...AIR, id: "bo", role: "bailout", cylinderId: "bo-cylinder" };
+    const input: CcrDiveInput = {
+      mode: "ccr",
+      environment: "open-water",
+      depthM: meters(30),
+      bottomTimeSeconds: seconds(600),
+      diluent,
+      setpointBar: barAbsolute(1.3),
+      setpointActivationDepthM: meters(6),
+      bailoutGases: [bailoutGas],
+      cylinders: [{
+        id: "bo-cylinder",
+        name: "Bailout 11 L",
+        waterVolumeL: liters(11.1),
+        workingPressureBar: barGauge(207),
+        currentPressureBar: barGauge(200),
+        gas: bailoutGas,
+        maximumPPO2: barAbsolute(1.6),
+        role: "bailout",
+        revision: 1,
+      }],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const toFirstStop = leg("bailout-1", "bailout", 700, 120, 30, 12, bailoutGas);
+    const firstStop = leg("stop-12", "stop", 820, 60, 12, 12, bailoutGas);
+    const betweenStops = leg("bailout-2", "bailout", 880, 60, 12, 9, bailoutGas);
+    const [entry] = calculateGasLedger([toFirstStop, firstStop, betweenStops], input, {
+      bailout: true,
+      startRuntimeSeconds: seconds(700),
+      bottomEndRuntimeSeconds: seconds(700),
+    }).entries;
+    // Travel: 2 min x 30 L/min x 3.1 bar + 1 min x 30 L/min x 2.05 bar. Stop: 1 min x 20 L/min x 2.2 bar.
+    expect(entry.bottomUsedL).toBeCloseTo(
+      surfaceUse(toFirstStop, DEFAULT_RMV.bailoutLpm) + surfaceUse(betweenStops, DEFAULT_RMV.bailoutLpm),
+      10,
+    );
+    expect(entry.bottomUsedL).toBeCloseTo(247.5, 10);
+    expect(entry.decoUsedL).toBeCloseTo(surfaceUse(firstStop, DEFAULT_RMV.bailoutDecoLpm), 10);
+    expect(entry.decoUsedL).toBeCloseTo(44, 10);
+  });
+
+  it("receives the end of bottom time, not first-stop arrival, from the OC planner", () => {
+    const bottomGas: Gas = { id: "tx18-45", name: "Tx18/45", oxygen: fraction(0.18), helium: fraction(0.45), role: "bottom" };
+    const input: OcDiveInput = {
+      mode: "oc",
+      environment: "open-water",
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas,
+      decoGases: [EAN50, OXYGEN],
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const result = calculateDivePlan(input);
+    if (!result.ok) throw new Error(result.errors.map((item) => item.code).join(", "));
+    const { segments, gasLedger } = result.value;
+    const bottom = segments.find((segment) => segment.kind === "bottom")!;
+    const bottomEnd = bottom.startRuntimeSeconds + bottom.durationSeconds;
+    const firstStopArrival = segments.find((segment) => segment.kind === "stop")!.startRuntimeSeconds;
+    const toFirstStop = segments.filter((segment) =>
+      segment.durationSeconds > 0 &&
+      segment.startRuntimeSeconds >= bottomEnd &&
+      segment.startRuntimeSeconds < firstStopArrival);
+    expect(firstStopArrival).toBeGreaterThan(bottomEnd);
+    expect(toFirstStop.length).toBeGreaterThan(0);
+    expect(toFirstStop.every((segment) => segment.kind === "ascent")).toBe(true);
+
+    const chargedByBottomEnd = (segment: ProfileSegment): number => surfaceUse(
+      segment,
+      segment.kind === "stop" || segment.startRuntimeSeconds >= bottomEnd
+        ? DEFAULT_RMV.decoLpm
+        : DEFAULT_RMV.bottomLpm,
+    );
+    for (const gas of [bottomGas, EAN50, OXYGEN]) {
+      const expected = segments
+        .filter((segment) => segment.gasId === gas.id && segment.durationSeconds > 0)
+        .reduce((sum, segment) => sum + chargedByBottomEnd(segment), 0);
+      expect(gasLedger.find((entry) => entry.gasId === gas.id)!.totalUsedL).toBeCloseTo(expected, 8);
     }
   });
 });
