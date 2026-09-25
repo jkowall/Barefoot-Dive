@@ -1,14 +1,48 @@
 import { createHash } from "node:crypto";
+import { connect } from "node:net";
 import { defineConfig } from "@playwright/test";
 
 const chrome = process.env.PLAYWRIGHT_CHROME_EXECUTABLE
   ?? (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : undefined);
 
 // Parallel worktrees must never test, or shut down, each other's preview server. Each checkout
-// builds and serves on its own port in 4200-4999, derived from its path; PLAYWRIGHT_PORT pins a
-// port, and PLAYWRIGHT_REUSE_SERVER=1 allows testing a server that is already running there.
-const port = Number(process.env.PLAYWRIGHT_PORT) ||
-  4200 + createHash("sha256").update(import.meta.dirname).digest().readUInt16BE(0) % 800;
+// prefers a port in 4200-4999 derived from its path and moves to the next free port when that one
+// answers, so a hash collision or any other listener gets a fresh server instead of an error. The
+// runner records its choice in PLAYWRIGHT_PORT, which its workers inherit. Setting PLAYWRIGHT_PORT
+// pins a port. PLAYWRIGHT_REUSE_SERVER=1 tests a preview already running on the preferred port
+// and skips the build, so use it only for this checkout's current build.
+const FIRST_PORT = 4200;
+const PORT_COUNT = 800;
+const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_SERVER === "1";
+
+function answers(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    socket.once("connect", () => { socket.destroy(); resolve(true); });
+    socket.once("error", () => resolve(false));
+  });
+}
+
+async function previewPort(): Promise<number> {
+  const pinned = process.env.PLAYWRIGHT_PORT;
+  if (pinned !== undefined) {
+    const value = Number(pinned);
+    if (!/^\d+$/.test(pinned) || value < 1024 || value > 65535) {
+      throw new Error(`PLAYWRIGHT_PORT must be a whole number from 1024 to 65535, not "${pinned}".`);
+    }
+    return value;
+  }
+  const offset = createHash("sha256").update(import.meta.dirname).digest().readUInt16BE(0) % PORT_COUNT;
+  if (reuseExistingServer) return FIRST_PORT + offset;
+  for (let step = 0; step < PORT_COUNT; step += 1) {
+    const candidate = FIRST_PORT + (offset + step) % PORT_COUNT;
+    if (!await answers(candidate)) return candidate;
+  }
+  throw new Error(`Every preview port from ${FIRST_PORT} to ${FIRST_PORT + PORT_COUNT - 1} is in use; set PLAYWRIGHT_PORT.`);
+}
+
+const port = await previewPort();
+process.env.PLAYWRIGHT_PORT = String(port);
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
@@ -56,7 +90,7 @@ export default defineConfig({
   webServer: {
     command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,
-    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
+    reuseExistingServer,
     timeout: 120_000,
   },
 });
