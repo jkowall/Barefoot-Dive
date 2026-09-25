@@ -27,6 +27,11 @@ export type RouteDraft = {
    * access edit records the gases then taking part.
    */
   readonly accessibleGasKeys?: readonly string[];
+  /**
+   * Gases whose access the diver has set on this leg: those listed at the first access edit and each
+   * one ticked, unticked, or kept not carried since. Written with `accessibleGasKeys`.
+   */
+  readonly setGasKeys?: readonly string[];
   readonly stageAction: StageAction;
   /** The gas whose cylinder is dropped or recovered on this leg. */
   readonly stageGasKey?: string;

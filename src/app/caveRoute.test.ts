@@ -7,8 +7,11 @@ import {
   routeCylinderAccess,
   routeCylinders,
   routeStageCylinder,
+  unsetGasNotices,
+  unsetRouteCylinders,
   withCylinderAccess,
   withStageCylinder,
+  withUnsetGasesKept,
   type RouteCylinder,
 } from "./caveRoute";
 import { createInitialCaveWorkspaceSession, type RouteDraft } from "./caveWorkspace";
@@ -322,5 +325,89 @@ describe("a Tank Bank cylinder selected for several gases", () => {
     // Back on its own cylinder, the oxygen gas is still inaccessible and the EAN50 stage is unchanged.
     expect(legsOf([explicit], cylindersFor(sourced))).toEqual(before);
     expect(before[0]).toMatchObject({ accessibleCylinderIds: [backGas.id, "plan-cylinder-deco-50"], stageCylinderId: "plan-cylinder-deco-50" });
+  });
+});
+
+describe("gases a leg has not set", () => {
+  const added: GasDraft = { ...caveDraft.decoGases[0]!, key: "deco-added", name: "EAN80", oxygenPercent: 80 };
+  const withAdded: PlanDraft = { ...caveDraft, decoGases: [...caveDraft.decoGases, added] };
+
+  it("records the gases listed at a leg's first access edit as set, and never flags an unedited leg", () => {
+    const cylinders = cylindersFor(caveDraft);
+    const edited = withCylinderAccess(leg, cylinderUsedBy(cylinders, "deco-o2"), false, cylinders);
+    expect(edited.setGasKeys).toEqual(["bottom", "deco-50", "deco-o2"]);
+    expect(unsetGasNotices([edited], cylinders)).toEqual([]);
+    expect(unsetGasNotices([leg], cylindersFor({ ...withAdded, travelGasEnabled: true }))).toEqual([]);
+  });
+
+  it("warns once per edited leg for each gas that joined later, without changing the cave input", () => {
+    const withoutEan50 = withDecoIncluded(caveDraft, "deco-50", false);
+    const listed = cylindersFor(withoutEan50);
+    const edited = withCylinderAccess(leg, cylinderUsedBy(listed, "deco-o2"), false, listed);
+    // EAN50 switched back on, a travel gas turned on, and EAN80 added.
+    const later = cylindersFor({ ...withAdded, travelGasEnabled: true });
+    expect(unsetRouteCylinders(edited, later).map((cylinder) => cylinder.id))
+      .toEqual(["plan-cylinder-travel", "plan-cylinder-deco-50", "plan-cylinder-deco-added"]);
+    expect(unsetGasNotices([edited, { ...leg, id: "route-2" }], later)).toEqual([
+      expect.objectContaining({ code: "ROUTE_GAS_ACCESS_UNSET", severity: "warning", cylinderId: "plan-cylinder-travel" }),
+      expect.objectContaining({ code: "ROUTE_GAS_ACCESS_UNSET", severity: "warning", cylinderId: "plan-cylinder-deco-50" }),
+      {
+        code: "ROUTE_GAS_ACCESS_UNSET",
+        severity: "warning",
+        message: "Deco gas EAN80 (“EAN80 cylinder”) joined the plan after the cylinders on leg route-1 were set, so that leg treats it as not carried. Tick it on the leg if you carry it there, or keep it not carried.",
+        field: "route.0.accessibleCylinderIds",
+        cylinderId: "plan-cylinder-deco-added",
+      },
+    ]);
+    expect(accessibleIds([edited], later)).toEqual([["plan-cylinder-bottom"]]);
+  });
+
+  it("clears a notice when the gas is ticked, unticked, or kept not carried", () => {
+    const cylinders = cylindersFor(caveDraft);
+    const edited = withCylinderAccess(leg, cylinderUsedBy(cylinders, "deco-o2"), false, cylinders);
+    const addedCylinders = cylindersFor(withAdded);
+    const ean80 = cylinderUsedBy(addedCylinders, "deco-added");
+    expect(unsetGasNotices([edited], addedCylinders)).toHaveLength(1);
+
+    const ticked = withCylinderAccess(edited, ean80, true, addedCylinders);
+    expect(unsetGasNotices([ticked], addedCylinders)).toEqual([]);
+    expect(routeCylinderAccess(ticked, ean80)).toBe("accessible");
+    const unticked = withCylinderAccess(ticked, ean80, false, addedCylinders);
+    expect(unsetGasNotices([unticked], addedCylinders)).toEqual([]);
+    expect(routeCylinderAccess(unticked, ean80)).toBe("inaccessible");
+
+    const kept = withUnsetGasesKept(edited, addedCylinders);
+    expect(unsetGasNotices([kept], addedCylinders)).toEqual([]);
+    // Keeping a gas not carried changes nothing the calculation sees, so a current result stays current.
+    expect(JSON.stringify(normalizeCaveRoute([kept], addedCylinders))).toBe(JSON.stringify(normalizeCaveRoute([edited], addedCylinders)));
+    expect(withUnsetGasesKept(leg, addedCylinders)).toBe(leg);
+  });
+
+  it("keeps a gas set while it is switched off, and flags the other breathing mode's gases", () => {
+    const cylinders = cylindersFor(caveDraft);
+    const edited = withCylinderAccess(leg, cylinderUsedBy(cylinders, "deco-o2"), false, cylinders);
+    expect(unsetGasNotices([edited], cylindersFor(withDecoIncluded(caveDraft, "deco-50", false)))).toEqual([]);
+    expect(unsetGasNotices([edited], cylinders)).toEqual([]);
+    expect(unsetGasNotices([edited], cylindersFor({ ...caveDraft, mode: "ccr" })).map((item) => item.cylinderId))
+      .toEqual(["plan-cylinder-diluent", "plan-cylinder-bailout-bottom", "plan-cylinder-bailout-50"]);
+  });
+
+  it("leaves a cylinder used by several gases to its blocking error", () => {
+    const sourced = withSource(caveDraft, "bottom", backGas.id);
+    const sourcedCylinders = cylindersFor(sourced);
+    const edited = withCylinderAccess(leg, cylinderUsedBy(sourcedCylinders, "deco-o2"), false, sourcedCylinders);
+    // EAN80 is added on the record the bottom gas already uses.
+    const shared = cylindersFor(withSource({ ...sourced, decoGases: [...sourced.decoGases, added] }, "deco-added", backGas.id));
+    expect(normalizeCaveRoute([edited], shared).ok).toBe(false);
+    expect(unsetGasNotices([edited], shared)).toEqual([]);
+    expect(withUnsetGasesKept(edited, shared).setGasKeys).not.toContain("deco-added");
+  });
+
+  it("names a leg whose label was cleared by its position", () => {
+    const cylinders = cylindersFor(caveDraft);
+    const edited = withCylinderAccess({ ...leg, id: " " }, cylinderUsedBy(cylinders, "deco-o2"), false, cylinders);
+    const [notice] = unsetGasNotices([{ ...leg, id: "route-1" }, edited], cylindersFor(withAdded));
+    expect(notice?.message).toContain("joined the plan after the cylinders on leg 2 were set");
+    expect(notice?.field).toBe("route.1.accessibleCylinderIds");
   });
 });
