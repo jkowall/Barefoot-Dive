@@ -341,6 +341,7 @@ export default function App() {
     content = stores.savedPlans
       ? <SavedPlansPage
           currentEngineVersion={ENGINE_VERSION}
+          depthUnits={preferences.depth}
           onError={reportError}
           onOpenPlan={(_, record) => setOpenedRecord(record)}
           onRecalculate={(record) => buildRecalculation(record, reportError)}

@@ -547,14 +547,33 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       if (switchDepth <= 0 || switchDepth > input.depthM) {
         errors.push(error("TRAVEL_SWITCH_DEPTH_INVALID", "Travel-to-bottom switch must be within the planned descent.", "bottomGas.switchDepthM"));
       }
-      if (travelSurfacePPO2 < input.settings.minimumPPO2 || travelSwitchPPO2 > travelMaximum + 1e-9) {
-        errors.push(error("TRAVEL_GAS_OPERATING_RANGE", "Travel gas is not breathable for the entire surface-to-switch interval.", "travelGas"));
+      const travelHypoxicAtSurface = travelSurfacePPO2 < input.settings.minimumPPO2;
+      const travelAboveMaximum = travelSwitchPPO2 > travelMaximum + 1e-9;
+      if (travelHypoxicAtSurface || travelAboveMaximum) {
+        const atSwitch = `the ${formatMessageDepth(switchDepth)} travel-to-bottom switch`;
+        const surface = `is only PPO₂ ${travelSurfacePPO2.toFixed(3)} bar at the surface, below the ${input.settings.minimumPPO2.toFixed(2)} bar minimum`;
+        const maximum = `reaches PPO₂ ${travelSwitchPPO2.toFixed(3)} bar at ${atSwitch}, above the ${travelMaximum.toFixed(2)} bar travel-gas limit`;
+        errors.push({
+          ...error(
+            "TRAVEL_GAS_OPERATING_RANGE",
+            travelHypoxicAtSurface && travelAboveMaximum
+              ? `${input.travelGas.name} ${surface}, and ${maximum}.`
+              : travelHypoxicAtSurface
+                ? `${input.travelGas.name} ${surface}, so it cannot be breathed from the surface to ${atSwitch}.`
+                : `${input.travelGas.name} ${maximum}.`,
+            "travelGas",
+          ),
+          depthM: meters(switchDepth),
+          actual: travelAboveMaximum ? travelSwitchPPO2 : travelSurfacePPO2,
+          limit: travelAboveMaximum ? travelMaximum : input.settings.minimumPPO2,
+          gasId: input.travelGas.id,
+        });
       }
       if (travelCylinder && travelSwitchPPO2 > travelCylinder.maximumPPO2 + 1e-9) {
         errors.push({
           code: "CYLINDER_PPO2_LIMIT_EXCEEDED",
           severity: "error",
-          message: `${input.travelGas.name} exceeds ${travelCylinder.name}'s maximum PPO₂ at the travel switch.`,
+          message: `${input.travelGas.name} reaches PPO₂ ${travelSwitchPPO2.toFixed(3)} bar at the ${formatMessageDepth(switchDepth)} travel-to-bottom switch, above ${travelCylinder.name}'s ${travelCylinder.maximumPPO2.toFixed(2)} bar maximum.`,
           field: "travelGas",
           depthM: meters(switchDepth),
           actual: travelSwitchPPO2,
@@ -563,8 +582,22 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
           cylinderId: travelCylinder.id,
         });
       }
-      if (bottomSwitchPPO2 < input.settings.minimumPPO2 || bottomSwitchPPO2 > input.settings.maximumBottomPPO2 + 1e-9) {
-        errors.push(error("BOTTOM_SWITCH_UNBREATHABLE", "Bottom gas is not breathable at its configured switch depth.", "bottomGas.switchDepthM"));
+      const bottomAboveMaximum = bottomSwitchPPO2 > input.settings.maximumBottomPPO2 + 1e-9;
+      if (bottomSwitchPPO2 < input.settings.minimumPPO2 || bottomAboveMaximum) {
+        const at = `at its ${formatMessageDepth(switchDepth)} switch depth`;
+        errors.push({
+          ...error(
+            "BOTTOM_SWITCH_UNBREATHABLE",
+            bottomAboveMaximum
+              ? `${input.bottomGas.name} reaches PPO₂ ${bottomSwitchPPO2.toFixed(3)} bar ${at}, above the ${input.settings.maximumBottomPPO2.toFixed(2)} bar bottom limit.`
+              : `${input.bottomGas.name} is only PPO₂ ${bottomSwitchPPO2.toFixed(3)} bar ${at}, below the ${input.settings.minimumPPO2.toFixed(2)} bar minimum.`,
+            "bottomGas.switchDepthM",
+          ),
+          depthM: meters(switchDepth),
+          actual: bottomSwitchPPO2,
+          limit: bottomAboveMaximum ? input.settings.maximumBottomPPO2 : input.settings.minimumPPO2,
+          gasId: input.bottomGas.id,
+        });
       }
     }
     input.decoGases.forEach((gas, index) => {

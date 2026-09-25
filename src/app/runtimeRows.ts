@@ -3,8 +3,9 @@
  *
  * The planner emits one segment per stop-time quantum, so a 16-minute stop arrives as sixteen
  * identical one-minute `stop` segments. For the runtime table those rows are folded into one row
- * when the phase, end depth, gas, and setpoint are all identical. The chart and the profile data
- * table keep the raw segments. Nothing here changes calculated values.
+ * when the phase, end depth, gas, and setpoint are all identical. Gases are compared by identifier
+ * when segments carry one, because two cylinders' gases can share a name ("Air" and "Air"). The
+ * chart and the profile data table keep the raw segments. Nothing here changes calculated values.
  */
 export type RuntimeSegment = {
   readonly kind: string;
@@ -12,6 +13,8 @@ export type RuntimeSegment = {
   readonly durationSeconds: number;
   readonly startDepthM?: number;
   readonly endDepthM: number;
+  /** The gas identifier; two gases can share a display name. */
+  readonly gasId?: string;
   readonly gasName: string;
   readonly setpointBar?: number;
 };
@@ -22,6 +25,7 @@ export type GroupedRuntimeSegment = {
   readonly durationSeconds: number;
   readonly startDepthM?: number;
   readonly endDepthM: number;
+  readonly gasId?: string;
   readonly gasName: string;
   readonly setpointBar?: number;
   /** Number of source segments folded into this row. */
@@ -34,10 +38,15 @@ export type GroupedRuntimeSegment = {
   readonly travelGasName?: string;
 };
 
+/** The same gas: by identifier when both carry one, otherwise by name. */
+function sameGas(a: Pick<RuntimeSegment, "gasId" | "gasName">, b: Pick<RuntimeSegment, "gasId" | "gasName">): boolean {
+  return a.gasId !== undefined && b.gasId !== undefined ? a.gasId === b.gasId : a.gasName === b.gasName;
+}
+
 function sameGroup(a: RuntimeSegment, b: RuntimeSegment): boolean {
   return a.kind === b.kind
     && a.endDepthM === b.endDepthM
-    && a.gasName === b.gasName
+    && sameGas(a, b)
     && a.setpointBar === b.setpointBar;
 }
 
@@ -54,6 +63,7 @@ export function groupRuntimeSegments(segments: readonly RuntimeSegment[]): reado
         durationSeconds: segment.durationSeconds,
         ...(segment.startDepthM === undefined ? {} : { startDepthM: segment.startDepthM }),
         endDepthM: segment.endDepthM,
+        ...(segment.gasId === undefined ? {} : { gasId: segment.gasId }),
         gasName: segment.gasName,
         ...(segment.setpointBar === undefined ? {} : { setpointBar: segment.setpointBar }),
         count: 1,
@@ -116,7 +126,7 @@ export function foldTravelIntoStops(rows: readonly GroupedRuntimeSegment[]): rea
       count: stop.count + 1 + (arrival ? 1 : 0),
       includedTravelSeconds: travel.durationSeconds,
       ...(arrival ? { arrivalSwitch: arrival.kind } : {}),
-      ...(travel.gasName === stop.gasName ? {} : { travelGasName: travel.gasName }),
+      ...(sameGas(travel, stop) ? {} : { travelGasName: travel.gasName }),
     });
     index += arrival ? 2 : 1;
   }

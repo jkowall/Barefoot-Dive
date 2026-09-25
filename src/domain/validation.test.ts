@@ -232,6 +232,33 @@ describe("limit diagnostics state the value and the limit", () => {
     expect(diagnostic).toMatchObject({ limit: 1.6, cylinderId: "o2", gasId: OXYGEN.id, depthM: 6.096 });
   });
 
+  it("states the travel gas PPO₂, the limit, and the travel-to-bottom switch depth", () => {
+    const tx1070 = { id: "tx10-70", name: "Tx10/70", oxygen: fraction(0.1), helium: fraction(0.7), role: "bottom" as const };
+    const withTravel = (travel: OcDiveInput["travelGas"], switchDepthM: number): OcDiveInput =>
+      ({ ...input(), depthM: meters(70), bottomGas: { ...tx1070, switchDepthM: meters(switchDepthM) }, travelGas: travel });
+    // Air to a 60 m switch: 0.21 × 7.0 = 1.470 bar, above the 1.40 bar bottom limit that caps travel gas.
+    const tooDeep = find(validateDiveInput(withTravel({ ...AIR, id: "travel-air", role: "travel" }, 60)), "TRAVEL_GAS_OPERATING_RANGE");
+    expect(tooDeep?.message).toBe("Air reaches PPO₂ 1.470 bar at the 60.0 m travel-to-bottom switch, above the 1.40 bar travel-gas limit.");
+    expect(tooDeep).toMatchObject({ depthM: 60, limit: 1.4, gasId: "travel-air" });
+    expect(tooDeep?.actual).toBeCloseTo(1.47, 10);
+    // A hypoxic travel gas: 0.10 bar at the surface.
+    const hypoxic = find(validateDiveInput(withTravel({ ...tx1070, id: "travel-tx", role: "travel" }, 30)), "TRAVEL_GAS_OPERATING_RANGE");
+    expect(hypoxic?.message).toBe("Tx10/70 is only PPO₂ 0.100 bar at the surface, below the 0.16 bar minimum, so it cannot be breathed from the surface to the 30.0 m travel-to-bottom switch.");
+    expect(hypoxic).toMatchObject({ depthM: 30, limit: 0.16, gasId: "travel-tx" });
+  });
+
+  it("states the bottom gas PPO₂, the limit, and its switch depth", () => {
+    const tx1070 = { id: "tx10-70", name: "Tx10/70", oxygen: fraction(0.1), helium: fraction(0.7), role: "bottom" as const };
+    // Tx10/70 at a 3 m switch: 0.10 × 1.3 = 0.130 bar, below the 0.16 bar minimum.
+    const shallow = find(validateDiveInput({ ...input(), depthM: meters(70), bottomGas: { ...tx1070, switchDepthM: meters(3) }, travelGas: { ...AIR, id: "travel-air", role: "travel" } }), "BOTTOM_SWITCH_UNBREATHABLE");
+    expect(shallow?.message).toBe("Tx10/70 is only PPO₂ 0.130 bar at its 3.0 m switch depth, below the 0.16 bar minimum.");
+    expect(shallow).toMatchObject({ depthM: 3, limit: 0.16, gasId: "tx10-70" });
+    // Air as bottom gas switched to at 60 m: 1.470 bar, above the 1.40 bar bottom limit.
+    const deep = find(validateDiveInput({ ...input(), depthM: meters(70), bottomGas: { ...AIR, switchDepthM: meters(60) }, travelGas: { id: "travel-32", name: "EAN32", oxygen: fraction(0.32), helium: fraction(0), role: "travel" } }), "BOTTOM_SWITCH_UNBREATHABLE");
+    expect(deep?.message).toBe("Air reaches PPO₂ 1.470 bar at its 60.0 m switch depth, above the 1.40 bar bottom limit.");
+    expect(deep).toMatchObject({ depthM: 60, limit: 1.4, gasId: "air" });
+  });
+
   it("reports how far the loop can reach at an unachievable switch-up depth", () => {
     const diagnostic = find(validateDiveInput(ccrInput({ setpointActivationDepthM: meters(3) })), "CCR_SETPOINT_NOT_ACHIEVABLE");
     expect(diagnostic?.message).toContain("at the 3.0 m switch-up depth, where the loop reaches at most 1.23 bar");

@@ -1,3 +1,5 @@
+import { tankSourcesChanged } from "./planning";
+
 /** Status of a Plan or Cave workspace. Both derive it here so they apply the same rules. */
 export type WorkspaceStatus = "draft" | "updating" | "current" | "needs-attention" | "source-changed" | "source-unavailable";
 
@@ -25,7 +27,7 @@ export function workspaceStatus({ inputSignature, sourceSignature, calculated, a
   if (inputSignature === undefined) return "source-unavailable";
   if (calculated && !calculated.sourceInvalidated && calculated.inputSignature === inputSignature) return "current";
   if (attemptedInputSignature === inputSignature) return "needs-attention";
-  if (calculated && (calculated.sourceInvalidated || calculated.sourceSignature !== sourceSignature)) return "source-changed";
+  if (calculated && (calculated.sourceInvalidated || tankSourcesChanged(calculated.sourceSignature, sourceSignature))) return "source-changed";
   return calculated ? "updating" : "draft";
 }
 

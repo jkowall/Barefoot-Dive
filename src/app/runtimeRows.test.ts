@@ -97,6 +97,23 @@ describe("runtimeScheduleRows", () => {
     expect(rows[0]!.travelGasName).toBeUndefined();
   });
 
+  it("tells apart two gases that share a name", () => {
+    // Two Tank Bank stages both named EAN50 plan as `ean50` and `ean50~2`.
+    const copy = (kind: string, start: number, duration: number, from: number, to: number) => ({ ...segment(kind, start, duration, from, to), gasId: "ean50~2" });
+    const stage = (kind: string, start: number, duration: number, from: number, to: number) => ({ ...segment(kind, start, duration, from, to), gasId: "ean50" });
+    const rows = runtimeScheduleRows([
+      copy("stop", 0, 60, 18, 18),
+      copy("ascent", 60, 60, 18, 15),
+      stage("gas-switch", 120, 0, 15, 15),
+      stage("stop", 120, 60, 15, 15),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ gasId: "ean50", gasName: "EAN50", travelGasName: "EAN50", arrivalSwitch: "gas-switch" });
+    // Consecutive quanta of two same-named gases are not grouped into one row.
+    expect(groupRuntimeSegments([copy("stop", 0, 60, 15, 15), stage("stop", 60, 60, 15, 15)])).toHaveLength(2);
+    expect(groupRuntimeSegments([stage("stop", 0, 60, 15, 15), stage("stop", 60, 60, 15, 15)])).toHaveLength(1);
+  });
+
   it("counts only the ascent as included travel when the arrival switch takes time", () => {
     // Under the Shearwater preset a gas switch lasts 5 s; it belongs to the stop, not the ascent.
     const rows = runtimeScheduleRows([

@@ -1760,3 +1760,20 @@ test("reports gas density in g/L", async ({ page }) => {
   await page.getByRole("button", { name: /^Gas Density/ }).click();
   await expect(page.locator(".bf-metric").filter({ hasText: "Gas density" })).toContainText(/\d+\.\d{2} g\/L/);
 });
+
+test("restates stored warning depths in feet in the Saved Plans library", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" }).fill("0");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("heading", { name: "Calculated plan" })).toBeVisible();
+  await page.getByRole("button", { name: "Save snapshot" }).click();
+  await page.getByLabel("Plan name").fill("CCR switch-down plan");
+  await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Snapshot saved locally" })).toBeVisible();
+  await page.getByRole("button", { name: /^Saved plans/ }).first().click();
+  const stored = page.getByRole("region", { name: "Stored warnings" });
+  // The stored message prints canonical metres (3.7 m, 0.0 m); the library restates them in feet.
+  await expect(stored).toContainText("shallower than 12 ft, so the plan switches to the low setpoint at 12 ft instead of 0 ft");
+  await expect(stored).not.toContainText("3.7 m");
+});

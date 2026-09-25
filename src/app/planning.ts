@@ -181,27 +181,66 @@ export function isGasOnlyPlan(draft: PlanDraft, environment: DivePlanInput["envi
 /** Stop increment the resolved plan uses; entered switch depths align to this grid. */
 export const PLAN_STOP_INCREMENT_M: number = DEFAULT_PLANNER_SETTINGS.stopIncrementM;
 
+/** One gas's Tank Bank source in a `tankSourceSignature`. */
+type TankSourceEntry = {
+  readonly gasKey: string;
+  /** The selected Tank Bank record, or null for ad hoc values and gas-only plans. */
+  readonly tankId: string | null;
+  /** The record's revision while it loads, otherwise null. */
+  readonly revision: number | null;
+  /** Whether the gas takes part in the calculation. */
+  readonly active: boolean;
+};
+
 /**
- * Tank Bank sources and revisions for the mode's gases. Every gas that can be sourced counts,
- * including an excluded deco or bailout gas and a travel gas that is switched off, so turning a
- * gas on or off recalculates as an ordinary edit instead of reading as a changed source.
+ * The Tank Bank source and revision of every gas the mode can source, including an excluded deco or
+ * bailout gas and a travel gas that is switched off, with whether each takes part in the calculation.
+ * Compare two signatures with `tankSourcesChanged`.
  */
 export function tankSourceSignature(
   draft: PlanDraft,
   tankBank: TankBankSnapshot | readonly TankRecord[],
   environment: DivePlanInput["environment"] = "open-water",
 ): string {
-  if (isGasOnlyPlan(draft, environment)) return "[]";
+  const gasOnly = isGasOnlyPlan(draft, environment);
   const bank = snapshotOf(tankBank);
   const tanks = bank.readable ? bank.records : [];
+  const active = new Set(activeGasDrafts(draft).map((gas) => gas.key));
   const sourceableDrafts = draft.mode === "oc"
     ? [draft.bottomGas, draft.travelGas, ...draft.decoGases]
     : [draft.diluent, ...draft.bailoutGases];
-  return JSON.stringify(sourceableDrafts.flatMap((gas) => {
-    if (!gas.cylinderId) return [];
-    const tank = tanks.find((candidate) => candidate.id === gas.cylinderId);
-    return [{ gasKey: gas.key, tankId: gas.cylinderId, revision: tank?.revision ?? null }];
+  return JSON.stringify(sourceableDrafts.map((gas): TankSourceEntry => {
+    const tankId = gasOnly ? null : gas.cylinderId ?? null;
+    const tank = tankId === null ? undefined : tanks.find((candidate) => candidate.id === tankId);
+    return { gasKey: gas.key, tankId, revision: tank?.revision ?? null, active: active.has(gas.key) };
   }));
+}
+
+function sourceEntries(signature: string): readonly TankSourceEntry[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(signature);
+    return Array.isArray(parsed) ? parsed as TankSourceEntry[] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a Tank Bank source changed between a calculation's `tankSourceSignature` and the current one.
+ * Only gases that take part in both are compared: a gas switched on or off is an ordinary edit, and a
+ * Tank Bank change to the cylinder of a gas the calculation did not use cannot supersede its result.
+ * For those gases, choosing another source or a new revision of the same record is a change.
+ * Values that are not source signatures compare as plain strings.
+ */
+export function tankSourcesChanged(calculated: string, current: string): boolean {
+  const before = sourceEntries(calculated);
+  const after = sourceEntries(current);
+  if (!before || !after) return calculated !== current;
+  const used = new Map(before.filter((entry) => entry.active).map((entry) => [entry.gasKey, entry] as const));
+  return after.some((entry) => {
+    const earlier = entry.active ? used.get(entry.gasKey) : undefined;
+    return earlier !== undefined && (earlier.tankId !== entry.tankId || earlier.revision !== entry.revision);
+  });
 }
 
 const gasDraft = (

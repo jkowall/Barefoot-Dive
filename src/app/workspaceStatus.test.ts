@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
+import type { TankRecord } from "../storage";
+import { DEFAULT_PLAN_DRAFT, tankSourceSignature, type PlanDraft } from "./planning";
 import { invalidateForUnavailableSource, workspaceStatus, type WorkspaceCalculation } from "./workspaceStatus";
 
 const calculated: WorkspaceCalculation = { inputSignature: "input-a", sourceSignature: "source-a" };
@@ -31,6 +34,35 @@ describe("workspace status", () => {
     // A failed Update reports its diagnostics; a successful one replaces the calculation.
     expect(workspaceStatus({ ...unchanged, ...invalidated, attemptedInputSignature: "input-a" })).toBe("needs-attention");
     expect(workspaceStatus({ ...unchanged, calculated, attemptedInputSignature: "input-a" })).toBe("current");
+  });
+
+  it("asks for an explicit update only when a cylinder the calculation used changed in Tank Bank", () => {
+    const stage = (revision: number): TankRecord => ({
+      id: "o2-stage",
+      name: "O₂ stage",
+      waterVolumeL: liters(7),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: { id: "bank-o2", name: "Oxygen", oxygen: fraction(1), helium: fraction(0), role: "deco" },
+      maximumPPO2: barAbsolute(1.6),
+      revision,
+      createdAt: "2026-09-25T00:00:00.000Z",
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    });
+    const [ean50, oxygen] = DEFAULT_PLAN_DRAFT.decoGases;
+    const used: PlanDraft = { ...DEFAULT_PLAN_DRAFT, decoGases: [ean50!, { ...oxygen!, cylinderId: "o2-stage" }] };
+    const off: PlanDraft = { ...used, decoGases: [ean50!, { ...oxygen!, cylinderId: "o2-stage", enabled: false }] };
+    const status = (calculatedDraft: PlanDraft, draft: PlanDraft, inputSignature: string) => workspaceStatus({
+      inputSignature,
+      sourceSignature: tankSourceSignature(draft, [stage(2)]),
+      calculated: { inputSignature: "input-a", sourceSignature: tankSourceSignature(calculatedDraft, [stage(1)]) },
+    });
+    // The switched-off gas's cylinder changed: the result stays current, and the next edit recalculates.
+    expect(status(off, off, "input-a")).toBe("current");
+    expect(status(off, off, "input-b")).toBe("updating");
+    expect(status(off, used, "input-b")).toBe("updating");
+    // A cylinder the calculation used changed: the next edit waits for an explicit update.
+    expect(status(used, used, "input-b")).toBe("source-changed");
   });
 
   it("changes a session only when it has an unmarked calculation", () => {
