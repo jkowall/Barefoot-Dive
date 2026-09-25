@@ -370,7 +370,7 @@ export function PlannerEditor({
       </div>
       {draft.mode === "oc" && environment !== "cave" && <ToggleField
         checked={draft.bottomRmvUntilFirstStop}
-        hint="On: the climb to the first stop, or a whole no-stop ascent, uses the bottom RMV. Off: the deco RMV starts at the end of bottom time, the rule before 0.5.0. Decompression and reserves are the same either way."
+        hint="On: the climb to the first stop, or a whole no-stop ascent, uses the bottom RMV. Off: the deco RMV starts at the end of bottom time, the rule before 0.5.0. Decompression and cylinder reserves are the same either way; gas-only minimums include the extra use."
         label="Bottom RMV until first stop"
         onChange={(bottomRmvUntilFirstStop) => set("bottomRmvUntilFirstStop", bottomRmvUntilFirstStop)}
       />}

@@ -63,3 +63,14 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
     eventCcrShearwater: "c6c1b827",
   });
 });
+
+/**
+ * Pins the app 0.5.0 default OC draft, which charges the bottom RMV until the first stop.
+ * It is not an engine 0.1.0 guard; it catches unintended drift on the default path.
+ */
+it("pins the 0.5.0 default OC draft on the first-stop RMV boundary", () => {
+  const input = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input;
+  expect(input.mode === "oc" && input.decoRmvFrom).toBe("first-stop");
+  const result = calculateDivePlan(input);
+  expect(hash(result.ok ? digest(result.value) : result)).toBe("ffcebeb7");
+});

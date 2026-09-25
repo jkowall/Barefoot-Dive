@@ -11,7 +11,7 @@ import {
 } from "../domain/defaults";
 import type { CcrDiveInput, Cylinder, DivePlan, Gas, OcDiveInput, ProfileSegment, ReservePolicy, TissueState } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, litersPerMinute, meters, seconds } from "../domain/units";
-import { calculateDivePlan } from "../engine/planner";
+import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from "../engine/planner";
 import { calculateGasLedger } from "./ledger";
 
 const tissues: TissueState = {
@@ -465,6 +465,134 @@ describe("first-stop deco RMV boundary (opt-in)", () => {
         expect(after.reserveL).toBe(before.reserveL);
       }
     }
+  });
+
+  it("counts a switch made on arrival at the first stop as part of the stop", () => {
+    // Under the Shearwater preset (5 s switches) with EAN50 from 18 m, the diver switches on
+    // arriving at the 18 m first stop, before the first stop segment begins.
+    const ean50: Gas = { ...EAN50, switchDepthM: meters(18) };
+    const input: OcDiveInput = {
+      mode: "oc",
+      environment: "open-water",
+      depthM: meters(40),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas: AIR,
+      decoGases: [ean50],
+      cylinders: [],
+      settings: { ...DEFAULT_PLANNER_SETTINGS, conventionId: "shearwater-petrel3-v103-compatible-v1" },
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const legacy = calculateDivePlan(input);
+    const opted = calculateDivePlan(firstStop(input));
+    if (!legacy.ok || !opted.ok) throw new Error("plan failed");
+    const { segments } = legacy.value;
+    const firstStopIndex = segments.findIndex((segment) => segment.kind === "stop");
+    const onArrival = segments[firstStopIndex - 1];
+    expect(onArrival).toMatchObject({ kind: "gas-switch", gasId: ean50.id, durationSeconds: 5 });
+    expect(onArrival.startDepthM).toBe(segments[firstStopIndex].startDepthM);
+    const ean50Entry = opted.value.gasLedger.find((entry) => entry.gasId === ean50.id)!;
+    expect(ean50Entry.bottomUsedL).toBe(0);
+    expect(ean50Entry.totalUsedL).toBe(used(legacy.value, ean50.id));
+    expect(used(opted.value, AIR.id)).toBeGreaterThan(used(legacy.value, AIR.id));
+  });
+
+  it("raises gas-only thirds and sixths reserves with the climb volume and leaves the others", () => {
+    const bottomGas: Gas = { id: "tx18-45", name: "Tx18/45", oxygen: fraction(0.18), helium: fraction(0.45), role: "bottom" };
+    const base: OcDiveInput = {
+      mode: "oc",
+      environment: "open-water",
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas,
+      decoGases: [EAN50, OXYGEN],
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: { kind: "thirds" },
+      gasOnly: true,
+    };
+    // Reserve and minimum-to-carry change per litre of added use: thirds keeps half the use
+    // in reserve, sixths twice the use; custom and rock bottom do not depend on it.
+    const cases: readonly [ReservePolicy, number, number][] = [
+      [{ kind: "thirds" }, 0.5, 1.5],
+      [{ kind: "sixths" }, 2, 3],
+      [{ kind: "custom", reserveVolumeL: liters(500) }, 0, 1],
+      [{ kind: "rock-bottom", teamSize: 2, stressedRmvLpm: litersPerMinute(30) }, 0, 1],
+    ];
+    for (const [reservePolicy, reserveFactor, requiredFactor] of cases) {
+      const legacy = calculateDivePlan({ ...base, reservePolicy });
+      const opted = calculateDivePlan(firstStop({ ...base, reservePolicy }));
+      if (!legacy.ok || !opted.ok) throw new Error("plan failed");
+      const before = legacy.value.gasLedger.find((entry) => entry.gasId === bottomGas.id)!;
+      const after = opted.value.gasLedger.find((entry) => entry.gasId === bottomGas.id)!;
+      const added = after.totalUsedL - before.totalUsedL;
+      expect(added).toBeCloseTo(51.916667, 6);
+      expect(after.reserveL! - before.reserveL!).toBeCloseTo(reserveFactor * added, 8);
+      expect(after.requiredVolumeL! - before.requiredVolumeL!).toBeCloseTo(requiredFactor * added, 8);
+    }
+  });
+
+  it("moves a reserve crossing earlier, never later, at the same required pressure", () => {
+    const { input } = fixture(125);
+    const gas = input.bottomGas;
+    const segments = [
+      leg("descent", "descent", 0, 100, 0, 30, gas),
+      leg("bottom", "bottom", 100, 600, 30, 30, gas),
+      leg("ascent-1", "ascent", 700, 120, 30, 12, gas),
+      leg("stop-12", "stop", 820, 60, 12, 12, gas),
+      leg("ascent-2", "ascent", 880, 60, 12, 9, gas),
+    ];
+    const withReserve: OcDiveInput = { ...input, reservePolicy: { kind: "custom", reserveVolumeL: liters(500) } };
+    const options = { bottomEndRuntimeSeconds: seconds(700) };
+    const [legacy] = calculateGasLedger(segments, withReserve, options).entries;
+    const [entry] = calculateGasLedger(segments, firstStop(withReserve), options).entries;
+    // 1500 L less 976.3 L leaves 523.7 L at the 12 m stop, so the engine 0.1.0 rule crosses
+    // 500 L during the stop; charging the climb at the bottom RMV leaves 492.7 L, so the
+    // first-stop rule crosses during the climb.
+    expect(legacy.reserveCrossing!.runtimeSeconds).toBeGreaterThanOrEqual(820);
+    expect(entry.reserveCrossing!.runtimeSeconds).toBeLessThan(820);
+    expect(entry.reserveCrossing!.requiredPressureBar).toBe(legacy.reserveCrossing!.requiredPressureBar);
+    expect(entry.reserveL).toBe(legacy.reserveL);
+    expect([legacy.sufficient, entry.sufficient]).toEqual([false, false]);
+  });
+
+  it("applies to open-water event plans", () => {
+    const input: OcDiveInput = {
+      mode: "oc",
+      environment: "open-water",
+      depthM: meters(30),
+      bottomTimeSeconds: seconds(20 * 60),
+      bottomGas: AIR,
+      decoGases: [],
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const openCircuit = { kind: "open-circuit", gas: AIR } as const;
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(30), durationSeconds: seconds(100), gas: AIR, strategy: openCircuit },
+      { id: "bottom", kind: "bottom", startDepthM: meters(30), endDepthM: meters(30), durationSeconds: seconds(20 * 60), gas: AIR, strategy: openCircuit },
+    ];
+    const legacy = calculateEventDivePlan(input, events);
+    const opted = calculateEventDivePlan(firstStop(input), events);
+    if (!legacy.ok || !opted.ok) throw new Error("plan failed");
+    expect(opted.value.segments).toEqual(legacy.value.segments);
+    const { segments } = legacy.value;
+    const bottom = segments.find((segment) => segment.kind === "bottom")!;
+    const bottomEnd = bottom.startRuntimeSeconds + bottom.durationSeconds;
+    const arrival = segments.find((segment) => segment.kind === "stop")!.startRuntimeSeconds;
+    const climb = segments.filter((segment) =>
+      segment.durationSeconds > 0 && segment.startRuntimeSeconds >= bottomEnd && segment.startRuntimeSeconds < arrival);
+    const moved = climb.reduce((sum, segment) =>
+      sum + surfaceUse(segment, DEFAULT_RMV.bottomLpm) - surfaceUse(segment, DEFAULT_RMV.decoLpm), 0);
+    expect(moved).toBeGreaterThan(0);
+    expect(used(opted.value, AIR.id) - used(legacy.value, AIR.id)).toBeCloseTo(moved, 8);
+    expect(opted.value.diagnostics.some((item) => item.code === "DECO_RMV_FROM_FIRST_STOP")).toBe(true);
   });
 
   it("does not change CCR bailout ledgers even when the field is present", () => {

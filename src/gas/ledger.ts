@@ -68,20 +68,26 @@ function usesFirstStopBoundary(input: DivePlanInput, bailout: boolean): boolean 
 }
 
 /**
- * Runtime from which an open-circuit ledger charges the deco RMV: the end of bottom time
- * unless the plan asks for "first-stop", then the start of the first stop, and never on a
- * no-stop ascent. Bailout and CCR ledgers keep the end of bottom time.
+ * Runtime of arrival at the first stop: the start of the first stop, or of a switch made at
+ * that depth just before it, which is part of the stop rather than the climb. There is none
+ * on a no-stop ascent.
  */
-function decoRmvFromRuntime(
+function firstStopArrivalRuntime(
   segments: readonly ProfileSegment[],
-  input: DivePlanInput,
-  bailout: boolean,
   bottomEndRuntimeSeconds: Seconds,
 ): number {
-  if (!usesFirstStopBoundary(input, bailout)) return bottomEndRuntimeSeconds;
-  const firstStop = segments.find((segment) =>
+  let index = segments.findIndex((segment) =>
     segment.kind === "stop" && segment.startRuntimeSeconds >= bottomEndRuntimeSeconds);
-  return firstStop?.startRuntimeSeconds ?? Number.POSITIVE_INFINITY;
+  if (index < 0) return Number.POSITIVE_INFINITY;
+  const stopDepthM = segments[index].startDepthM;
+  const atStopDepth = (segment: ProfileSegment) =>
+    Math.abs(segment.startDepthM - stopDepthM) < 1e-9 && Math.abs(segment.endDepthM - stopDepthM) < 1e-9;
+  while (
+    index > 0 &&
+    segments[index - 1].startRuntimeSeconds >= bottomEndRuntimeSeconds &&
+    atStopDepth(segments[index - 1])
+  ) index -= 1;
+  return segments[index].startRuntimeSeconds;
 }
 
 function surfaceGasForSegment(
@@ -232,7 +238,10 @@ export function calculateGasLedger(
   const ambiguous = new Set<string>();
   let bailoutStarted = !options.bailout;
   const bailout = Boolean(options.bailout);
-  const decoFromRuntime = decoRmvFromRuntime(segments, input, bailout, options.bottomEndRuntimeSeconds);
+  const firstStopBoundary = usesFirstStopBoundary(input, bailout);
+  const decoFromRuntime = firstStopBoundary
+    ? firstStopArrivalRuntime(segments, options.bottomEndRuntimeSeconds)
+    : options.bottomEndRuntimeSeconds;
 
   for (const segment of segments) {
     if (segment.startRuntimeSeconds < (options.startRuntimeSeconds ?? 0)) continue;
@@ -280,7 +289,7 @@ export function calculateGasLedger(
     });
   }
 
-  if (usesFirstStopBoundary(input, bailout) && records.length > 0) {
+  if (firstStopBoundary && records.length > 0) {
     diagnostics.push({
       code: "DECO_RMV_FROM_FIRST_STOP",
       severity: "info",
