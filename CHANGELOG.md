@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Tank Bank no longer becomes unreadable because of one malformed stored cylinder. Valid cylinders load in Tank Bank, Plan, Cave, and Tools; each invalid record is quarantined and listed in a Tank Bank notice with its stored position, name or id, and failing fields. Quarantined records keep their exact stored text through later edits and are never offered for planning. Records must now match every declared field type, including the gas mix, so a record with, for example, a text O₂ fraction is quarantined instead of loaded; every record the app writes already meets this, and Tank Bank now refuses to save one that does not.
+- A Tank Bank that cannot be read at all (unsupported schema version, corrupt data, or an old unversioned list with an invalid record) now says so instead of showing an empty bank, disables adding and saving cylinders, and leaves the stored data untouched. A search or filter with no match now says so instead of reporting an empty Tank Bank. Saved Plans reads are unchanged, and the storage schema version stays 1.
+
 ## [0.5.0] - 2026-09-24
 
 Calculation engine `barefoot-dive-engine-0.3.0`. It includes the arrival-ceiling re-check first built as engine 0.2.1, which was never released.

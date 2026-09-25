@@ -13,6 +13,8 @@ import {
   Panel,
   ResultMetric,
   SegmentedControl,
+  WarningList,
+  type WarningItem,
 } from "../ui";
 import {
   capacityInputValue,
@@ -38,6 +40,29 @@ import type {
 
 function failureMessage(error: StorageDiagnostic): string {
   return `${error.message} (${error.code})`;
+}
+const clip = (text: string) => (text.length > 60 ? `${text.slice(0, 59)}…` : text);
+function quarantineItems(diagnostics: readonly StorageDiagnostic[]): WarningItem[] {
+  return [
+    ...diagnostics.map((item, index): WarningItem => {
+      const record = item.record;
+      if (!record) return { id: `quarantined-${index}`, message: item.message, severity: "warning" };
+      const label = record.name || record.id;
+      const subject = `Stored record ${record.index + 1}${label ? ` (“${clip(label)}”)` : ""}`;
+      return {
+        id: `quarantined-${record.index}`,
+        message: record.fields.includes("record")
+          ? `${subject} is not a cylinder record.`
+          : `${subject} has missing or invalid fields: ${record.fields.join(", ")}.`,
+        severity: "warning",
+      };
+    }),
+    {
+      id: "quarantine-handling",
+      message: "Quarantined records stay unchanged in local storage and are not listed here or offered to Plan, Cave, or Tools. Valid cylinders load normally; re-create a quarantined cylinder to plan with it.",
+      severity: "info",
+    },
+  ];
 }
 
 export type TankBankPageProps = {
@@ -175,6 +200,9 @@ export function TankBankPage({
   const [completion, setCompletion] = useState<{ readonly revision: number; readonly label: string; readonly description: string }>();
   const [errors, setErrors] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<TankRecord>();
+  const [quarantined, setQuarantined] = useState<readonly StorageDiagnostic[]>([]);
+  const [readError, setReadError] = useState<StorageDiagnostic>();
+  const filtered = Boolean(search.trim() || gas.trim() || role);
   const refresh = useCallback(() => {
     const result = store.list({
       archived,
@@ -183,9 +211,14 @@ export function TankBankPage({
       ...(role ? { role } : {}),
     });
     if (!result.ok) {
+      setReadError(result.error);
+      setQuarantined([]);
+      setRecords([]);
       onError(failureMessage(result.error), result.error);
       return;
     }
+    setReadError(undefined);
+    setQuarantined(result.diagnostics.filter((item) => item.code === "STORAGE_RECORD_QUARANTINED"));
     setRecords(result.value);
     onRecordsChange?.(result.value);
   }, [archived, gas, onError, onRecordsChange, role, search, store]);
@@ -265,9 +298,10 @@ export function TankBankPage({
       <PageHeader
         title="Tank Bank"
         description="Keep analyzed cylinders ready for explicit planner assignment."
-        actions={<ActionButton onClick={() => beginEdit()}>Add cylinder</ActionButton>}
+        actions={<ActionButton disabled={Boolean(readError)} onClick={() => beginEdit()}>Add cylinder</ActionButton>}
       />
       {completion && <CompletionNotice description={completion.description} key={completion.revision} label={completion.label} />}
+      {quarantined.length > 0 && <WarningList items={quarantineItems(quarantined)} title="Quarantined cylinder records" />}
       <Panel>
         <div className="bf-form-grid bf-form-grid--filters">
           <SegmentedControl
@@ -312,14 +346,21 @@ export function TankBankPage({
           </FieldGroup>
         </div>
       </Panel>
-      {records.length === 0 ? (
+      {readError ? (
+        <EmptyState
+          description={`${failureMessage(readError)} The stored data has not been changed, and cylinders cannot be added or edited until it can be read.`}
+          title="Tank Bank could not be read"
+        />
+      ) : records.length === 0 ? (
         <EmptyState
           description={
-            archived
-              ? "Archived cylinders will appear here."
-              : "Create a cylinder to make planner assignments explicit."
+            filtered
+              ? "No cylinder matches the current search and filters."
+              : archived
+                ? "Archived cylinders will appear here."
+                : "Create a cylinder to make planner assignments explicit."
           }
-          title={archived ? "No archived cylinders" : "Tank Bank is empty"}
+          title={filtered ? "No matching cylinders" : archived ? "No archived cylinders" : quarantined.length > 0 ? "No usable cylinders" : "Tank Bank is empty"}
         />
       ) : (
         <div className="bf-card-grid">
@@ -576,7 +617,7 @@ export function TankBankPage({
               ))}
             </ul>
           )}
-          <ActionButton onClick={save}>Save cylinder</ActionButton>
+          <ActionButton disabled={Boolean(readError)} onClick={save}>Save cylinder</ActionButton>
           <ActionButton onClick={() => setEditing(undefined)} quiet>
             Cancel
           </ActionButton>

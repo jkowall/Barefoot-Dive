@@ -846,6 +846,74 @@ test("keeps every Tank Bank delete action inside its card and clickable", async 
   }
 });
 
+const storedCylinder = (id: string, name: string, gas: Record<string, unknown>) => ({
+  id,
+  name,
+  waterVolumeL: 12,
+  workingPressureBar: 232,
+  currentPressureBar: 200,
+  minimumPressureBar: 50,
+  maximumPPO2: 1.4,
+  role: "bottom",
+  archived: false,
+  revision: 1,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  gas,
+});
+
+test("quarantines one invalid Tank Bank record while the valid cylinders stay usable", async ({ page }) => {
+  const valid = storedCylinder("cylinder-valid", "Back gas 12 L", { id: "air", name: "Air", oxygen: 0.21, helium: 0, role: "bottom" });
+  const invalid = storedCylinder("cylinder-broken", "Broken deco", { id: "ean50", name: "EAN50", oxygen: "0.50", helium: 0, role: "deco" });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.evaluate((records) => {
+    localStorage.setItem("barefoot-dive:tank-bank", JSON.stringify({ schemaVersion: 1, records }));
+  }, [valid, invalid]);
+  await page.reload();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  const notice = page.getByRole("region", { name: "Quarantined cylinder records" });
+  await expect(notice).toContainText("Stored record 2 (“Broken deco”) has missing or invalid fields: gas.oxygen.");
+  await expect(notice).toContainText("Quarantined records stay unchanged in local storage and are not listed here or offered to Plan, Cave, or Tools.");
+  await expect(page.locator(".bf-tank-card")).toHaveCount(1);
+  await expect(page.locator(".bf-tank-card")).toContainText("Back gas 12 L");
+  await page.getByRole("textbox", { name: "Search tanks" }).fill("no such cylinder");
+  await expect(page.getByRole("heading", { name: "No matching cylinders" })).toBeVisible();
+  await expect(page.getByText("Tank Bank is empty")).toHaveCount(0);
+  await page.getByRole("textbox", { name: "Search tanks" }).fill("");
+  await expect(page.locator(".bf-tank-card")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  await expect(page.getByLabel("Tx18/45 cylinder source").locator("option")).toHaveText(["Ad hoc plan cylinder", "Back gas 12 L · Air"]);
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Cylinder name" }).fill("Back gas revised");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Cylinder updated locally" })).toBeVisible();
+  await expect(notice).toBeVisible();
+  const raw = await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank") ?? "");
+  const stored = JSON.parse(raw) as { schemaVersion: number; records: { name: string }[] };
+  expect(stored.schemaVersion).toBe(1);
+  expect(stored.records.map((record) => record.name)).toEqual(["Back gas revised", "Broken deco"]);
+  expect(raw).toContain(`,${JSON.stringify(invalid)}]}`);
+});
+
+test("reports an unreadable Tank Bank instead of an empty one and leaves the stored data untouched", async ({ page }) => {
+  const future = JSON.stringify({ schemaVersion: 2, records: [{ id: "cylinder-future" }] });
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.evaluate((raw) => localStorage.setItem("barefoot-dive:tank-bank", raw), future);
+  await page.reload();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  const unreadable = page.locator(".bf-empty-state");
+  await expect(unreadable.getByRole("heading", { name: "Tank Bank could not be read" })).toBeVisible();
+  await expect(unreadable).toContainText("Stored schema version 2 is not supported by this app version. (STORAGE_INVALID) The stored data has not been changed");
+  await expect(page.getByText("Tank Bank is empty")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add cylinder" })).toBeDisabled();
+  expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(future);
+});
+
 test("reloads the production PWA while offline after first load", async ({ page, context }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.evaluate(async () => { await navigator.serviceWorker.ready; });
