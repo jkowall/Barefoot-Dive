@@ -394,6 +394,45 @@ function adHocGasAndCylinder(draft: GasDraft): { gas: Gas; cylinder: Cylinder } 
   };
 }
 
+/** An active gas as resolved, with the Tank Bank record it was taken from, if any. */
+type ResolvedGas = { readonly gas: Gas; readonly cylinder?: Cylinder; readonly recordId?: string };
+
+/**
+ * Gives gases from different Tank Bank records different identifiers. A record's gas identifier
+ * comes from its gas name ("Air" is `air`) and Duplicate copies it, so two records can share one.
+ * The gas ledger and the planner find a gas, and through it its cylinder, by identifier, which is
+ * why validation rejects a repeated one (`GAS_ID_DUPLICATE`).
+ *
+ * The first gas in plan order keeps the shared identifier; a later record's gas becomes
+ * `<identifier>~2`, `~3`, and so on, zero-padded to one width within a plan. An identifier changes
+ * only when an ad hoc gas or an earlier gas in plan order already has it, so every input that was
+ * already valid, having no repeated identifier, resolves exactly as before. The planner
+ * and the cave layer break a tie between identical mixes by identifier, and each suffixed identifier
+ * sorts after the one before it, so among gases that shared an identifier the first listed wins a
+ * tie. Ad hoc identifiers (`plan-gas-<key>`) never change: a record's gas that repeats one is
+ * renamed instead. All gases taken from one record keep one identifier, so a record selected for
+ * several gases is still rejected. A renamed gas is also its cylinder's gas snapshot, so the
+ * assignment still matches.
+ */
+function withDistinctTankGasIds(resolved: readonly ResolvedGas[]): readonly ResolvedGas[] {
+  const taken = new Set(resolved.flatMap((item) => item.recordId === undefined ? [item.gas.id] : []));
+  const width = String(resolved.length).length;
+  const idByRecord = new Map<string, string>();
+  return resolved.map((item) => {
+    if (item.recordId === undefined || !item.cylinder) return item;
+    let id = idByRecord.get(item.recordId);
+    if (id === undefined) {
+      id = item.gas.id;
+      for (let copy = 2; taken.has(id); copy += 1) id = `${item.gas.id}~${String(copy).padStart(width, "0")}`;
+      taken.add(id);
+      idByRecord.set(item.recordId, id);
+    }
+    if (id === item.gas.id) return item;
+    const gas: Gas = { ...item.gas, id };
+    return { ...item, gas, cylinder: { ...item.cylinder, gas } };
+  });
+}
+
 function reservePolicy(draft: ReserveDraft): ReservePolicy {
   switch (draft.kind) {
     case "fixed":
@@ -416,7 +455,8 @@ function reservePolicy(draft: ReserveDraft): ReservePolicy {
 /**
  * Resolves the active gases against the Tank Bank. A gas whose selected Tank Bank cylinder is
  * archived, missing, quarantined, or unreadable is never replaced by its ad hoc fields: the
- * result carries an unavailable source instead of an input until the diver resolves it.
+ * result carries an unavailable source instead of an input until the diver resolves it. Gases
+ * from different records that share a gas identifier get distinct ones (`withDistinctTankGasIds`).
  */
 export function resolvePlanInput(
   draft: PlanDraft,
@@ -427,14 +467,14 @@ export function resolvePlanInput(
   const selectedDrafts = activeGasDrafts(draft);
   const gasOnly = isGasOnlyPlan(draft, environment);
   const unavailableSources: UnavailableTankSource[] = [];
-  const resolved = selectedDrafts.map((item) => {
-    if (gasOnly) return { gas: resolveGasOnly(item), cylinder: undefined };
+  const resolved = withDistinctTankGasIds(selectedDrafts.map((item): ResolvedGas => {
+    if (gasOnly) return { gas: resolveGasOnly(item) };
     const source = lookupTankSource(item, bank);
-    if (source.kind === "record") return bankGasAndCylinder(item, source.record);
+    if (source.kind === "record") return { ...bankGasAndCylinder(item, source.record), recordId: source.record.id };
     const adHoc = adHocGasAndCylinder(item);
     if (source.kind === "unavailable") unavailableSources.push({ gasKey: item.key, role: item.role, ...source.source, adHoc });
     return adHoc;
-  });
+  }));
   const gases = resolved.map((item) => item.gas);
   const cylinders = [...new Map(resolved.flatMap((item) => item.cylinder ? [[item.cylinder.id, item.cylinder] as const] : [])).values()];
   if (unavailableSources.length > 0) {

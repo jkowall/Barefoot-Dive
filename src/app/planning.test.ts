@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { calculateCavePlan, type CavePlanInput, type CavePlanResult } from "../cave";
 import type { DivePlanInput } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
+import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
+import { compareGasPreference, isSwitchEligible } from "../domain/validation";
+import { createInitialCaveWorkspaceSession } from "./caveWorkspace";
 import type { StorageResult, TankRecord } from "../storage";
 import { switchDepthToCanonical } from "./helpers";
 import { calculateDivePlan } from "../engine/planner";
@@ -365,5 +368,226 @@ describe("gas-planning mode and switch-depth entry", () => {
     expect(switchDepthToCanonical(15, "imperial")).toBeCloseTo(15 / 3.280839895, 9);
     expect(switchDepthToCanonical(5.9, "metric")).toBe(5.9);
     expect(switchDepthToCanonical(6, "metric")).toBe(6);
+  });
+});
+
+describe("Tank Bank records whose gases share an identifier", () => {
+  // Tank Bank names a new record's gas after the gas ("Air" is `air`), and Duplicate copies it.
+  const bankRecord = (id: string, name: string, overrides: Partial<TankRecord> = {}): TankRecord => ({
+    id,
+    name,
+    waterVolumeL: liters(24),
+    workingPressureBar: barGauge(232),
+    currentPressureBar: barGauge(210),
+    minimumPressureBar: barGauge(35),
+    gas: { id: "air", name: "Air", oxygen: fraction(0.21), helium: fraction(0), role: "bottom" },
+    maximumPPO2: barAbsolute(1.4),
+    role: "bottom",
+    revision: 1,
+    archived: false,
+    createdAt: "2026-09-25T00:00:00.000Z",
+    updatedAt: "2026-09-25T00:00:00.000Z",
+    ...overrides,
+  });
+  const ean50 = { id: "ean50", name: "EAN50", oxygen: fraction(0.5), helium: fraction(0), role: "deco" } as const;
+  const backGas = bankRecord("bank-back-gas", "Back gas");
+  const pony = bankRecord("bank-pony", "Pony", { waterVolumeL: liters(3) });
+
+  /** Selects a Tank Bank record, by draft gas key, as the cylinder source of each listed gas. */
+  function withSources(draft: PlanDraft, sources: Readonly<Record<string, string>>): PlanDraft {
+    const set = (gas: PlanDraft["bottomGas"]) => sources[gas.key] === undefined ? gas : { ...gas, cylinderId: sources[gas.key] };
+    return {
+      ...structuredClone(draft),
+      bottomGas: set(draft.bottomGas),
+      travelGas: set(draft.travelGas),
+      decoGases: draft.decoGases.map(set),
+      diluent: set(draft.diluent),
+      bailoutGases: draft.bailoutGases.map(set),
+    };
+  }
+  const ponyDraft = withSources(DEFAULT_PLAN_DRAFT, { bottom: backGas.id, "deco-o2": pony.id });
+  // The pony in the EAN50 slot: from its 21 m switch depth it ties with the back gas on every rank but the identifier.
+  const ponyAt21 = withSources(DEFAULT_PLAN_DRAFT, { bottom: backGas.id, "deco-50": pony.id });
+  /** The cylinders a calculated plan breathes from, in gas-ledger order. */
+  function breathedCylinders(draft: PlanDraft, bank: readonly TankRecord[]): readonly (string | undefined)[] {
+    const plan = calculateDivePlan(calculable(resolvePlanInput(draft, bank)));
+    if (!plan.ok) throw new Error(plan.errors.map((item) => item.code).join(", "));
+    return plan.value.gasLedger.map((item) => item.cylinderId);
+  }
+
+  it("gives a later record's gas its own identifier, and each cylinder that gas as its snapshot", () => {
+    const resolved = resolvePlanInput(ponyDraft, [backGas, pony]);
+    const input = calculable(resolved);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "plan-gas-deco-50", "air~2"]);
+    expect(resolved.cylinders.map((cylinder) => cylinder.id)).toEqual([backGas.id, "plan-cylinder-deco-50", pony.id]);
+    resolved.gases.forEach((gas, index) => {
+      expect(gas.cylinderId).toBe(resolved.cylinders[index]!.id);
+      expect(resolved.cylinders[index]!.gas).toEqual(gas);
+    });
+    expect(resolved.gases[2]).toMatchObject({ name: "Air", oxygen: 0.21, helium: 0, role: "deco", switchDepthM: 6 });
+    // Validation used to reject this input with GAS_ID_DUPLICATE at gases.2.id, naming neither gas nor cylinder.
+    const plan = calculateDivePlan(input);
+    if (!plan.ok) throw new Error(plan.errors.map((item) => item.code).join(", "));
+    expect(plan.errors ?? []).toEqual([]);
+    expect(pony.gas.id).toBe("air");
+  });
+
+  it("changes nothing but the repeated identifier, and nothing at all when identifiers differ", () => {
+    const renamed = resolvePlanInput(ponyDraft, [backGas, pony]);
+    // Exactly the input a Tank Bank whose pony already carried `air~2` resolves to, byte for byte.
+    const alreadyDistinct = resolvePlanInput(ponyDraft, [backGas, { ...pony, gas: { ...pony.gas, id: "air~2" } }]);
+    expect(JSON.stringify(renamed)).toBe(JSON.stringify(alreadyDistinct));
+    const unique = resolvePlanInput(ponyDraft, [backGas, { ...pony, gas: { ...pony.gas, id: "pony-air" } }]);
+    expect(unique.gases.map((gas) => gas.id)).toEqual(["air", "plan-gas-deco-50", "pony-air"]);
+    // A record that takes no part in the calculation takes no identifier either.
+    const excluded = withSources(ponyDraft, {});
+    const off = resolvePlanInput({ ...excluded, decoGases: excluded.decoGases.map((gas) => gas.key === "deco-o2" ? { ...gas, enabled: false } : gas) }, [backGas, pony]);
+    expect(off.gases.map((gas) => gas.id)).toEqual(["air", "plan-gas-deco-50"]);
+    // Gas-only plans take no Tank Bank source, so selecting two records with one identifier changes nothing.
+    const gasOnly = resolvePlanInput({ ...ponyDraft, gasPlanning: "gas-only" }, [backGas, pony]);
+    expect(JSON.stringify(gasOnly)).toBe(JSON.stringify(resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, gasPlanning: "gas-only" }, [])));
+  });
+
+  it("charges each cylinder for its own gas when identical mixes from two records are both breathed", () => {
+    const stage = bankRecord("bank-stage", "EAN50 stage", { waterVolumeL: liters(11), gas: ean50, maximumPPO2: barAbsolute(1.6), role: "deco" });
+    const copy = bankRecord("bank-stage-copy", "EAN50 stage copy", { waterVolumeL: liters(11), gas: ean50, maximumPPO2: barAbsolute(1.6), role: "deco" });
+    const [deco50, oxygen] = DEFAULT_PLAN_DRAFT.decoGases;
+    // The copy is listed second but switched to deeper, so both stages are breathed.
+    const draft = withSources({
+      ...DEFAULT_PLAN_DRAFT,
+      decoGases: [{ ...deco50!, switchDepthM: 15 }, { ...deco50!, key: "deco-50-copy", switchDepthM: 21 }, oxygen!],
+    }, { "deco-50": stage.id, "deco-50-copy": copy.id });
+    const resolved = resolvePlanInput(draft, [stage, copy]);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["plan-gas-bottom", "ean50", "ean50~2", "plan-gas-deco-o2"]);
+    const plan = calculateDivePlan(calculable(resolved));
+    if (!plan.ok) throw new Error(plan.errors.map((item) => item.code).join(", "));
+    // The copy is breathed from 21 m; the first-listed stage wins the tie between identical mixes once it is eligible at 15 m.
+    const firstUse = (gasId: string) => plan.value.segments.find((segment) => segment.gasId === gasId);
+    expect(firstUse("ean50~2")?.startDepthM).toBe(21);
+    expect(firstUse("ean50")?.startDepthM).toBe(15);
+    const entry = (cylinderId: string) => plan.value.gasLedger.find((item) => item.cylinderId === cylinderId);
+    expect(entry(stage.id)).toMatchObject({ gasId: "ean50", cylinderName: "EAN50 stage" });
+    expect(entry(copy.id)).toMatchObject({ gasId: "ean50~2", cylinderName: "EAN50 stage copy" });
+    expect(entry(stage.id)!.totalUsedL).toBeGreaterThan(0);
+    expect(entry(copy.id)!.totalUsedL).toBeGreaterThan(0);
+    const control = calculateDivePlan(calculable(resolvePlanInput(draft, [stage, { ...copy, gas: { ...ean50, id: "ean50~2" } }])));
+    expect(control.ok && control.value.gasLedger).toEqual(plan.value.gasLedger);
+    expect(control.ok && control.value.segments).toEqual(plan.value.segments);
+  });
+
+  it("gives the first-listed gas the tie between identical mixes, so an unused pony stays full", () => {
+    const resolved = resolvePlanInput(ponyAt21, [backGas, pony]);
+    const [back, ponyGas] = resolved.gases;
+    expect([back!.id, ponyGas!.id]).toEqual(["air", "air~2"]);
+    // The pony is switch-eligible from 21 m and loses to the back gas on the identifier alone.
+    expect(isSwitchEligible(ponyGas!, meters(21), calculable(resolved))).toBe(true);
+    expect(compareGasPreference(back!, ponyGas!)).toBeLessThan(0);
+    expect(breathedCylinders(ponyAt21, [backGas, pony])).toEqual([backGas.id, "plan-cylinder-deco-o2"]);
+  });
+
+  it("characterizes the remaining limitation: identical mixes whose identifiers already differ tie by identifier", () => {
+    // Nothing is renamed when the stored identifiers already differ, and `air` sorts before `back-gas-air`,
+    // so the same rig switches to the 3 L pony at its 21 m switch depth and charges it.
+    const renamedBack = { ...backGas, gas: { ...backGas.gas, id: "back-gas-air" } };
+    expect(breathedCylinders(ponyAt21, [renamedBack, pony])).toEqual([backGas.id, pony.id, "plan-cylinder-deco-o2"]);
+  });
+
+  it("keeps one identifier per record, so one record selected for two gases is still rejected", () => {
+    const draft = withSources(DEFAULT_PLAN_DRAFT, { bottom: backGas.id, "deco-50": backGas.id, "deco-o2": pony.id });
+    const resolved = resolvePlanInput(draft, [backGas, pony]);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "air", "air~2"]);
+    expect(resolved.cylinders.map((cylinder) => cylinder.id)).toEqual([backGas.id, pony.id]);
+    const plan = calculateDivePlan(calculable(resolved));
+    expect(plan.ok ? [] : plan.errors.map((item) => [item.code, item.field])).toEqual([["GAS_ID_DUPLICATE", "gases.1.id"]]);
+  });
+
+  it("renames a record's gas, never an ad hoc gas, when the two share an identifier", () => {
+    // A gas named "Plan gas bottom" in Tank Bank gets the ad hoc bottom gas's identifier.
+    const stage = bankRecord("bank-stage", "Stage", { gas: { ...ean50, id: "plan-gas-bottom" }, maximumPPO2: barAbsolute(1.6) });
+    const resolved = resolvePlanInput(withSources(DEFAULT_PLAN_DRAFT, { "deco-50": stage.id }), [stage]);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["plan-gas-bottom", "plan-gas-bottom~2", "plan-gas-deco-o2"]);
+    expect(resolved.cylinders[1]!.gas.id).toBe("plan-gas-bottom~2");
+    expect(calculateDivePlan(calculable(resolved)).ok).toBe(true);
+    // A record listed first is renamed too when a later ad hoc gas has its identifier, so that ad hoc gas wins a tie.
+    const bottom = bankRecord("bank-bottom", "Bottom", { gas: { ...backGas.gas, id: "plan-gas-deco-50" } });
+    const first = resolvePlanInput(withSources(DEFAULT_PLAN_DRAFT, { bottom: bottom.id }), [bottom]);
+    expect(first.gases.map((gas) => gas.id)).toEqual(["plan-gas-deco-50~2", "plan-gas-deco-50", "plan-gas-deco-o2"]);
+    expect(calculateDivePlan(calculable(first)).ok).toBe(true);
+  });
+
+  it("never repeats an identifier, even one stored with a suffix Tank Bank does not write", () => {
+    // Tank Bank's gas-name slug has no `~`, but a hand-edited record could already carry `air~2`.
+    const [first, second] = [bankRecord("bank-first", "First"), bankRecord("bank-second", "Second")];
+    const suffixed = bankRecord("bank-suffixed", "Suffixed", { gas: { ...backGas.gas, id: "air~2" } });
+    const draft = withSources(DEFAULT_PLAN_DRAFT, { bottom: first.id, "deco-50": second.id, "deco-o2": suffixed.id });
+    const resolved = resolvePlanInput(draft, [first, second, suffixed]);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "air~2", "air~2~2"]);
+    expect([...resolved.gases].sort(compareGasPreference)).toEqual(resolved.gases);
+    expect(calculateDivePlan(calculable(resolved)).ok).toBe(true);
+  });
+
+  it("numbers later records in plan order, zero-padded so identifier order is plan order", () => {
+    const stages = Array.from({ length: 10 }, (_, index) =>
+      bankRecord(`bank-stage-${index + 1}`, `Stage ${index + 1}`, { gas: ean50, maximumPPO2: barAbsolute(1.6) }));
+    const decoGases = stages.map((stage, index) => ({ ...DEFAULT_PLAN_DRAFT.decoGases[0]!, key: `deco-${index + 1}`, cylinderId: stage.id }));
+    const resolved = resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), decoGases }, stages);
+    const stageGases = resolved.gases.slice(1);
+    expect(stageGases.map((gas) => gas.id)).toEqual(["ean50", "ean50~02", "ean50~03", "ean50~04", "ean50~05", "ean50~06", "ean50~07", "ean50~08", "ean50~09", "ean50~10"]);
+    expect(stageGases.map((gas) => gas.cylinderId)).toEqual(stages.map((stage) => stage.id));
+    // The planner breaks the tie between identical mixes by identifier, which is now plan order.
+    expect([...stageGases].sort(compareGasPreference)).toEqual(stageGases);
+  });
+
+  it("plans a CCR air diluent with an air bailout from another record and charges the bailout cylinder", () => {
+    const diluent = bankRecord("bank-diluent", "Diluent 3 L", { waterVolumeL: liters(3), role: "diluent" });
+    const bailout = bankRecord("bank-bailout", "Bailout 11 L", { waterVolumeL: liters(11), role: "bailout" });
+    const draft = withSources({ ...DEFAULT_PLAN_DRAFT, mode: "ccr" }, { diluent: diluent.id, "bailout-bottom": bailout.id });
+    const resolved = resolvePlanInput(draft, [diluent, bailout]);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "air~2", "plan-gas-bailout-50"]);
+    const plan = calculateDivePlan(calculable(resolved));
+    if (!plan.ok) throw new Error(plan.errors.map((item) => item.code).join(", "));
+    const bailoutLedger = plan.value.bailoutPlan?.gasLedger ?? [];
+    expect(bailoutLedger.find((item) => item.cylinderId === bailout.id)).toMatchObject({ gasId: "air~2", cylinderName: "Bailout 11 L" });
+    expect(bailoutLedger.find((item) => item.cylinderId === bailout.id)!.totalUsedL).toBeGreaterThan(0);
+    expect(bailoutLedger.some((item) => item.cylinderId === diluent.id)).toBe(false);
+
+    // Dil-out: the dedicated bailout still comes before the diluent for the identical mix, by role, not identifier.
+    const dilOut = calculateDivePlan(calculable(resolvePlanInput({ ...draft, diluentBailout: true, diluentPreBailoutUseL: 100 }, [diluent, bailout])));
+    if (!dilOut.ok) throw new Error(dilOut.errors.map((item) => item.code).join(", "));
+    expect(dilOut.value.bailoutPlan?.segments.find((segment) => segment.kind === "gas-switch")?.gasId).toBe("air~2");
+  });
+
+  it("offers Cave both cylinders and breathes the second one after the back gas is lost", () => {
+    const stage = bankRecord("bank-stage", "Stage 11 L", { waterVolumeL: liters(11), role: "stage" });
+    const initial = createInitialCaveWorkspaceSession().draft;
+    const draft = withSources({ ...initial, decoGases: [{ ...initial.decoGases[0]!, switchDepthM: 18 }] }, { bottom: backGas.id, "deco-50": stage.id });
+    const resolved = resolvePlanInput(draft, [backGas, stage], "cave");
+    const dive = calculable(resolved);
+    expect(resolved.gases.map((gas) => gas.id)).toEqual(["air", "air~2"]);
+    const input: CavePlanInput = {
+      mode: "oc",
+      dive,
+      route: [{
+        id: "route-1",
+        startDepthM: meters(0),
+        endDepthM: meters(18),
+        durationSeconds: seconds(300),
+        distanceM: meters(60),
+        propulsion: "fins",
+        accessibleCylinderIds: resolved.cylinders.map((cylinder) => cylinder.id),
+      }],
+      reserve: dive.reservePolicy,
+      scenarios: [{ kind: "oc-lost-gas", targetLegId: "route-1" }],
+    };
+    const result = calculateCavePlan(input);
+    if (!result.ok) throw new Error(result.errors.map((item) => item.code).join(", "));
+    const used = (ledger: CavePlanResult["gasLedger"], cylinderId: string) => ledger.find((item) => item.cylinderId === cylinderId)?.totalUsedL ?? 0;
+    // Back gas wins the tie on the route; with it lost, the exit is breathed from the stage.
+    expect(used(result.value.base.gasLedger, backGas.id)).toBeGreaterThan(0);
+    expect(used(result.value.base.gasLedger, stage.id)).toBe(0);
+    const lost = result.value.scenarios[0]!.plan!.gasLedger;
+    expect(lost.find((item) => item.cylinderId === stage.id)).toMatchObject({ gasId: "air~2" });
+    expect(used(lost, backGas.id)).toBeGreaterThan(0);
+    expect(used(lost, stage.id)).toBeGreaterThan(0);
   });
 });

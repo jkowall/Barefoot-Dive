@@ -755,6 +755,95 @@ test("blocks Plan when its Tank Bank record is quarantined and names the stored 
   expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(damaged);
 });
 
+type StoredGas = { readonly id: string; readonly cylinderId?: string };
+type StoredInput = {
+  readonly bottomGas?: StoredGas;
+  readonly decoGases?: readonly StoredGas[];
+  readonly diluent?: StoredGas;
+  readonly bailoutGases?: readonly StoredGas[];
+  readonly cylinders: readonly { readonly id: string; readonly gas: StoredGas }[];
+};
+/** The stored Tank Bank records' ids and gas identifiers, by cylinder name. */
+async function storedTankGases(page: Page): Promise<Record<string, { readonly id: string; readonly gasId: string }>> {
+  const raw = await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank") ?? "");
+  const records = (JSON.parse(raw) as { records: { id: string; name: string; gas: { id: string } }[] }).records;
+  return Object.fromEntries(records.map((record) => [record.name, { id: record.id, gasId: record.gas.id }]));
+}
+/** Saves the calculated Plan and returns the stored snapshot's normalized input. */
+async function saveSnapshotInput(page: Page, title: string): Promise<StoredInput> {
+  await page.getByRole("button", { name: "Save snapshot" }).click();
+  await page.getByLabel("Plan name").fill(title);
+  await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Snapshot saved locally" })).toBeVisible();
+  const raw = await page.evaluate(() => localStorage.getItem("barefoot-dive:saved-plans") ?? "");
+  const records = (JSON.parse(raw) as { records: { title: string; normalizedInputSnapshot: StoredInput }[] }).records;
+  return records.find((record) => record.title === title)!.normalizedInputSnapshot;
+}
+const ledgerCylinders = (page: Page, title: string) => page
+  .locator("section.bf-panel", { has: page.getByRole("heading", { name: `${title} gas ledger`, exact: true }) })
+  .locator("tbody tr td:first-child");
+
+test("plans a Tank Bank cylinder together with its duplicate, whose gas has the same identifier", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  const cards = page.locator(".bf-tank-card");
+  await expect(cards).toHaveCount(2);
+  // Duplicate copies the gas with its identifier, so both cylinders store their air as `air`.
+  const bank = await storedTankGases(page);
+  expect([bank["New cylinder"]?.gasId, bank["New cylinder copy"]?.gasId]).toEqual(["air", "air"]);
+  const storedBank = await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"));
+
+  await cards.filter({ hasNotText: "New cylinder copy" }).getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByLabel("EAN50 cylinder source", { exact: true }).selectOption({ label: "New cylinder copy · Air" });
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  // Before, the planner rejected this with "Gas identifier air is duplicated."
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results).toBeVisible();
+  await expect(page.getByText(/Gas identifier .* is duplicated/)).toHaveCount(0);
+  // The back gas is listed first, so it wins the tie between the identical mixes and the copy is never breathed.
+  await expect(ledgerCylinders(page, "Primary")).toHaveText([/^New cylinder · /, /^Oxygen cylinder · /]);
+
+  const input = await saveSnapshotInput(page, "Duplicated cylinder plan");
+  expect(input.bottomGas).toMatchObject({ id: "air", cylinderId: bank["New cylinder"]!.id });
+  expect(input.decoGases![0]).toMatchObject({ id: "air~2", cylinderId: bank["New cylinder copy"]!.id });
+  expect(input.cylinders.find((cylinder) => cylinder.id === bank["New cylinder copy"]!.id)?.gas.id).toBe("air~2");
+  // The Tank Bank records keep their stored identifiers; only the plan's copies differ.
+  expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(storedBank);
+});
+
+test("plans a CCR air diluent with an air bailout cylinder and charges the bailout to its own cylinder", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  for (const name of ["Diluent cylinder", "Bailout cylinder"]) {
+    await page.getByRole("button", { name: "Add cylinder" }).click();
+    await page.getByRole("textbox", { name: "Cylinder name" }).fill(name);
+    await page.getByRole("button", { name: "Save cylinder" }).click();
+  }
+  await expect(page.locator(".bf-tank-card")).toHaveCount(2);
+  // Two cylinders created separately with the default "Air" gas both get the identifier `air`.
+  const bank = await storedTankGases(page);
+  expect([bank["Diluent cylinder"]?.gasId, bank["Bailout cylinder"]?.gasId]).toEqual(["air", "air"]);
+
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await page.getByLabel("Tx18/45 diluent cylinder source", { exact: true }).selectOption({ label: "Diluent cylinder · Air" });
+  await page.getByLabel("Tx18/45 bailout cylinder source", { exact: true }).selectOption({ label: "Bailout cylinder · Air" });
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+  await expect(page.getByText(/Gas identifier .* is duplicated/)).toHaveCount(0);
+  // Bailout air is charged to the bailout cylinder, never to the diluent cylinder whose gas had the same identifier.
+  await expect(ledgerCylinders(page, "Bailout")).toHaveText([/^Bailout cylinder · /, /^EAN50 bailout cylinder · /]);
+
+  const input = await saveSnapshotInput(page, "Air diluent and air bailout");
+  expect(input.diluent).toMatchObject({ id: "air", cylinderId: bank["Diluent cylinder"]!.id });
+  expect(input.bailoutGases![0]).toMatchObject({ id: "air~2", cylinderId: bank["Bailout cylinder"]!.id });
+});
+
 /** Makes the Tank Bank unreadable, then restores its exact stored text, reopening `workspace` after each step. */
 async function interruptTankBank(page: Page, workspace: "Plan" | "Cave") {
   const reopen = async () => {
