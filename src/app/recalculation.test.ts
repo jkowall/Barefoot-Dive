@@ -84,8 +84,8 @@ describe("saved-plan recalculation across engine versions", () => {
   });
 
   it.each([
-    ["CCR low setpoint, switch-down, and dil-out", resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, mode: "ccr", setpointDeactivationDepthM: 9, diluentBailout: true, diluentPreBailoutUseL: 200 }, []).input],
-    ["OC gas only", resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, gasPlanning: "gas-only", reserve: { kind: "thirds" } }, []).input],
+    ["CCR low setpoint, switch-down, and dil-out", resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, mode: "ccr", setpointDeactivationDepthM: 9, diluentBailout: true, diluentPreBailoutUseL: 200 }, []).input!],
+    ["OC gas only", resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, gasPlanning: "gas-only", reserve: { kind: "thirds" } }, []).input!],
   ])("round-trips the 0.4.0 fields for %s and recalculates the same plan", (_label, input) => {
     const storage = new MemoryStorage();
     const original = save(storage, input);
@@ -103,8 +103,8 @@ describe("saved-plan recalculation across engine versions", () => {
 
   it("recalculates each stored OC plan with the deco RMV rule it was saved with", () => {
     const cases = [
-      [resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input, false],
-      [resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input, true],
+      [resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input!, false],
+      [resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!, true],
     ] as const;
     for (const [input, firstStop] of cases) {
       const storage = new MemoryStorage();

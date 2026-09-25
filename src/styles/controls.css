@@ -144,7 +144,7 @@ ul.bf-field-group__error { display: grid; gap: var(--bf-space-1); margin: var(--
 .bf-plan-status__dot, .bf-tool-status__dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
 .bf-plan-status[data-state="updating"], .bf-tool-status[data-state="updating"] { border-color: var(--bf-accent); color: var(--bf-accent); background: var(--bf-accent-bg); }
 .bf-plan-status[data-state="current"], .bf-tool-status[data-state="ready"] { border-color: var(--bf-safe); color: var(--bf-safe); background: var(--bf-safe-bg); }
-.bf-plan-status[data-state="needs-attention"], .bf-tool-status[data-state="invalid"] { border-color: var(--bf-danger); color: var(--bf-danger); background: var(--bf-danger-bg); }
+.bf-plan-status[data-state="needs-attention"], .bf-plan-status[data-state="source-unavailable"], .bf-tool-status[data-state="invalid"] { border-color: var(--bf-danger); color: var(--bf-danger); background: var(--bf-danger-bg); }
 .bf-plan-status[data-state="source-changed"] { border-color: var(--bf-warning); color: var(--bf-warning); background: var(--bf-warning-bg); }
 .bf-plan-status[data-state="updating"] .bf-plan-status__dot,
 .bf-tool-status[data-state="updating"] .bf-tool-status__dot { animation: bf-tool-pulse 800ms ease-in-out infinite alternate; }

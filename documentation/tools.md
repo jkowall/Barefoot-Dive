@@ -30,7 +30,7 @@ Tank Bank is the source for analyzed gas and cylinder records, but selecting a T
 
 The exact allowed patches are narrow:
 
-- Best Mix may patch only the OC bottom-gas name, oxygen fraction, and helium fraction; an incompatible cylinder assignment is cleared.
+- Best Mix may patch only the OC bottom-gas name, oxygen fraction, and helium fraction; an incompatible or unavailable cylinder assignment is cleared, and the confirmation says the bottom gas then uses the ad hoc cylinder values shown in Plan Setup.
 - SAC / RMV may patch the SAC/RMV target only.
 - OC Rock Bottom / Minimum Gas may patch the OC rock-bottom assumptions only.
 

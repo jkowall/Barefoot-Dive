@@ -34,7 +34,7 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
   const r3 = calculateDivePlan(ccr); out.ccrLegacy = hash(r3.ok ? digest(r3.value) : r3);
   // New Plan drafts charge the bottom RMV until the first stop (app 0.5.0); with that switch
   // off the draft resolves to the legacy input this digest guards.
-  const draftOc = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input;
+  const draftOc = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input!;
   const r4 = calculateDivePlan(draftOc); out.draftOc = hash(r4.ok ? digest(r4.value) : r4);
   const draftCcrLegacy = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, mode: "ccr" }, []).input as CcrDiveInput;
   const legacyOnly: CcrDiveInput = { mode: "ccr", environment: draftCcrLegacy.environment, depthM: draftCcrLegacy.depthM, bottomTimeSeconds: draftCcrLegacy.bottomTimeSeconds, diluent: draftCcrLegacy.diluent, setpointBar: draftCcrLegacy.setpointBar, setpointActivationDepthM: draftCcrLegacy.setpointActivationDepthM, bailoutGases: draftCcrLegacy.bailoutGases, cylinders: draftCcrLegacy.cylinders, settings: draftCcrLegacy.settings, environmentSettings: draftCcrLegacy.environmentSettings, rmv: draftCcrLegacy.rmv, reservePolicy: draftCcrLegacy.reservePolicy };
@@ -69,7 +69,7 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
  * It is not an engine 0.1.0 guard; it catches unintended drift on the default path.
  */
 it("pins the 0.5.0 default OC draft on the first-stop RMV boundary", () => {
-  const input = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input;
+  const input = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!;
   expect(input.mode === "oc" && input.decoRmvFrom).toBe("first-stop");
   const result = calculateDivePlan(input);
   expect(hash(result.ok ? digest(result.value) : result)).toBe("ffcebeb7");

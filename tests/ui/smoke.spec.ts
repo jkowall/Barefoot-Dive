@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -583,6 +583,217 @@ test("requires an explicit Plan update after a selected Tank Bank record changes
   await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
 });
 
+const unavailableSourceNotice = (page: Page) => page.getByRole("alert").filter({ hasText: "Tank Bank source unavailable." });
+
+test("blocks Plan while its Tank Bank cylinder is archived and detaches only to the ad hoc values it shows", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  const unavailable = page.getByRole("status").filter({ hasText: /^Source unavailable$/ });
+  const calculatedPlan = page.getByRole("region", { name: "Calculated plan" });
+  const review = page.getByRole("radio", { name: "Review" });
+  await expect(unavailable).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+  await expect(review).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Resolve Tank Bank source" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^(Calculate|Update) plan$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Save snapshot" })).toBeHidden();
+  // No automatic recalculation, even after the ordinary 400 ms update window.
+  await page.clock.fastForward(1_000);
+  await expect(unavailable).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+
+  await expect(page.getByRole("region", { name: "Tank Bank sources unavailable" })).toContainText(
+    "Bottom gas Air: “New cylinder” is archived in Tank Bank. Choose another cylinder or detach it to ad hoc values before calculating.",
+  );
+  const notice = unavailableSourceNotice(page);
+  await expect(notice).toContainText("“New cylinder” is archived in Tank Bank. This gas is not calculated until you choose another cylinder or detach it to these ad hoc values:");
+  // "Use" copied only the mix; the cylinder values are the ad hoc defaults, not the record's 232 bar fill.
+  await expect(notice.getByRole("term")).toHaveText(["Gas", "O₂", "He", "Capacity", "Working pressure", "Starting pressure", "Cylinder minimum", "Cylinder max PPO₂"]);
+  await expect(notice.getByRole("definition")).toHaveText(["Air", "21%", "0%", "196.6 ft³ rated", "3365 psi", "3046 psi", "508 psi", "1.40 bar"]);
+  const bottomGas = page.locator(".bf-gas-editor").filter({ has: notice });
+  await expect(bottomGas.getByRole("spinbutton")).toHaveCount(0);
+  const source = page.getByLabel("Air cylinder source", { exact: true });
+  await expect(source.locator("option:checked")).toHaveText("Unavailable · New cylinder");
+  await expect(source.locator("option")).toHaveText(["Unavailable · New cylinder", "Ad hoc plan cylinder"]);
+  await expect(page.getByRole("radiogroup", { name: "Gas planning" }).getByRole("radio", { name: "Gas only" })).toBeDisabled();
+
+  await notice.getByRole("button", { name: "Detach to ad hoc values" }).click();
+  await expect(unavailableSourceNotice(page)).toHaveCount(0);
+  await expect(source).toBeFocused();
+  await expect(source).toHaveValue("");
+  const detached = page.locator(".bf-gas-editor").first();
+  await expect(detached.getByRole("spinbutton", { name: "Starting pressure (psi)" })).toHaveValue("3046");
+  await expect(detached.getByRole("spinbutton", { name: "Working pressure (psi)" })).toHaveValue("3365");
+  await expect(detached.getByRole("spinbutton", { name: "O₂ (%)" })).toHaveValue("21");
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+  await expect(calculatedPlan).toBeHidden();
+
+  await page.getByRole("button", { name: "Update plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(review).toBeChecked();
+  await expect(calculatedPlan.getByRole("button", { name: "Save snapshot" })).toBeEnabled();
+});
+
+test("blocks Plan after its Tank Bank cylinder is deleted until the diver chooses another cylinder", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  const cards = page.locator(".bf-tank-card");
+  await expect(cards).toHaveCount(2);
+  await cards.filter({ hasNotText: "New cylinder copy" }).getByRole("button", { name: "Use", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await cards.filter({ hasNotText: "New cylinder copy" }).getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("button", { name: "Delete cylinder" }).click();
+  await expect(cards).toHaveCount(1);
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  await expect(page.getByRole("status").filter({ hasText: /^Source unavailable$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Calculate plan" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Resolve Tank Bank source" })).toBeDisabled();
+  await expect(unavailableSourceNotice(page)).toContainText("The selected Tank Bank cylinder no longer exists in Tank Bank.");
+  const source = page.getByLabel("Air cylinder source", { exact: true });
+  await expect(source.locator("option")).toHaveText(["Unavailable · selected cylinder", "Ad hoc plan cylinder", "New cylinder copy · Air"]);
+
+  await source.selectOption({ label: "New cylinder copy · Air" });
+  await expect(unavailableSourceNotice(page)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Tank Bank sources unavailable" })).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+});
+
+test("names an unreadable Tank Bank on a sourced Plan gas and leaves the stored data untouched", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+
+  const unreadable = JSON.stringify({ schemaVersion: 2, records: [] });
+  await page.evaluate((raw) => localStorage.setItem("barefoot-dive:tank-bank", raw), unreadable);
+  // Plan reads the Tank Bank again when it reopens; the session draft keeps its selected cylinder.
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  await expect(page.getByRole("status").filter({ hasText: /^Source unavailable$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Tank Bank sources unavailable" })).toContainText(
+    "Bottom gas Air: Tank Bank could not be read, so the selected cylinder cannot be loaded: Stored schema version 2 is not supported by this app version.",
+  );
+  const source = page.getByLabel("Air cylinder source", { exact: true });
+  await expect(source.locator("option")).toHaveText(["Unavailable · selected cylinder", "Ad hoc plan cylinder"]);
+  await expect(page.getByRole("radiogroup", { name: "Gas planning" }).getByRole("radio", { name: "Gas only" })).toBeDisabled();
+  await expect(page.getByText("Gas only is off while a Tank Bank source is unavailable")).toBeVisible();
+
+  await unavailableSourceNotice(page).getByRole("button", { name: "Detach to ad hoc values" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Draft$/ })).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Gas planning" }).getByRole("radio", { name: "Gas only" })).toBeEnabled();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(unreadable);
+});
+
+test("blocks Plan when its Tank Bank record is quarantined and names the stored cylinder", async ({ page }) => {
+  await page.clock.install();
+  const backGas = { ...storedCylinder("cylinder-back-gas", "Back gas 24 L", { id: "air", name: "Air", oxygen: 0.21, helium: 0, role: "bottom" }), waterVolumeL: 24 };
+  const spare = { ...storedCylinder("cylinder-spare", "Spare 24 L", { id: "air-spare", name: "Air", oxygen: 0.21, helium: 0, role: "bottom" }), waterVolumeL: 24 };
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.evaluate((records) => localStorage.setItem("barefoot-dive:tank-bank", JSON.stringify({ schemaVersion: 1, records })), [backGas, spare]);
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.locator(".bf-tank-card").filter({ hasText: "Back gas 24 L" }).getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  // The stored record is damaged outside the app: a text O₂ fraction fails validation, so the read quarantines it.
+  const damaged = JSON.stringify({ schemaVersion: 1, records: [{ ...backGas, gas: { ...backGas.gas, oxygen: "0.21" } }, spare] });
+  await page.evaluate((raw) => localStorage.setItem("barefoot-dive:tank-bank", raw), damaged);
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+
+  const unavailable = page.getByRole("status").filter({ hasText: /^Source unavailable$/ });
+  await expect(unavailable).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeHidden();
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Resolve Tank Bank source" })).toBeDisabled();
+  await page.clock.fastForward(1_000);
+  await expect(unavailable).toBeVisible();
+  await expect(page.getByRole("region", { name: "Tank Bank sources unavailable" })).toContainText(
+    "Bottom gas Air: “Back gas 24 L” failed validation and is quarantined in Tank Bank. Choose another cylinder or detach it to ad hoc values before calculating.",
+  );
+  await expect(unavailableSourceNotice(page)).toContainText("“Back gas 24 L” failed validation and is quarantined in Tank Bank.");
+  const source = page.getByLabel("Air cylinder source", { exact: true });
+  await expect(source.locator("option:checked")).toHaveText("Unavailable · Back gas 24 L");
+  await expect(source.locator("option")).toHaveText(["Unavailable · Back gas 24 L", "Ad hoc plan cylinder", "Spare 24 L · Air"]);
+
+  await source.selectOption({ label: "Spare 24 L · Air" });
+  await expect(unavailableSourceNotice(page)).toHaveCount(0);
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+  await page.getByRole("button", { name: "Update plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  // Reading, blocking, and re-selecting never wrote to the stored Tank Bank.
+  expect(await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank"))).toBe(damaged);
+});
+
+/** Makes the Tank Bank unreadable, then restores its exact stored text, reopening `workspace` after each step. */
+async function interruptTankBank(page: Page, workspace: "Plan" | "Cave") {
+  const reopen = async () => {
+    await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+    await page.getByRole("button", { name: workspace, exact: true }).first().click();
+  };
+  const stored = await page.evaluate(() => localStorage.getItem("barefoot-dive:tank-bank") ?? "");
+  await page.evaluate(() => localStorage.setItem("barefoot-dive:tank-bank", JSON.stringify({ schemaVersion: 2, records: [] })));
+  await reopen();
+  await expect(page.getByRole("status").filter({ hasText: /^Source unavailable$/ })).toBeVisible();
+  await page.evaluate((raw) => localStorage.setItem("barefoot-dive:tank-bank", raw), stored);
+  await reopen();
+}
+
+test("keeps an earlier Plan result hidden after an unavailable source returns unchanged", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await interruptTankBank(page, "Plan");
+  // The record and every input are byte-identical to the calculation, but the source went missing in between.
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await expect(unavailableSourceNotice(page)).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeHidden();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+
+  await page.getByRole("button", { name: "Update plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+});
+
 test("calculates CCR, cave, and the Tools library without a remote dependency", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByText("CCR", { exact: true }).first().click();
@@ -717,6 +928,73 @@ test("requires an explicit Cave update after a selected Tank Bank record changes
   await expect(review).toBeChecked();
   await expect(calculatedCave).toContainText("Air revised");
   await expect(calculatedCave.getByRole("button", { name: "Save cave snapshot" })).toBeEnabled();
+});
+
+test("blocks Cave while its Tank Bank cylinder is archived, like Plan, until the diver detaches it", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+
+  const unavailable = page.getByRole("status").filter({ hasText: /^Source unavailable$/ });
+  const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
+  await expect(unavailable).toBeVisible();
+  await expect(calculatedCave).toBeHidden();
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Resolve Tank Bank source" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save cave snapshot" })).toBeHidden();
+  await page.clock.fastForward(1_000);
+  await expect(unavailable).toBeVisible();
+  await expect(calculatedCave).toBeHidden();
+
+  // Selecting a cylinder copies nothing into the draft, so the ad hoc fields still hold Tx18/45.
+  await expect(page.getByRole("region", { name: "Tank Bank sources unavailable" })).toContainText("Bottom gas Tx18/45: “New cylinder” is archived in Tank Bank.");
+  const notice = page.getByRole("alert").filter({ hasText: "Tank Bank source unavailable." });
+  await expect(notice.getByRole("definition")).toHaveText(["Tx18/45", "18%", "45%", "196.6 ft³ rated", "3365 psi", "3046 psi", "508 psi", "1.40 bar"]);
+  await expect(page.getByLabel("Tx18/45 cylinder source").locator("option:checked")).toHaveText("Unavailable · New cylinder");
+
+  await notice.getByRole("button", { name: "Detach to ad hoc values" }).click();
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+  await page.getByRole("button", { name: "Update cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(calculatedCave).toContainText("Tx18/45");
+});
+
+test("keeps an earlier Cave result hidden after an unavailable source returns unchanged", async ({ page }) => {
+  await page.clock.install();
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByLabel("Tx18/45 cylinder source").selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Calculate cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+
+  await interruptTankBank(page, "Cave");
+  const sourceChanged = page.getByRole("status").filter({ hasText: /^Source changed$/ });
+  await expect(sourceChanged).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Review" })).toBeDisabled();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeHidden();
+  await page.clock.fastForward(1_000);
+  await expect(sourceChanged).toBeVisible();
+
+  await page.getByRole("button", { name: "Update cave plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Calculated cave plan" })).toBeVisible();
 });
 
 test("retains cave-layer safety errors in an immutable saved snapshot", async ({ page }) => {
