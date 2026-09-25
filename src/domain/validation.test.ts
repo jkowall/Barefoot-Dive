@@ -154,3 +154,27 @@ describe("complete normalized-plan validation", () => {
     expect(result.errors.some((item) => item.code === "CCR_SETPOINT_LIMIT_EXCEEDED")).toBe(true);
   });
 });
+
+describe("deco RMV boundary validation", () => {
+  const codes = (candidate: unknown): readonly string[] => {
+    const result = validateDiveInput(candidate as OcDiveInput);
+    return result.ok ? [] : result.errors.map((item) => item.code);
+  };
+
+  it("accepts first-stop on open-water OC and rejects other values and contexts", () => {
+    expect(validateDiveInput({ ...input(), decoRmvFrom: "first-stop" }).ok).toBe(true);
+    expect(codes({ ...input(), decoRmvFrom: "end-of-bottom" })).toContain("DECO_RMV_BOUNDARY_INVALID");
+    expect(codes({ ...input(), environment: "cave", decoRmvFrom: "first-stop" }))
+      .toContain("DECO_RMV_BOUNDARY_CAVE_UNSUPPORTED");
+    const diluent = { id: "diluent", name: "Air", oxygen: fraction(0.21), helium: fraction(0), role: "diluent" as const };
+    expect(codes({
+      ...input(),
+      mode: "ccr",
+      diluent,
+      setpointBar: barAbsolute(1.3),
+      setpointActivationDepthM: meters(6),
+      bailoutGases: [{ ...diluent, id: "bailout", role: "bailout" }],
+      decoRmvFrom: "first-stop",
+    })).toContain("DECO_RMV_BOUNDARY_OC_ONLY");
+  });
+});

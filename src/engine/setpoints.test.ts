@@ -499,9 +499,9 @@ describe("open-circuit stops that cannot clear on their gas", () => {
     expect(codes).toContain("OC_STOP_MOVED_FOR_GAS_SWITCH");
     const toAir = bailout.segments.find((segment) => segment.kind === "gas-switch" && segment.gasId === "bo-air");
     expect(toAir?.startDepthM).toBe(4);
-    // The move to 4 m is taken only when 4 m is inside the ceiling. (The deep first-stop leg
-    // of this helium-heavy bailout crosses the GF-low ceiling exactly as engine 0.1.0 did.)
-    for (const segment of bailout.segments.filter((item) => item.endDepthM <= 6 && (item.kind === "bailout" || item.kind === "stop"))) {
+    // The move to 4 m is taken only when 4 m is inside the ceiling, and since engine 0.2.1 the
+    // deep first-stop leg of this helium-heavy bailout also arrives inside the GF-low ceiling.
+    for (const segment of bailout.segments.filter((item) => item.kind === "bailout" || item.kind === "stop")) {
       expect(segment.ceilingDepthM).toBeLessThanOrEqual(segment.endDepthM + 1e-9);
     }
     expect(bailout.summary.ttsSeconds).toBeLessThan(24 * 60 * 60);
