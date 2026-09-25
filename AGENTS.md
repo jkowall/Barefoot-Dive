@@ -272,6 +272,7 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 10. Treating green regression tests as independent safety validation.
 11. Registering a service worker in the native Capacitor WebView.
 12. Committing copied web bundles, native build output, local SDK paths, signing material, or test reports.
+13. Testing another worktree's preview server. Playwright builds and serves each checkout on its own port and refuses a server already running there; set `PLAYWRIGHT_REUSE_SERVER=1` only for a preview of this checkout's current build.
 
 ## Protected areas
 

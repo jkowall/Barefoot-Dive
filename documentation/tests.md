@@ -12,7 +12,7 @@
 | `npm run verify:gas` | gas and calculator suites |
 | `npm run verify:exposure` | domain validation and tissue suites |
 | `npm run verify:cave` | cave suites |
-| `npm run test:ui` / `npm run test:visual` | Playwright smoke/visual browser gates |
+| `npm run test:ui` / `npm run test:visual` | Playwright smoke/visual browser gates. Each run builds, then serves its own preview on a port derived from the checkout's path; `PLAYWRIGHT_PORT` pins the port and `PLAYWRIGHT_REUSE_SERVER=1` reuses a preview already running there |
 | `npm run build:mobile` | web build plus Capacitor iOS/Android sync |
 | `npm audit --omit=optional` | registry advisory check for the installed dependency tree |
 | `cd android && ./gradlew assembleDebug` | unsigned Android debug build |

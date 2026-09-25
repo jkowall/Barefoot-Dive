@@ -29,7 +29,7 @@ npm run build
 npm run check
 ```
 
-Focused suites are available with `npm run verify:deco`, `npm run verify:gas`, `npm run verify:exposure`, and `npm run verify:cave`. Browser smoke and visual checks use `npm run test:ui` and `npm run test:visual` and require the Playwright browser environment. `npm run build:mobile` runs the web build and Capacitor sync; opening native projects is a separate gate. Cloudflare deployment is documented in [`documentation/deployment.md`](documentation/deployment.md). No signed or store-submitted native artifact is present in this repository.
+Focused suites are available with `npm run verify:deco`, `npm run verify:gas`, `npm run verify:exposure`, and `npm run verify:cave`. Browser smoke and visual checks use `npm run test:ui` and `npm run test:visual` and require the Playwright browser environment. Each run builds the app and serves it on a port derived from the checkout's path, so parallel worktrees never share a preview server; `PLAYWRIGHT_PORT` pins the port, and `PLAYWRIGHT_REUSE_SERVER=1` tests a preview that is already running there. `npm run build:mobile` runs the web build and Capacitor sync; opening native projects is a separate gate. Cloudflare deployment is documented in [`documentation/deployment.md`](documentation/deployment.md). No signed or store-submitted native artifact is present in this repository.
 
 ## Data, safety, and trust boundaries
 
