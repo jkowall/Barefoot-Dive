@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the `0.4.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.5.0` evaluation build. It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,9 +11,10 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: `0.4.0` evaluation build
+## Current: `0.5.0` evaluation build
 
 - Unit-safe ZH-L16C/GF engine, OC planning, CCR decompression/exposure with a low setpoint from the surface and a high setpoint below separate switch-up and switch-down depths, exact-trigger-state CCR bailout to open circuit, dil-out, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
+- Engine 0.3.0: every ascent leg re-checks its arrival ceiling, and new open-water OC plans charge the bottom RMV until the first stop, with a Setup switch back to the original deco-RMV-from-end-of-bottom rule.
 - Gas-only open-water planning with per-gas minimum volumes to carry, and bailout surface/coverage checks plus mid-leg switches that keep open-circuit ascents breathable.
 - Experimental cave route context with accessible cylinders, stage drop/recovery, gas-derived OC turn constraints, CCR bailout-derived limits, and required failure scenarios.
 - Tank Bank, immutable Saved Plan revisions, all eleven Tools calculators, responsive offline PWA, and iOS/Android shells.
@@ -39,7 +40,9 @@ These items are listed in priority order and take precedence over adding planner
 | Decide the cave scope | Decide whether the implemented experimental CCR cave/bailout-derived behavior remains in scope alongside OC cave planning | An explicit OC/CCR scope decision before investing in further cave qualification or expansion |
 | Decide the named-preset strategy | Choose whether each compatibility-named preset stays explicitly experimental, loses the external product name, or enters a formal validation effort | A keep/rename/remove/validate decision for every preset; any validation path identifies pinned product/firmware versions and comparison evidence |
 | Expand decompression reference vectors | Cover air, nitrox, trimix, CCR, bailout, multiple GF pairs, fresh/salt water, and altitude | Versioned inputs, independently sourced expected results, tolerances, and documented discrepancy decisions |
-| Re-check open-circuit arrival ceilings | Decide whether the first-stop search re-checks the arrival ceiling on open-circuit and legacy CCR legs, where helium-heavy gases can put the first stop above the GF-low ceiling (low-setpoint legs are already re-checked) | A scheduler change with its legacy-output impact documented, independent vectors, and scientific review |
+| Decide gradient-factor anchoring after a deepened first stop | Since engine 0.2.1 the arrival re-check can move the first stop deeper, which anchors the gradient-factor line deeper and can shorten the shallow stops (by up to 55 minutes in exploratory comparisons). Decide whether to keep Baker's first-stop anchor, or to anchor at the ceiling-derived stop and hold GF low below it so the re-check only adds time | A written decision with its output impact documented, independent vectors covering the arrival re-check, and scientific review |
+| Decide stop-hold ceiling transients | Decide whether the scheduler looks ahead through a stop, or emits a warning with the largest excess and the gradient factor reached, when the ceiling deepens past a held stop after a switch from a nitrogen-rich loop to a lean, helium-heavy bailout gas (up to 7.0 m in exploratory comparisons). Decide it together with anchoring, because a look-ahead deepens first stops | A scheduler or diagnostic change with its output impact documented, independent bailout vectors, and scientific review |
+| Decide the remaining gas-accounting phases | Engine 0.3.0 charges the open-circuit climb to the first stop at the bottom RMV when a plan opts in. Decide whether the moves between stops should also use the bottom RMV, as the CCR bailout ledger does, and whether cave turn limits adopt the first-stop boundary | A written decision with its gas and turn-pressure impact documented, published or measured ascent-RMV evidence where available, and scientific review; cave adoption also needs qualified cave-diver review |
 | Validate gas, reserves, and oxygen exposure | Independently check integrated consumption, rock bottom/team reserve, thirds/sixths, reserve crossings, CNS, and unit conversions | Committed positive and failure vectors with reviewer/source identity |
 | Qualify retained cave semantics | Review OC turn pressure, thirds/sixths, team reserve, stage access, scooter failure, lost-gas/lost-buddy behavior, and any retained CCR bailout-derived limits | Named qualified cave-diver review, committed scenario vectors, and no unresolved critical/high audit findings |
 | Harden release evidence | Repeat web, offline, migration, accessibility, visual, Android, iOS, and dependency gates from a frozen revision | Reproducible release report and an explicit go/no-go decision; web hosting does not authorize signing or store submission |

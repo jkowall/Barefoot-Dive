@@ -19,7 +19,10 @@ const tx1845: Gas = { id: "tx18-45", name: "Tx18/45", oxygen: fraction(0.18), he
  * Byte-identity guard for legacy inputs. These digests were captured from engine 0.1.0
  * before low setpoints, dil-out, gas-only planning, and the hypoxic-leg fixes were added.
  * Legacy CCR breathing (open-circuit diluent above the activation depth) and non-hypoxic
- * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same.
+ * OC schedules, ledgers, diagnostics, and plan ids must stay exactly the same. Engine 0.2.1
+ * re-checks every ascent leg's arrival ceiling, which deliberately changes schedules whose legs
+ * arrived above the ceiling (mostly bailouts and nitrogen-to-helium switches; see
+ * ascent-ceiling.test.ts). None of these seven inputs is affected.
  */
 it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => {
   const out: Record<string, string> = {};
@@ -29,7 +32,9 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
   const r2 = calculateDivePlan(ocAir); out.ocAir = hash(r2.ok ? digest(r2.value) : r2);
   const ccr: CcrDiveInput = { mode: "ccr", environment: "open-water", depthM: meters(45), bottomTimeSeconds: seconds(30 * 60), diluent: { ...AIR, id: "dil", role: "diluent" }, setpointBar: barAbsolute(1.3), setpointActivationDepthM: meters(6), bailoutGases: [{ ...tx1845, id: "bo", role: "bailout" }, { ...EAN50, id: "bo50", role: "bailout", switchDepthM: meters(21) }], bailoutTriggerSecondsAtDepth: seconds(15 * 60), cylinders: [], settings: DEFAULT_PLANNER_SETTINGS, environmentSettings: DEFAULT_ENVIRONMENT, rmv: DEFAULT_RMV, reservePolicy: DEFAULT_RESERVE_POLICY };
   const r3 = calculateDivePlan(ccr); out.ccrLegacy = hash(r3.ok ? digest(r3.value) : r3);
-  const draftOc = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!;
+  // New Plan drafts charge the bottom RMV until the first stop (app 0.5.0); with that switch
+  // off the draft resolves to the legacy input this digest guards.
+  const draftOc = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input!;
   const r4 = calculateDivePlan(draftOc); out.draftOc = hash(r4.ok ? digest(r4.value) : r4);
   const draftCcrLegacy = resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, mode: "ccr" }, []).input as CcrDiveInput;
   const legacyOnly: CcrDiveInput = { mode: "ccr", environment: draftCcrLegacy.environment, depthM: draftCcrLegacy.depthM, bottomTimeSeconds: draftCcrLegacy.bottomTimeSeconds, diluent: draftCcrLegacy.diluent, setpointBar: draftCcrLegacy.setpointBar, setpointActivationDepthM: draftCcrLegacy.setpointActivationDepthM, bailoutGases: draftCcrLegacy.bailoutGases, cylinders: draftCcrLegacy.cylinders, settings: draftCcrLegacy.settings, environmentSettings: draftCcrLegacy.environmentSettings, rmv: draftCcrLegacy.rmv, reservePolicy: draftCcrLegacy.reservePolicy };
@@ -57,4 +62,15 @@ it("reproduces engine 0.1.0 results for legacy CCR, OC, and cave inputs", () => 
     caveCcrLegacy: "fff4643c",
     eventCcrShearwater: "c6c1b827",
   });
+});
+
+/**
+ * Pins the app 0.5.0 default OC draft, which charges the bottom RMV until the first stop.
+ * It is not an engine 0.1.0 guard; it catches unintended drift on the default path.
+ */
+it("pins the 0.5.0 default OC draft on the first-stop RMV boundary", () => {
+  const input = resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!;
+  expect(input.mode === "oc" && input.decoRmvFrom).toBe("first-stop");
+  const result = calculateDivePlan(input);
+  expect(hash(result.ok ? digest(result.value) : result)).toBe("ffcebeb7");
 });

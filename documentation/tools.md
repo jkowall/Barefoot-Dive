@@ -1,6 +1,6 @@
 # Tools library and workspace
 
-The `0.4.0` checkout implements Tools as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
+The `0.5.0` checkout implements Tools as a task-oriented library and focused calculator workspace. Passing regression tests establish implementation behavior, not operational safety or field validation. The live source and verification record remain authoritative.
 
 ## Library
 
@@ -22,7 +22,7 @@ Inputs in the Tools workspace are per-session and ephemeral. Each tool retains i
 
 MOD, Best Mix, END, Gas Density, PPO2, SAC / RMV, Gas Duration, Cylinder Gas, and CNS are simple calculations. Their results are live, local decision support and should make stale assumptions visible when an input or policy version changes.
 
-Emergency Gas is different. It requires an explicit entered schedule. Rock Bottom / Minimum Gas is always OC and requires an explicit team size. Simplified Bailout is always CCR, uses a team multiplier of one, and requires one cylinder. OC can calculate required surface-gas volume without cylinder context; pressure and sufficiency output requires an entered or snapshotted cylinder and an explicit reserve, including an intentional zero. It is not a generated decompression plan, a generated bailout plan, or a substitute for the planner’s CCR bailout output. A valid current schedule recalculates automatically after a 250 ms pause. While an update is pending, the prior answer and Plan action are hidden or disabled so edited inputs are never presented beside an outdated result. Invalid current inputs replace the answer with diagnostics. The result retains the exact calculated assumptions separately from the editable form.
+Emergency Gas is different. It requires an explicit entered schedule. Rock Bottom / Minimum Gas is always OC and requires an explicit team size. Simplified Bailout is always CCR, uses a team multiplier of one, and requires one cylinder. OC can calculate required surface-gas volume without cylinder context; pressure and sufficiency output requires an entered or snapshotted cylinder and an explicit reserve, including an intentional zero. It is not a generated decompression plan, a generated bailout plan, or a substitute for the planner’s CCR bailout output. The one entered stressed RMV applies to every entered segment, ascent and stop alike; the planner’s bottom and deco RMV phases do not apply here. A valid current schedule recalculates automatically after a 250 ms pause. While an update is pending, the prior answer and Plan action are hidden or disabled so edited inputs are never presented beside an outdated result. Invalid current inputs replace the answer with diagnostics. The result retains the exact calculated assumptions separately from the editable form.
 
 ## Tank Bank and snapshots
 

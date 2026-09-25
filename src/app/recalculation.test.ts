@@ -101,6 +101,21 @@ describe("saved-plan recalculation across engine versions", () => {
     expect(draft?.calculatedPlan.gasLedger).toEqual(original.calculatedPlan.gasLedger);
   });
 
+  it("recalculates each stored OC plan with the deco RMV rule it was saved with", () => {
+    const cases = [
+      [resolvePlanInput({ ...DEFAULT_PLAN_DRAFT, bottomRmvUntilFirstStop: false }, []).input!, false],
+      [resolvePlanInput(DEFAULT_PLAN_DRAFT, []).input!, true],
+    ] as const;
+    for (const [input, firstStop] of cases) {
+      const storage = new MemoryStorage();
+      const stored = reload(storage, save(storage, input).id);
+      expect("decoRmvFrom" in stored.normalizedInputSnapshot).toBe(firstStop);
+      const draft = buildRecalculation(stored, () => undefined);
+      expect(draft?.calculatedPlan.diagnostics.some((item) => item.code === "DECO_RMV_FROM_FIRST_STOP")).toBe(firstStop);
+      expect(draft?.calculatedPlan.gasLedger).toEqual(stored.calculatedPlan.gasLedger);
+    }
+  });
+
   it("reports a malformed stored low setpoint instead of silently falling back to legacy breathing", () => {
     const storage = new MemoryStorage();
     const original = save(storage, legacyCcr);

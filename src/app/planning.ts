@@ -71,6 +71,11 @@ export type PlanDraft = {
   readonly decoRmvLpm: number;
   readonly bailoutRmvLpm: number;
   readonly bailoutDecoRmvLpm: number;
+  /**
+   * Open-water OC only: charge the bottom RMV until the first stop (decoRmvFrom "first-stop").
+   * Off keeps the engine 0.1.0 rule, the deco RMV from the end of bottom time.
+   */
+  readonly bottomRmvUntilFirstStop: boolean;
   readonly reserve: ReserveDraft;
   /** Cylinder accounting, or gas volumes only (open water; Cave always uses cylinders). */
   readonly gasPlanning: "cylinders" | "gas-only";
@@ -242,6 +247,7 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   decoRmvLpm: 15,
   bailoutRmvLpm: 30,
   bailoutDecoRmvLpm: 20,
+  bottomRmvUntilFirstStop: true,
   reserve: { kind: "fixed", minimumPressureBar: 35 },
   gasPlanning: "cylinders",
 };
@@ -466,6 +472,8 @@ export function resolvePlanInput(
         bottomGas: gases[0] ?? AIR,
         ...(draft.travelGasEnabled && gases[1] ? { travelGas: gases[1] } : {}),
         decoGases: gases.slice(draft.travelGasEnabled ? 2 : 1),
+        // Cave turn limits keep the engine 0.1.0 rule until they are reviewed with it.
+        ...(draft.bottomRmvUntilFirstStop && environment === "open-water" ? { decoRmvFrom: "first-stop" as const } : {}),
       },
     };
   }

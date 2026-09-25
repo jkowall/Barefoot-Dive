@@ -3,6 +3,7 @@ import type { DivePlanInput } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
 import type { StorageResult, TankRecord } from "../storage";
 import { switchDepthToCanonical } from "./helpers";
+import { calculateDivePlan } from "../engine/planner";
 import {
   DEFAULT_PLAN_DRAFT,
   resolvePlanInput,
@@ -130,6 +131,30 @@ describe("plan input resolution", () => {
     expect(dilOut).toMatchObject({ diluentBailout: true, diluentPreBailoutUseL: 150 });
     const blank = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr", diluentBailout: true }, []));
     expect("diluentPreBailoutUseL" in blank).toBe(false);
+  });
+
+  it("charges the bottom RMV until the first stop for new open-water OC plans only", () => {
+    const oc = calculable(resolvePlanInput(DEFAULT_PLAN_DRAFT, []));
+    expect(oc.mode === "oc" && oc.decoRmvFrom).toBe("first-stop");
+    const gasOnly = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), gasPlanning: "gas-only" }, []));
+    expect(gasOnly.mode === "oc" && gasOnly.decoRmvFrom).toBe("first-stop");
+    const off = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), bottomRmvUntilFirstStop: false }, []));
+    expect("decoRmvFrom" in off).toBe(false);
+    expect("decoRmvFrom" in calculable(resolvePlanInput(DEFAULT_PLAN_DRAFT, [], "cave"))).toBe(false);
+    expect("decoRmvFrom" in calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr" }, []))).toBe(false);
+  });
+
+  it("adds only the default draft's climb volume to its bottom gas", () => {
+    const legacy = calculateDivePlan(calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), bottomRmvUntilFirstStop: false }, [])));
+    const current = calculateDivePlan(calculable(resolvePlanInput(DEFAULT_PLAN_DRAFT, [])));
+    if (!legacy.ok || !current.ok) throw new Error("plan failed");
+    expect(current.value.segments).toEqual(legacy.value.segments);
+    // 40 m to a 21 m first stop in 127 s at a mean 4.05 bar: 5 L/min x 127/60 min x 4.05 bar.
+    const [bottomGas, ean50, oxygen] = current.value.gasLedger;
+    expect(bottomGas.totalUsedL - legacy.value.gasLedger[0].totalUsedL).toBeCloseTo(42.8625, 8);
+    expect(ean50.totalUsedL).toBe(legacy.value.gasLedger[1].totalUsedL);
+    expect(oxygen.totalUsedL).toBe(legacy.value.gasLedger[2].totalUsedL);
+    expect(current.value.gasLedger.map((entry) => entry.reserveL)).toEqual(legacy.value.gasLedger.map((entry) => entry.reserveL));
   });
 });
 
