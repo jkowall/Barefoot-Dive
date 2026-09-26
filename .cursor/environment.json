@@ -1,0 +1,10 @@
+{
+  "name": "Barefoot Dive",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "vite-dev",
+      "command": "export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\" && nvm use \"$(tr -d '[:space:]' < .node-version)\" >/dev/null 2>&1; npm run dev -- --host 127.0.0.1 --port 5173"
+    }
+  ]
+}
