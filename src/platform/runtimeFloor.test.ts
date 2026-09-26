@@ -1,19 +1,26 @@
-import { fileURLToPath } from "node:url";
-import { loadConfigFromFile, type UserConfig } from "vite";
 import { beforeAll, describe, expect, it } from "vitest";
+import variablesGradle from "../../android/variables.gradle?raw";
 import pbxproj from "../../ios/App/App.xcodeproj/project.pbxproj?raw";
 import tsconfig from "../../tsconfig.json";
 
-// The iOS app runs this bundle in the system WKWebView, so the Vite JS and CSS targets, the Xcode
-// deployment target, and the ES built-ins TypeScript admits must all describe one oldest runtime.
-let build: UserConfig["build"];
+// The native shells run this bundle in the system WebView, so the Vite JS and CSS targets, the Xcode
+// deployment target, Android's minSdkVersion, and the built-ins TypeScript admits must all describe
+// one oldest runtime.
+type BuildTarget = string | readonly string[] | false | undefined;
+type LoadConfigFromFile = (env: { command: "build"; mode: string }) => Promise<{ config: { build?: { target?: BuildTarget; cssTarget?: BuildTarget } } } | null>;
+
+// Chrome and Android System WebView 119 were the last releases for Android 7 (API 24 and 25).
+const LAST_WEBVIEW_BY_MIN_SDK: Readonly<Record<number, number>> = { 24: 119, 25: 119 };
+
+let build: { target?: BuildTarget; cssTarget?: BuildTarget } | undefined;
 let targets: readonly string[] = [];
 const targetVersion = (engine: string) => targets.find((entry) => entry.startsWith(engine))?.slice(engine.length);
 
 beforeAll(async () => {
-  // Load vite.config.ts the way Vite does; it belongs to tsconfig.node.json, so it cannot be imported here.
-  const loaded = await loadConfigFromFile({ command: "build", mode: "production" }, fileURLToPath(new URL("../../vite.config.ts", import.meta.url)));
-  build = loaded?.config.build;
+  // Load vite.config.ts the way Vite does. Vite's types would pull Node's globals and ESNext
+  // built-ins into this browser program, so the module is imported untyped.
+  const { loadConfigFromFile } = (await import("vite" as string)) as { loadConfigFromFile: LoadConfigFromFile };
+  build = (await loadConfigFromFile({ command: "build", mode: "production" }))?.config.build;
   const target = build?.target;
   targets = Array.isArray(target) ? target : [];
 });
@@ -36,8 +43,23 @@ describe("runtime floor", () => {
     expect(major > 15 || (major === 15 && minor >= 4)).toBe(true);
   });
 
-  it("types no ES built-ins newer than ES2022", () => {
+  it("keeps the Chrome target within the last WebView the Android minSdkVersion can install", () => {
+    const minSdk = Number(/minSdkVersion = (\d+)/.exec(variablesGradle)?.[1]);
+    const lastWebView = LAST_WEBVIEW_BY_MIN_SDK[minSdk];
+    expect(lastWebView, `Record the last Chrome and WebView release for Android API ${minSdk}.`).toBeDefined();
+    expect(Number(targetVersion("chrome"))).toBeLessThanOrEqual(lastWebView);
+  });
+
+  it("admits no Node globals or ES built-ins newer than ES2022 to the app's type check", () => {
     // ES2023 adds toSorted, toReversed, and with, which WebKit shipped only in Safari 16.
     expect(tsconfig.compilerOptions.lib.filter((lib) => /^es(next|20(2[3-9]|[3-9]\d))/i.test(lib))).toEqual([]);
+    // A dependency's types can admit more than tsconfig lists, as Vite's Node types would. If any
+    // probe below starts to type-check, tsc (npm run build) fails on the unused directive.
+    // @ts-expect-error Node globals do not exist in the WebView.
+    void typeof process;
+    // @ts-expect-error Array change-by-copy methods need Safari 16.
+    void [].toSorted;
+    // @ts-expect-error Explicit resource management is newer than the floor.
+    void typeof DisposableStack;
   });
 });

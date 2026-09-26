@@ -3,10 +3,11 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import packageJson from "./package.json" with { type: "json" };
 
-// The oldest runtime the bundle supports. Safari and iOS 15.4 match the iOS app's
-// IPHONEOS_DEPLOYMENT_TARGET; Chrome, Edge, and Firefox keep Vite 8's baseline. Vite's default
-// (iOS 16.4) let Lightning CSS write breakpoints in range syntax, which WebKit ignores before
-// 16.4. src/platform/runtimeFloor.test.ts keeps this list and the Xcode target in step.
+// The oldest runtimes the build targets. Safari and iOS 15.4 match the iOS app's
+// IPHONEOS_DEPLOYMENT_TARGET; Chrome, Edge, and Firefox keep Vite 8's baseline, and Chrome 111 is
+// within Android 7's last WebView (119). Vite's default (iOS 16.4) let Lightning CSS write
+// breakpoints in range syntax, which WebKit ignores before 16.4. src/platform/runtimeFloor.test.ts
+// keeps this list, the Xcode target, and Android's minSdkVersion in step.
 const RUNTIME_FLOOR = ["safari15.4", "ios15.4", "chrome111", "edge111", "firefox114"];
 
 export default defineConfig({
