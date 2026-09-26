@@ -34,10 +34,13 @@ describe("runtime floor", () => {
     expect(build?.cssTarget).toEqual(build?.target);
   });
 
-  it("builds every iOS configuration for the build target's iOS version", () => {
-    const deploymentTargets = [...pbxproj.matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g)].map((match) => match[1]);
+  it("sets every Xcode build configuration to the build target's iOS version", () => {
+    // A configuration without its own setting inherits the project's, and without that the SDK
+    // default (the SDK's own iOS version), so check each configuration, not every match in the file.
+    const configurations = pbxproj.split("isa = XCBuildConfiguration;").slice(1);
+    const deploymentTargets = configurations.map((settings) => /IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/.exec(settings)?.[1]);
     expect(deploymentTargets).not.toHaveLength(0);
-    expect(new Set(deploymentTargets)).toEqual(new Set([targetVersion("ios")]));
+    expect(deploymentTargets).toEqual(configurations.map(() => targetVersion("ios")));
   });
 
   it("stays at or above iOS 15.4, where WebKit shipped Array.prototype.at and structuredClone", () => {
