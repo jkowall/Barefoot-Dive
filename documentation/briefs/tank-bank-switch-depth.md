@@ -1,7 +1,7 @@
 # Brief: Switch depth on Tank Bank cylinders
 
 - **Source:** tester feedback item #18: add the switch depth as a value attached to individual gases in Tank Bank.
-- **Status:** ready to implement after [review-gas-switches.md](review-gas-switches.md) merges; both edit `src/app/PlanPage.tsx`. No engine, calculation, or storage-schema change.
+- **Status:** ready to implement once the Plan Review gas switches work (item #21) has merged; both edit `src/app/PlanPage.tsx`. Its brief, `review-gas-switches.md`, is deleted when that work lands, so check `main` rather than this folder. No engine, calculation, or storage-schema change.
 - **Suggested branch:** `cursor/tank-bank-switch-depth`, from the latest `main`.
 
 Read `AGENTS.md` first. It is binding, including the verification matrix, the visual baseline rules, and the git policy.
@@ -76,4 +76,4 @@ git diff --check
 ## Git and pull request
 
 - Sign every commit (`git commit -S`), open one pull request against `main`, and delete this brief in that pull request.
-- Merging stays with Jonah. A merge to `main` deploys barefootdive.app.
+- Merging stays with Jonah; do not merge the pull request yourself.

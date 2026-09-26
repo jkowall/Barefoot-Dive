@@ -3,7 +3,7 @@
 - **Source:** tester feedback item #21: make the deco and bailout on/off switch available in Review, so a diver looking at lost gas can see the effect of using or losing a cylinder.
 - **Status:** ready to implement. No engine, calculation, storage, or schema change.
 - **Suggested branch:** `cursor/review-gas-switches`, from the latest `main`.
-- **Order:** land this before [tank-bank-switch-depth.md](tank-bank-switch-depth.md); both edit `src/app/PlanPage.tsx`.
+- **Order:** land this before the Tank Bank switch depth work (item #18, brief `tank-bank-switch-depth.md` in this folder); both edit `src/app/PlanPage.tsx`.
 
 Read `AGENTS.md` first. It is binding, including the verification matrix, the visual baseline rules, and the git policy.
 
@@ -76,4 +76,4 @@ git diff --check
 ## Git and pull request
 
 - Sign every commit (`git commit -S`), open one pull request against `main`, and delete this brief in that pull request.
-- Merging stays with Jonah. A merge to `main` deploys barefootdive.app.
+- Merging stays with Jonah; do not merge the pull request yourself.
