@@ -300,6 +300,17 @@ describe("CCR stops on the low setpoint", () => {
     expect(value.diagnostics.map((item) => item.code)).toContain("CCR_SWITCH_DOWN_DEEPENED");
   });
 
+  it("suggests no depth on a 10 ft grid, where the stop does not print exactly in metres", () => {
+    // 6.096 m prints as 6.1 m, which would leave the 6.096 m stop on the low setpoint if entered.
+    const value = plan(lowCcr({
+      setpointDeactivationDepthM: meters(9.144),
+      settings: { ...DEFAULT_PLANNER_SETTINGS, stopIncrementM: meters(3.048), lastStopDepthM: meters(6.096) },
+    }));
+    const [warning] = lowSetpointStops(value);
+    expect(warning?.message).toMatch(/^The 6\.1 m stop runs on the 0\.70 bar low setpoint for \d+ min, because the loop switches down when leaving 9\.1 m\. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1\.30 bar high setpoint\.$/);
+    expect(warning?.depthMentions).toHaveLength(2);
+  });
+
   it("never warns in legacy mode, where the loop opens to open-circuit diluent instead", () => {
     expect(lowSetpointStops(plan(ccr()))).toEqual([]);
   });

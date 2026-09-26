@@ -562,14 +562,16 @@ function lowSetpointStopDiagnostic(
   const deepened = ascent.switchDownDepthM > switchDownDepth(input) + EPSILON;
   const switchDownRounding: "up" | "nearest" = deepened ? "up" : "nearest";
   const shallowest = stops.at(-1)!;
-  const gridSteps = shallowest.depthM / input.settings.stopIncrementM;
+  const onWholeStep = (value: number) => Math.abs(value - Math.round(value)) < 1e-6;
   // Suggest the shallowest listed stop's own depth, which holds the high setpoint at every listed
-  // stop, only where entering it does: a stop on the stop grid prints as itself in metres and as the
-  // feet that align onto it, and one no shallower than where the high setpoint is achievable is
+  // stop, only where entering it does: a stop on the stop grid whose depth prints exactly to 0.1 m
+  // is itself in metres and the feet that align onto it (a 10 ft grid's 6.096 m stop prints 6.1 m,
+  // deeper than the stop), and one no shallower than where the high setpoint is achievable is
   // accepted by Cave, which rejects a shallower switch-down.
   const fixable = !startsOnLow &&
     !deepened &&
-    Math.abs(gridSteps - Math.round(gridSteps)) < 1e-6 &&
+    onWholeStep(shallowest.depthM / input.settings.stopIncrementM) &&
+    onWholeStep(shallowest.depthM * 10) &&
     shallowest.depthM >= setpointAchievableDepth(input.setpointBar, input.environmentSettings) - EPSILON;
   const reason = startsOnLow
     ? "because the ascent starts on the low setpoint"
