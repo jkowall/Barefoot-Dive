@@ -227,19 +227,25 @@ function sourceEntries(signature: string): readonly TankSourceEntry[] | undefine
 
 /**
  * Whether a Tank Bank source changed between a calculation's `tankSourceSignature` and the current one.
- * Only gases that take part in both are compared: a gas switched on or off is an ordinary edit, and a
- * Tank Bank change to the cylinder of a gas the calculation did not use cannot supersede its result.
- * For those gases, choosing another source or a new revision of the same record is a change.
- * Values that are not source signatures compare as plain strings.
+ * Only what the calculation used is compared: a gas switched on or off is an ordinary edit, and a Tank
+ * Bank change to the cylinder of a gas the calculation did not use cannot supersede its result. A gas
+ * that takes part in both with another source or a new revision is a change, and so is a record the
+ * calculation used that now takes part at another revision under a different gas, as after switching
+ * between OC and CCR with one stage sourcing a gas in each. Values that are not source signatures
+ * compare as plain strings.
  */
 export function tankSourcesChanged(calculated: string, current: string): boolean {
   const before = sourceEntries(calculated);
   const after = sourceEntries(current);
   if (!before || !after) return calculated !== current;
-  const used = new Map(before.filter((entry) => entry.active).map((entry) => [entry.gasKey, entry] as const));
+  const used = before.filter((entry) => entry.active);
+  const usedGases = new Map(used.map((entry) => [entry.gasKey, entry] as const));
+  const usedRecords = new Map(used.flatMap((entry) => entry.tankId === null ? [] : [[entry.tankId, entry.revision] as const]));
   return after.some((entry) => {
-    const earlier = entry.active ? used.get(entry.gasKey) : undefined;
-    return earlier !== undefined && (earlier.tankId !== entry.tankId || earlier.revision !== entry.revision);
+    if (!entry.active) return false;
+    const earlier = usedGases.get(entry.gasKey);
+    if (earlier !== undefined && (earlier.tankId !== entry.tankId || earlier.revision !== entry.revision)) return true;
+    return entry.tankId !== null && usedRecords.has(entry.tankId) && usedRecords.get(entry.tankId) !== entry.revision;
   });
 }
 

@@ -3,9 +3,9 @@
  *
  * The planner emits one segment per stop-time quantum, so a 16-minute stop arrives as sixteen
  * identical one-minute `stop` segments. For the runtime table those rows are folded into one row
- * when the phase, end depth, gas, and setpoint are all identical. Gases are compared by identifier
- * when segments carry one, because two cylinders' gases can share a name ("Air" and "Air"). The
- * chart and the profile data table keep the raw segments. Nothing here changes calculated values.
+ * when the phase, end depth, gas, and setpoint are all identical. Gases are compared by name and,
+ * when segments carry one, by identifier, because two cylinders' gases can share a name ("Air" and
+ * "Air"). The chart and the profile data table keep the raw segments. Nothing here changes calculated values.
  */
 export type RuntimeSegment = {
   readonly kind: string;
@@ -38,9 +38,13 @@ export type GroupedRuntimeSegment = {
   readonly travelGasName?: string;
 };
 
-/** The same gas: by identifier when both carry one, otherwise by name. */
+/**
+ * The same gas: the same name and, when both carry one, the same identifier. An identifier can only
+ * tell apart gases that share a name; it never merges rows whose names differ, such as a legacy CCR
+ * loop and the same diluent breathed open circuit ("CCR 1.30 / Tx18/45 diluent" and "Tx18/45 diluent").
+ */
 function sameGas(a: Pick<RuntimeSegment, "gasId" | "gasName">, b: Pick<RuntimeSegment, "gasId" | "gasName">): boolean {
-  return a.gasId !== undefined && b.gasId !== undefined ? a.gasId === b.gasId : a.gasName === b.gasName;
+  return a.gasName === b.gasName && (a.gasId === undefined || b.gasId === undefined || a.gasId === b.gasId);
 }
 
 function sameGroup(a: RuntimeSegment, b: RuntimeSegment): boolean {

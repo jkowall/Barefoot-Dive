@@ -801,6 +801,16 @@ describe("hidden inputs and Tank Bank source tracking", () => {
     expect(changed(adHoc, draft)).toBe(true);
     expect(changed(draft, adHoc)).toBe(true);
     expect(changed({ ...draft, gasPlanning: "gas-only" }, draft)).toBe(true);
+    // One stage sourcing a CCR bailout gas and an OC deco gas: switching modes after the stage was
+    // revised is a change, because the calculation used that record; without a revision it is not.
+    const stageBoth: PlanDraft = {
+      ...draft,
+      mode: "ccr",
+      bailoutGases: [{ ...draft.bailoutGases[0]!, cylinderId: "o2-stage" }, ...draft.bailoutGases.slice(1)],
+    };
+    const ocWithStage: PlanDraft = { ...stageBoth, mode: "oc" };
+    expect(changed(stageBoth, ocWithStage, [bankTank(2)])).toBe(true);
+    expect(changed(stageBoth, ocWithStage)).toBe(false);
     // Values that are not source signatures compare as strings.
     expect(tankSourcesChanged("source-a", "source-a")).toBe(false);
     expect(tankSourcesChanged("source-a", "source-b")).toBe(true);

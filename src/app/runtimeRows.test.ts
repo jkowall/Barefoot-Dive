@@ -114,6 +114,21 @@ describe("runtimeScheduleRows", () => {
     expect(groupRuntimeSegments([stage("stop", 0, 60, 15, 15), stage("stop", 60, 60, 15, 15)])).toHaveLength(1);
   });
 
+  it("keeps a legacy CCR loop leg apart from the same diluent breathed open circuit", () => {
+    // Legacy CCR breathes the diluent open circuit above the activation depth; both legs carry the diluent's identifier.
+    const loop = (kind: string, start: number, duration: number, from: number, to: number) =>
+      ({ ...segment(kind, start, duration, from, to, "CCR 1.30 / Tx18/45 diluent", 1.3), gasId: "dil" });
+    const openCircuit = (kind: string, start: number, duration: number, from: number, to: number) =>
+      ({ ...segment(kind, start, duration, from, to, "Tx18/45 diluent"), gasId: "dil" });
+    const rows = runtimeScheduleRows([
+      loop("stop", 0, 60, 9, 9),
+      loop("ascent", 60, 60, 9, 6),
+      openCircuit("gas-switch", 120, 0, 6, 6),
+      openCircuit("stop", 120, 60, 6, 6),
+    ]);
+    expect(rows[1]).toMatchObject({ gasName: "Tx18/45 diluent", travelGasName: "CCR 1.30 / Tx18/45 diluent", arrivalSwitch: "gas-switch" });
+  });
+
   it("counts only the ascent as included travel when the arrival switch takes time", () => {
     // Under the Shearwater preset a gas switch lasts 5 s; it belongs to the stop, not the ascent.
     const rows = runtimeScheduleRows([

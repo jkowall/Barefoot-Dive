@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV } from "../domain/defaults";
-import type { CcrDiveInput, Diagnostic } from "../domain/types";
-import { barAbsolute, meters, seconds } from "../domain/units";
+import type { CcrDiveInput, Diagnostic, OcDiveInput } from "../domain/types";
+import { barAbsolute, fraction, meters, seconds } from "../domain/units";
 import { validateDiveInput } from "../domain/validation";
 import { formatDiagnostic } from "./diagnosticText";
 
@@ -68,6 +68,27 @@ describe("diagnostic depths in the user's unit", () => {
     // RESERVE_CROSSED prints the crossing depth and runtime with one decimal each.
     const diagnostic: Diagnostic = { code: "RESERVE_CROSSED", severity: "error", message: "Tx18/45 cylinder crosses reserve at 21.3 m and 21.3 min.", depthM: meters(21.336) };
     expect(formatDiagnostic(diagnostic, "imperial")).toBe("Tx18/45 cylinder crosses reserve at 70 ft and 21.3 min.");
+  });
+
+  it("restates the travel-to-bottom switch depth in feet", () => {
+    const input: OcDiveInput = {
+      mode: "oc",
+      environment: "open-water",
+      depthM: meters(70),
+      bottomTimeSeconds: seconds(20 * 60),
+      bottomGas: { id: "tx10-70", name: "Tx10/70", oxygen: fraction(0.1), helium: fraction(0.7), role: "bottom", switchDepthM: meters(60) },
+      travelGas: { ...AIR, id: "travel-air", role: "travel" },
+      decoGases: [],
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const result = validateDiveInput(input);
+    const diagnostic = (result.ok ? [] : result.errors).find((item) => item.code === "TRAVEL_GAS_OPERATING_RANGE");
+    expect(diagnostic).toBeDefined();
+    expect(formatDiagnostic(diagnostic!, "imperial")).toBe("Air reaches PPO₂ 1.470 bar at the 197 ft travel-to-bottom switch, above the 1.40 bar travel-gas limit.");
   });
 
   it("leaves messages without a depth unchanged", () => {
