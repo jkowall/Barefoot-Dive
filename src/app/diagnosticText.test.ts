@@ -3,6 +3,7 @@ import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POL
 import type { CcrDiveInput, Diagnostic, OcDiveInput } from "../domain/types";
 import { barAbsolute, fraction, meters, seconds } from "../domain/units";
 import { validateDiveInput } from "../domain/validation";
+import { calculateDivePlan } from "../engine/planner";
 import { formatDiagnostic } from "./diagnosticText";
 
 describe("diagnostic depths in the user's unit", () => {
@@ -39,6 +40,14 @@ describe("diagnostic depths in the user's unit", () => {
     // 3.627 m is a minimum, so it rounds up to 12 ft; the entered 3 m is 10 ft.
     expect(formatDiagnostic(warning!, "imperial")).toBe(
       "The loop cannot hold the 1.30 bar high setpoint shallower than 12 ft, so the plan switches to the low setpoint at 12 ft instead of 10 ft.",
+    );
+
+    // A stop on the low setpoint names the stop, the switch-down depth, and the suggested one in feet.
+    const result = calculateDivePlan({ ...input, setpointDeactivationDepthM: meters(9) });
+    const stopWarning = result.ok ? result.value.diagnostics.find((item) => item.code === "CCR_STOP_ON_LOW_SETPOINT") : undefined;
+    expect(stopWarning).toBeDefined();
+    expect(formatDiagnostic(stopWarning!, "imperial")).toBe(
+      "The 20 ft stop runs on the 0.70 bar low setpoint for 35 min, because the loop switches down when leaving 30 ft. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 20 ft or shallower to hold the high setpoint at that stop.",
     );
   });
 

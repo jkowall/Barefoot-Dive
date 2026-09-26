@@ -18,6 +18,7 @@ import {
   ambientPressureToDepth,
   barAbsolute,
   depthToAmbientPressure,
+  formatMessageDepth,
   meters,
   roundDepthDeeper,
   roundDepthShallower,
@@ -34,6 +35,7 @@ import {
   maximumPPO2ForGas,
   ocBottomSwitchDepth,
   sameGas,
+  switchDownDepth,
   usesLowSetpoint,
   validateDiveInput,
   validateGas,
@@ -512,7 +514,72 @@ function aggregateStops(segments: readonly ProfileSegment[]): readonly DecoStop[
   return stops;
 }
 
+/**
+ * Low-setpoint mode: reports the decompression stops this ascent breathes on the low setpoint,
+ * because the loop switched down when leaving a depth deeper than the stop. With the defaults
+ * (switch-down at the 6 m last stop) there are none; a deeper switch-down depth, or one moved
+ * deeper to where the high setpoint is achievable, puts the shallower stops on the low setpoint.
+ * The schedule is already final; this names the stops, their time, and the switch-down depth.
+ */
+function lowSetpointStopDiagnostic(
+  initial: WorkingState,
+  result: AscentResult,
+  configuration: AscentConfiguration,
+): Diagnostic | undefined {
+  const { input } = configuration;
+  const ascent = configuration.ccrAscent;
+  if (ascent?.mode !== "low" || input.mode !== "ccr") return undefined;
+  const lowSetpoint = ascent.lowStrategy.setpointBar;
+  const stops: { depthM: Meters; seconds: number }[] = [];
+  let firstStopRuntime: Seconds | undefined;
+  for (const segment of result.state.segments.slice(initial.segments.length)) {
+    if (
+      segment.kind !== "stop" ||
+      segment.setpointBar === undefined ||
+      Math.abs(segment.setpointBar - lowSetpoint) > EPSILON
+    ) continue;
+    firstStopRuntime ??= segment.startRuntimeSeconds;
+    const previous = stops.at(-1);
+    if (previous && Math.abs(previous.depthM - segment.endDepthM) < EPSILON) previous.seconds += segment.durationSeconds;
+    else stops.push({ depthM: segment.endDepthM, seconds: segment.durationSeconds });
+  }
+  if (stops.length === 0) return undefined;
+
+  const totalSeconds = stops.reduce((sum, stop) => sum + stop.seconds, 0);
+  const minutes = Math.round(totalSeconds / 60);
+  const names = stops.map((stop) => formatMessageDepth(stop.depthM));
+  const listed = names.length === 1
+    ? `The ${names[0]} stop runs`
+    : `The ${names.length === 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`} stops run`;
+  // A switch-down moved deeper to where the high setpoint is achievable is printed rounded up,
+  // as CCR_SWITCH_DOWN_DEEPENED prints it; a switch-down depth the diver entered prints as entered.
+  const deepened = ascent.switchDownDepthM > switchDownDepth(input) + EPSILON;
+  const switchDownRounding = deepened ? "up" : "nearest";
+  const shallowest = stops.at(-1)!;
+  // Suggest a shallower switch-down only where it would hold the high setpoint at every listed stop.
+  const fixable = !deepened &&
+    shallowest.depthM >= setpointAchievableDepth(input.setpointBar, input.environmentSettings) - EPSILON;
+  const message = `${listed} on the ${lowSetpoint.toFixed(2)} bar low setpoint for ${minutes} min${stops.length === 1 ? "" : " in total"}, because the loop switches down when leaving ${formatMessageDepth(ascent.switchDownDepthM, switchDownRounding)}. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the ${input.setpointBar.toFixed(2)} bar high setpoint.${fixable ? ` Set the switch-down depth to ${formatMessageDepth(shallowest.depthM)} or shallower to hold the high setpoint at ${stops.length === 1 ? "that stop" : "those stops"}.` : ""}`;
+  return diagnostic("CCR_STOP_ON_LOW_SETPOINT", "warning", message, {
+    field: "setpointDeactivationDepthM",
+    ...(firstStopRuntime === undefined ? {} : { runtimeSeconds: firstStopRuntime }),
+    depthM: ascent.switchDownDepthM,
+    actual: totalSeconds,
+    depthMentions: [
+      ...stops.map((stop) => ({ valueM: stop.depthM, rounding: "nearest" as const })),
+      { valueM: ascent.switchDownDepthM, rounding: switchDownRounding },
+      ...(fixable ? [{ valueM: shallowest.depthM, rounding: "nearest" as const }] : []),
+    ],
+  });
+}
+
 function scheduleAscent(initial: WorkingState, configuration: AscentConfiguration): AscentResult {
+  const result = scheduleAscentWithGasSwitchRetry(initial, configuration);
+  const lowSetpointStops = lowSetpointStopDiagnostic(initial, result, configuration);
+  return lowSetpointStops ? { ...result, diagnostics: [...result.diagnostics, lowSetpointStops] } : result;
+}
+
+function scheduleAscentWithGasSwitchRetry(initial: WorkingState, configuration: AscentConfiguration): AscentResult {
   const first = scheduleAscentOnce(initial, configuration);
   const stuck = first.diagnostics.find((item) => item.code === "DECOMPRESSION_LIMIT_EXCEEDED");
   if (
