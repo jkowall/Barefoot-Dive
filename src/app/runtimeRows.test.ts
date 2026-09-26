@@ -123,10 +123,11 @@ describe("runtimeScheduleRows", () => {
     const rows = runtimeScheduleRows([
       loop("stop", 0, 60, 9, 9),
       loop("ascent", 60, 60, 9, 6),
-      openCircuit("gas-switch", 120, 0, 6, 6),
+      // The legacy planner records the change from the loop to open circuit as a setpoint switch.
+      openCircuit("setpoint-switch", 120, 0, 6, 6),
       openCircuit("stop", 120, 60, 6, 6),
     ]);
-    expect(rows[1]).toMatchObject({ gasName: "Tx18/45 diluent", travelGasName: "CCR 1.30 / Tx18/45 diluent", arrivalSwitch: "gas-switch" });
+    expect(rows[1]).toMatchObject({ gasName: "Tx18/45 diluent", travelGasName: "CCR 1.30 / Tx18/45 diluent", arrivalSwitch: "setpoint-switch" });
   });
 
   it("counts only the ascent as included travel when the arrival switch takes time", () => {
