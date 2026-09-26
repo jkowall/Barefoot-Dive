@@ -51,7 +51,7 @@ src/
 ├── index.css       # Global visual system entry; imports src/styles/
 └── styles/         # Tokens, base, shell, controls, layout, results, profile, pages, motion
 tests/ui/           # Playwright smoke and phone/tablet/desktop visual suites
-documentation/      # Architecture, calculations, flows, tests, tools, and trust boundaries
+documentation/      # Architecture, calculations, flows, tests, tools, trust boundaries, and work briefs
 ios/                # Capacitor iOS project
 android/            # Capacitor Android project
 ```
@@ -151,7 +151,8 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 - Plan patches must use `ToolPlanPatch` and `applyToolPlanPatch`; never reconstruct or replace unrelated plan state.
 - Keep interactive controls accessible by name, keyboard, and focus behavior.
 - Use large touch targets, safe-area spacing, bottom navigation on mobile, and the rail on desktop.
-- Preserve the dark slate/blue Barefoot visual family, strong information hierarchy, and restrained motion.
+- Preserve the "instrument dark" visual system: flat near-neutral navy surfaces, hairline dividers, one cyan accent (`--bf-accent`), and IBM Plex Sans and Mono bundled locally. Take every color, size, and duration from `src/styles/tokens.css`; add no hard-coded colors, gradients, glows, shadows, or hover lifts. Keep a strong information hierarchy and restrained motion.
+- Show measured values (depths, pressures, volumes, times, PPO₂) in tabular monospace numerals, and prefer flat ruled stat tiles and dense striped tables to nested cards.
 - Motion must clarify state, must not animate or count through safety-critical numeric values, and must honor `prefers-reduced-motion`.
 - Never show a superseded result beside edited inputs. Disable saving or Plan application until the displayed result matches the current input signature.
 - Do not add decorative dive imagery, low-information gauges, excessive cards, icons, or animation without a functional reason.
@@ -205,6 +206,9 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 - `npm run test:ui`
 - `npm run test:visual` when rendered output changes
 - Regenerate visual snapshots only after inspecting the new phone, tablet, and desktop images
+- Move the pointer to (0, 0) with `page.mouse.move(0, 0)` before `toHaveScreenshot`, so no stray hover state is captured, unless the case captures a pointer state on purpose, as the selected profile scrubber case does
+- Write a new case's baselines with `npm run test:visual -- --update-snapshots=missing`, then inspect them. `--update-snapshots=changed` leaves a diff under the 1% `maxDiffPixelRatio` tolerance in place; rewrite one case with `npm run test:visual -- --update-snapshots=all --grep "<case name>"`
+- `--update-snapshots=all`, including `npm run test:visual:update`, re-encodes every baseline even when its pixels are unchanged. Compare each rewritten PNG with the committed one pixel by pixel and restore the unchanged ones (`git restore --source=HEAD -- <path>`), so the commit carries only real rendering changes
 
 ### Decompression, tissue, convention, or validation logic
 
@@ -257,6 +261,7 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 - `documentation/tools.md`: Tools behavior and Plan handoff
 - `documentation/permissions.md`: local-only permissions boundary
 - `documentation/variables.md`: configuration and secret inventory
+- `documentation/briefs/`: implementation briefs for pending work that any coding agent can pick up; the pull request that implements a brief deletes it
 
 ## Common pitfalls
 
@@ -300,6 +305,7 @@ Use delegation only for concrete, independent, bounded work.
 - Keep at most two child agents active at once.
 - Child agents must not spawn other agents.
 - Assign owned paths and acceptance commands; never give two writers the same shared file group.
+- Work handed to another coding tool starts from a brief in `documentation/briefs/` that names the owned paths, the paths it must not touch, and the acceptance commands. The pull request that implements a brief deletes it.
 - Scientific modules, central types, package configuration, application state, and global CSS have one writer at a time.
 - Sol normally reviews rather than implements. Terra or Luna fixes findings, and Sol rechecks only the affected calculation when needed.
 
