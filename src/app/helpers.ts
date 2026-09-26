@@ -1,5 +1,5 @@
 import type { BarGauge, Cylinder, DivePlanInput, Gas, Meters } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters, meters } from "../domain/units";
+import { barAbsolute, barGauge, fraction, liters, meters, roundBound } from "../domain/units";
 
 export type UnitPreferences = { depth: "imperial" | "metric"; pressure: "psi" | "bar"; cylinderCapacity: "imperial" | "metric" };
 export const DEFAULT_PREFERENCES: UnitPreferences = { depth: "imperial", pressure: "psi", cylinderCapacity: "imperial" };
@@ -36,41 +36,102 @@ export const surfaceGasInputToCanonical = (
 export const surfaceGasInputStep = (units: UnitPreferences["cylinderCapacity"]): number => units === "imperial" ? 0.1 : 1;
 export const surfaceGasRateFromCanonical = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"]): number =>
   surfaceGasFromCanonical(litersPerMinute, units);
+/** ft³/min SAC rates are quoted to two decimals (0.55), L/min to one. */
+const surfaceGasRateDecimals = (units: UnitPreferences["cylinderCapacity"]): number => units === "imperial" ? 2 : 1;
 export const surfaceGasRateInputValue = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"]): number =>
-  Number(surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(1));
+  Number(surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(surfaceGasRateDecimals(units)));
 export const surfaceGasRateInputToCanonical = (
   value: number,
   units: UnitPreferences["cylinderCapacity"],
   equivalentValuesLpm: readonly number[] = [],
 ): number => {
-  const displayValue = Number(value.toFixed(1));
+  const displayValue = Number(value.toFixed(surfaceGasRateDecimals(units)));
   const equivalent = equivalentValuesLpm.find((candidate) => surfaceGasRateInputValue(candidate, units) === displayValue);
   return equivalent === undefined ? (units === "imperial" ? displayValue * CUFT_LITERS : displayValue) : equivalent;
 };
-export const surfaceGasRateInputStep = (): number => 0.1;
+export const surfaceGasRateInputStep = (units?: UnitPreferences["cylinderCapacity"]): number => units === "imperial" ? 0.01 : 0.1;
 export const surfaceGasRateUnit = (units: UnitPreferences["cylinderCapacity"]): "ft³/min" | "L/min" =>
   units === "imperial" ? "ft³/min" : "L/min";
 export const formatSurfaceGas = (litersValue: number, units: UnitPreferences["cylinderCapacity"], digits?: number): string =>
   `${surfaceGasFromCanonical(litersValue, units).toFixed(digits ?? (units === "imperial" ? 1 : 0))} ${surfaceGasUnit(units)}`;
-export const formatSurfaceGasRate = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"], digits = 1): string =>
-  `${surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(digits)} ${surfaceGasRateUnit(units)}`;
+export const formatSurfaceGasRate = (litersPerMinute: number, units: UnitPreferences["cylinderCapacity"], digits?: number): string =>
+  `${surfaceGasRateFromCanonical(litersPerMinute, units).toFixed(digits ?? surfaceGasRateDecimals(units))} ${surfaceGasRateUnit(units)}`;
 export const depthToCanonical = (value: number, units: UnitPreferences["depth"]): Meters => meters(units === "imperial" ? value / 3.280839895 : value);
-/**
- * Setpoint switch depths are compared with stop depths exactly, so an imperial entry within
- * half a foot of the stop grid snaps to it (20 ft or the displayed 19.7 ft is 6 m, not 6.1 m).
- */
-export const switchDepthToCanonical = (value: number, units: UnitPreferences["depth"], gridM = 3): Meters => {
-  const exact = depthToCanonical(value, units);
-  if (units !== "imperial") return exact;
-  const grid = Math.round(exact / gridM) * gridM;
-  return Math.abs(exact - grid) <= 0.1524 + 1e-9 ? meters(grid) : exact;
-};
 export const depthFromCanonical = (value: number, units: UnitPreferences["depth"]): number => units === "imperial" ? value * 3.280839895 : value;
+/** Depth inputs show whole feet, or metres to one decimal. */
+const depthInputDecimals = (units: UnitPreferences["depth"]): number => units === "imperial" ? 0 : 1;
+export const depthInputValue = (valueMeters: number, units: UnitPreferences["depth"]): number =>
+  Number(depthFromCanonical(valueMeters, units).toFixed(depthInputDecimals(units)));
+export const depthInputStep = (units: UnitPreferences["depth"]): number => units === "imperial" ? 1 : 0.1;
+
+export type DepthEntryBound =
+  /** Any depth or distance: converted exactly. */
+  | "free"
+  /** Deco or bailout switch depth, limited by a maximum PPO₂: may alias shallower onto the stop grid, never deeper. */
+  | "max-ppo2"
+  /** Travel-to-bottom switch depth, limited by a minimum and a maximum PPO₂: never aliased. */
+  | "min-ppo2"
+  /**
+   * CCR setpoint switch depth, compared with stop depths exactly: may alias shallower onto the stop grid,
+   * never deeper, so a switch-up typed at the planned maximum depth stays within the descent.
+   */
+  | "setpoint-switch";
+
+/**
+ * Convert a depth typed in the display unit to canonical metres.
+ *
+ * Retyping exactly the value shown for `focusM` (the stored depth when the field took focus) keeps
+ * that depth, so a 6 m switch shown as 20 ft stays 6 m. A new entry is taken at the precision the field shows
+ * (whole feet, or metres to one decimal), so the value used is the value displayed: 120.4 ft is 120 ft,
+ * and a switch depth drops the extra digits toward the surface (20.6 ft is 20 ft) so it is never deepened.
+ * That value converts exactly, except that a
+ * switch depth may alias to a stop-grid depth that displays as the same value, because the diver
+ * switches at the stop (20 ft typed is the 6 m stop). An aliased switch only ever moves shallower,
+ * which never raises a deco or bailout gas's PPO₂ and keeps a CCR switch-up within the descent. A
+ * retyped deco or bailout switch also moves onto that stop when the stop is shallower than the stored
+ * depth, so a 6.1 m oxygen switch shown as 20 ft becomes the 6 m stop. A travel-to-bottom switch never moves.
+ */
+export function resolveDepthEntry(
+  typed: number,
+  units: UnitPreferences["depth"],
+  options: { readonly focusM?: number; readonly gridM?: number; readonly bound?: DepthEntryBound } = {},
+): Meters {
+  const { focusM, gridM = 3, bound = "free" } = options;
+  if (!Number.isFinite(typed)) return meters(typed);
+  const decimals = depthInputDecimals(units);
+  const switchDepth = bound === "max-ppo2" || bound === "setpoint-switch";
+  // What the field displays for the typed value.
+  const shown = Number(typed.toFixed(decimals));
+  // A new entry at the displayed precision; a switch depth drops the extra digits toward the surface.
+  const entered = switchDepth ? roundBound(typed, decimals, "upper") : shown;
+  // The deepest stop-grid depth no deeper than `value`, when it displays as `display`.
+  const aliasOf = (value: number, display: number): number | undefined => {
+    if (!switchDepth || !(gridM > 0)) return undefined;
+    const gridDepth = Math.floor((depthToCanonical(value, units) + 1e-9) / gridM) * gridM;
+    return depthInputValue(gridDepth, units) === display ? gridDepth : undefined;
+  };
+  const alias = aliasOf(typed, shown) ?? aliasOf(entered, entered);
+  // Only retyping exactly the displayed value keeps the stored depth; 70.6 typed over 71 is a new entry.
+  if (typed === shown && focusM !== undefined && Number.isFinite(focusM) && depthInputValue(focusM, units) === shown) {
+    return bound === "max-ppo2" && alias !== undefined && alias < focusM ? meters(alias) : meters(focusM);
+  }
+  return alias === undefined ? depthToCanonical(entered, units) : meters(alias);
+}
+
+/** CCR setpoint switch depth entry: 20 ft, or a displayed 19.7 ft, is the 6 m stop. */
+export const switchDepthToCanonical = (value: number, units: UnitPreferences["depth"], gridM = 3): Meters =>
+  resolveDepthEntry(value, units, { gridM, bound: "setpoint-switch" });
+
+/**
+ * A depth limit rounded to whole display units on its safe side: a maximum (MOD) rounds down and a
+ * minimum (END, a ceiling) rounds up, so a diver working to the printed value stays within the limit.
+ */
+export const formatDepthBound = (valueMeters: number, units: UnitPreferences["depth"], bound: "upper" | "lower"): string =>
+  `${roundBound(depthFromCanonical(valueMeters, units), 0, bound).toFixed(0)} ${depthUnit(units)}`;
 export const pressureToCanonical = (value: number, units: UnitPreferences["pressure"]): BarGauge => barGauge(units === "psi" ? value / 14.5037738 : value);
 export const pressureFromCanonical = (value: number, units: UnitPreferences["pressure"]): number => units === "psi" ? value * 14.5037738 : value;
 export const pressureUnit = (units: UnitPreferences["pressure"]): "psi" | "bar" => units;
 export const depthUnit = (units: UnitPreferences["depth"]): "ft" | "m" => units === "imperial" ? "ft" : "m";
-export const depthInputValue = (valueMeters: number, units: UnitPreferences["depth"]): number => Number(depthFromCanonical(valueMeters, units).toFixed(1));
 export const pressureInputValue = (valueBar: number, units: UnitPreferences["pressure"]): number => Number(pressureFromCanonical(valueBar, units).toFixed(units === "psi" ? 0 : 1));
 export const pressureInputStep = (units: UnitPreferences["pressure"]): number => units === "psi" ? 1 : 0.1;
 export const pressureInputToCanonical = (value: number, units: UnitPreferences["pressure"], equivalentValuesBar: readonly number[] = []): BarGauge => {

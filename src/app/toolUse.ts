@@ -44,17 +44,17 @@ export function toolPlanPatchError(currentDraft: PlanDraft, patch: ToolPlanPatch
       const allowed = currentDraft.mode === "oc"
         ? patch.target === "bottomRmvLpm" || patch.target === "decoRmvLpm"
         : patch.target === "bailoutRmvLpm" || patch.target === "bailoutDecoRmvLpm";
-      if (!allowed) return "That RMV target does not apply to the current breathing mode.";
+      if (!allowed) return "That SAC/RMV target does not apply to the current breathing mode.";
       return Number.isFinite(patch.valueLpm) && patch.valueLpm > 0
         ? undefined
-        : "RMV must be finite and greater than zero.";
+        : "SAC/RMV must be finite and greater than zero.";
     }
     case "rock-bottom":
       if (currentDraft.mode !== "oc") return "Rock-bottom assumptions can only update an open-circuit plan.";
       if (!Number.isInteger(patch.teamSize) || patch.teamSize < 1) return "Team size must be a positive integer.";
       return Number.isFinite(patch.stressedRmvLpm) && patch.stressedRmvLpm > 0
         ? undefined
-        : "Stressed RMV must be finite and greater than zero.";
+        : "Stressed SAC/RMV must be finite and greater than zero.";
   }
 }
 
@@ -103,10 +103,10 @@ const gasLabel = (name: string, oxygenPercent: number, heliumPercent: number) =>
   `${name} (O₂ ${oxygenPercent.toFixed(1)}%, He ${heliumPercent.toFixed(1)}%)`;
 
 const rmvLabel: Record<RmvPlanTarget, string> = {
-  bottomRmvLpm: "Bottom RMV",
-  decoRmvLpm: "Deco RMV",
-  bailoutRmvLpm: "Bailout RMV",
-  bailoutDecoRmvLpm: "Bailout deco RMV",
+  bottomRmvLpm: "Bottom SAC/RMV",
+  decoRmvLpm: "Deco SAC/RMV",
+  bailoutRmvLpm: "Bailout SAC/RMV",
+  bailoutDecoRmvLpm: "Bailout deco SAC/RMV",
 };
 
 export function describeToolPlanPatch(
@@ -131,9 +131,9 @@ export function describeToolPlanPatch(
       return `${rmvLabel[patch.target]}: ${formatSurfaceGasRate(currentDraft[patch.target], capacityUnits)} → ${formatSurfaceGasRate(patch.valueLpm, capacityUnits)}. No other plan fields will change.`;
     case "rock-bottom": {
       const before = currentDraft.reserve.kind === "rock-bottom"
-        ? `team ${currentDraft.reserve.teamSize}, ${formatSurfaceGasRate(currentDraft.reserve.stressedRmvLpm, capacityUnits)} stressed RMV`
+        ? `team ${currentDraft.reserve.teamSize}, ${formatSurfaceGasRate(currentDraft.reserve.stressedRmvLpm, capacityUnits)} stressed SAC/RMV`
         : currentDraft.reserve.kind;
-      return `Reserve policy: ${before} → rock bottom, team ${patch.teamSize}, ${formatSurfaceGasRate(patch.stressedRmvLpm, capacityUnits)} stressed RMV. The entered emergency segments and calculated pressure are not copied.`;
+      return `Reserve policy: ${before} → rock bottom, team ${patch.teamSize}, ${formatSurfaceGasRate(patch.stressedRmvLpm, capacityUnits)} stressed SAC/RMV. The entered emergency segments and calculated pressure are not copied.`;
     }
   }
 }

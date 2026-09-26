@@ -30,8 +30,9 @@ import {
   WarningList,
   type WarningItem,
 } from "../ui";
-import { ActionButton, NumberField, SelectField } from "./controls";
+import { ActionButton, DepthField, NumberField, SelectField } from "./controls";
 import { collectCaveDiagnostics } from "./caveDiagnostics";
+import { formatDiagnostic } from "./diagnosticText";
 import {
   normalizeCaveRoute,
   routeCylinderAccess,
@@ -55,9 +56,8 @@ import {
   capacityInputValue,
   capacityUnit,
   depthFromCanonical,
-  depthInputValue,
-  depthToCanonical,
   depthUnit,
+  formatDepthBound,
   formatDuration,
   formatPressure,
   formatSurfaceGas,
@@ -78,11 +78,14 @@ type CompletionEvent = {
   readonly description: string;
 };
 
-const diagnosticsToItems = (items: readonly Diagnostic[]): readonly WarningItem[] => items.map((item, index) => ({
-  id: `${item.code}-${index}`,
-  message: item.field ? `${item.message} (${item.field})` : item.message,
-  severity: item.severity,
-}));
+const diagnosticsToItems = (items: readonly Diagnostic[], units: UnitPreferences["depth"]): readonly WarningItem[] => items.map((item, index) => {
+  const message = formatDiagnostic(item, units);
+  return {
+    id: `${item.code}-${index}`,
+    message: item.field ? `${message} (${item.field})` : message,
+    severity: item.severity,
+  };
+});
 
 function RouteEditor({
   containerRef,
@@ -123,10 +126,10 @@ function RouteEditor({
     </header>
     <div className="bf-form-grid bf-form-grid--route">
       <FieldGroup label="Leg label"><input aria-label="Leg label" onChange={(event) => set("id", event.currentTarget.value)} value={route.id} /></FieldGroup>
-      <NumberField label={`Start depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("startDepthM", depthToCanonical(value, preferences.depth))} value={depthInputValue(route.startDepthM, preferences.depth)} />
-      <NumberField label={`End depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("endDepthM", depthToCanonical(value, preferences.depth))} value={depthInputValue(route.endDepthM, preferences.depth)} />
+      <DepthField label={`Start depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("startDepthM", value)} units={preferences.depth} valueM={route.startDepthM} />
+      <DepthField label={`End depth (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("endDepthM", value)} units={preferences.depth} valueM={route.endDepthM} />
       <NumberField label="Duration (min)" min={0.1} onChange={(durationMinutes) => set("durationMinutes", durationMinutes)} step={0.5} value={route.durationMinutes} />
-      <NumberField label={`Distance (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("distanceM", depthToCanonical(value, preferences.depth))} value={depthInputValue(route.distanceM, preferences.depth)} />
+      <DepthField label={`Distance (${depthUnit(preferences.depth)})`} min={0} onChange={(value) => set("distanceM", value)} units={preferences.depth} valueM={route.distanceM} />
       <SelectField<Propulsion>
         label="Propulsion"
         onChange={(propulsion) => set("propulsion", propulsion)}
@@ -560,10 +563,10 @@ export default function CavePage({
     </section>
     {session.view === "setup" ? <div className="bf-plan-setup">
       {caveStatusWarning}
-      {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics)} title="Cave calculation diagnostics" />}
-      <WarningList items={diagnosticsToItems(resolved.diagnostics)} title="Tank Bank sources unavailable" />
-      <WarningList items={diagnosticsToItems(normalizedRoute.diagnostics)} title="Shared Tank Bank cylinders" />
-      <WarningList items={diagnosticsToItems(routeNotices)} title="Leg cylinders to confirm" />
+      {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics, preferences.depth)} title="Cave calculation diagnostics" />}
+      <WarningList items={diagnosticsToItems(resolved.diagnostics, preferences.depth)} title="Tank Bank sources unavailable" />
+      <WarningList items={diagnosticsToItems(normalizedRoute.diagnostics, preferences.depth)} title="Shared Tank Bank cylinders" />
+      <WarningList items={diagnosticsToItems(routeNotices, preferences.depth)} title="Leg cylinders to confirm" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
         {route.map((leg, index) => <RouteEditor
@@ -587,14 +590,14 @@ export default function CavePage({
             value={limits.turnPressureBar === undefined ? 0 : pressureInputValue(limits.turnPressureBar, preferences.pressure)}
           />
           <NumberField label="Entered turn time (min; 0 = calculated)" min={0} onChange={(value) => changeLimits({ ...limits, turnTimeMinutes: value > 0 ? value : undefined })} value={limits.turnTimeMinutes ?? 0} />
-          <NumberField label={`Maximum penetration distance (${depthUnit(preferences.depth)}; 0 = gas-derived)`} min={0} onChange={(value) => changeLimits({ ...limits, maximumDistanceM: value > 0 ? depthToCanonical(value, preferences.depth) : undefined })} value={limits.maximumDistanceM === undefined ? 0 : depthInputValue(limits.maximumDistanceM, preferences.depth)} />
+          <DepthField label={`Maximum penetration distance (${depthUnit(preferences.depth)}; 0 = gas-derived)`} min={0} onChange={(value) => changeLimits({ ...limits, maximumDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.maximumDistanceM ?? 0} />
           <NumberField label="Maximum penetration time (min; 0 = gas-derived)" min={0} onChange={(value) => changeLimits({ ...limits, maximumTimeMinutes: value > 0 ? value : undefined })} value={limits.maximumTimeMinutes ?? 0} />
           <FieldGroup label="Scenario trigger leg">
             <select aria-label="Scenario trigger leg" onChange={(event) => changeTargetLeg(event.currentTarget.value)} value={targetLegId}>
               {route.map((leg) => <option key={leg.id} value={leg.id}>{leg.id}</option>)}
             </select>
           </FieldGroup>
-          <NumberField label={`Scenario trigger distance (${depthUnit(preferences.depth)}; 0 = end of leg)`} min={0} onChange={(value) => changeLimits({ ...limits, scenarioTargetDistanceM: value > 0 ? depthToCanonical(value, preferences.depth) : undefined })} value={limits.scenarioTargetDistanceM === undefined ? 0 : depthInputValue(limits.scenarioTargetDistanceM, preferences.depth)} />
+          <DepthField label={`Scenario trigger distance (${depthUnit(preferences.depth)}; 0 = end of leg)`} min={0} onChange={(value) => changeLimits({ ...limits, scenarioTargetDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.scenarioTargetDistanceM ?? 0} />
         </div>
         <FieldGroup label="Scenarios to calculate">
           <div className="bf-check-grid">
@@ -650,11 +653,11 @@ export default function CavePage({
           {calculated.result.turnTimeSeconds !== undefined && <ResultMetric label="Maximum turn time" value={formatDuration(calculated.result.turnTimeSeconds)} />}
           {calculated.result.maximumPermittedPenetrationDistanceM !== undefined && <ResultMetric
             label="Maximum penetration distance"
-            value={`${depthFromCanonical(calculated.result.maximumPermittedPenetrationDistanceM, preferences.depth).toFixed(0)} ${depthUnit(preferences.depth)}`}
+            value={formatDepthBound(calculated.result.maximumPermittedPenetrationDistanceM, preferences.depth, "upper")}
           />}
         </div>
       </Panel>
-      <WarningList items={diagnosticsToItems([...aggregateCaveDiagnostics, ...routeNotices])} title="Aggregate cave diagnostics" />
+      <WarningList items={diagnosticsToItems([...aggregateCaveDiagnostics, ...routeNotices], preferences.depth)} title="Aggregate cave diagnostics" />
       <Panel title="Failure scenarios">
         <SegmentedControl
           label="Scenario result"
@@ -664,7 +667,7 @@ export default function CavePage({
         />
         {scenarioResult ? <div className="bf-scenario-summary">
           <ResultMetric kind="text" label="Scenario status" tone={scenarioResult.safe ? "safe" : "danger"} value={scenarioResult.safe ? "Calculated sufficient" : "Unsafe or unavailable"} />
-          <WarningList items={diagnosticsToItems(scenarioResult.diagnostics)} title={`${scenarioLabel(scenarioResult.kind)} diagnostics`} />
+          <WarningList items={diagnosticsToItems(scenarioResult.diagnostics, preferences.depth)} title={`${scenarioLabel(scenarioResult.kind)} diagnostics`} />
         </div> : <p>No failure scenarios selected.</p>}
       </Panel>
       <PlanResultView compact plan={calculated.result.base} preferences={preferences} title="Base cave plan" />

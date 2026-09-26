@@ -1,5 +1,7 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import type { Meters } from "../domain/types";
 import { FieldGroup } from "../ui";
+import { depthInputStep, depthInputValue, resolveDepthEntry, type DepthEntryBound, type UnitPreferences } from "./helpers";
 
 export function ActionButton({
   children,
@@ -60,6 +62,57 @@ export function NumberField({
       step={step}
       type="number"
       value={Number.isFinite(value) ? value : ""}
+    />
+  </FieldGroup>;
+}
+
+/**
+ * A depth or distance field in the display unit (whole feet, or metres to one decimal).
+ *
+ * The stored metres are captured when the field takes focus. The field reports every keystroke,
+ * so without this, retyping the displayed value would compare against the partial entry instead
+ * (typing "20" passes through "2"). Retyping the value shown on focus keeps the stored depth exactly.
+ */
+export function DepthField({
+  label,
+  valueM,
+  units,
+  onChange,
+  bound = "free",
+  gridM,
+  min,
+  hint,
+  error,
+  disabled,
+}: {
+  readonly label: string;
+  readonly valueM: number;
+  readonly units: UnitPreferences["depth"];
+  readonly onChange: (value: Meters) => void;
+  readonly bound?: DepthEntryBound;
+  /** Stop grid for switch-depth aliasing; the plan's stop increment. */
+  readonly gridM?: number;
+  readonly min?: number;
+  readonly hint?: string;
+  readonly error?: string;
+  readonly disabled?: boolean;
+}) {
+  const focusM = useRef<number | undefined>(undefined);
+  return <FieldGroup error={error} label={label} hint={hint}>
+    <input
+      aria-label={label}
+      disabled={disabled}
+      min={min}
+      onBlur={() => { focusM.current = undefined; }}
+      onChange={(event) => onChange(resolveDepthEntry(Number(event.currentTarget.value), units, {
+        focusM: focusM.current ?? valueM,
+        gridM,
+        bound,
+      }))}
+      onFocus={() => { focusM.current = valueM; }}
+      step={depthInputStep(units)}
+      type="number"
+      value={Number.isFinite(valueM) ? depthInputValue(valueM, units) : ""}
     />
   </FieldGroup>;
 }

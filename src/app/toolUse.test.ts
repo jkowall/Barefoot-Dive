@@ -74,7 +74,7 @@ describe("exact Tools plan patches", () => {
     const before = customizedDraft();
     const patch = { kind: "rmv", target: "bottomRmvLpm", valueLpm: 28.316846592 } as const;
 
-    expect(describeToolPlanPatch(before, patch, "imperial")).toContain("0.6 ft³/min → 1.0 ft³/min");
+    expect(describeToolPlanPatch(before, patch, "imperial")).toContain("Bottom SAC/RMV: 0.64 ft³/min → 1.00 ft³/min");
     expect(describeToolPlanPatch(before, patch, "metric")).toContain("18.0 L/min → 28.3 L/min");
     expect(patch.valueLpm).toBe(28.316846592);
   });

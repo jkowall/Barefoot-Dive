@@ -6,7 +6,8 @@ import packageJson from "./package.json" with { type: "json" };
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(packageJson.version) },
   test: {
-    exclude: ["tests/ui/**", "node_modules/**", "dist/**"],
+    // .claude/ holds local agent worktrees, each with its own sources and node_modules.
+    exclude: ["tests/ui/**", "node_modules/**", "dist/**", ".claude/**"],
   },
   plugins: [
     react(),

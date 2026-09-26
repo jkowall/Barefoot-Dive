@@ -4,7 +4,7 @@ import type {
 } from "../domain/types";
 import { integratedSurfaceGas } from "../calculations";
 import { calculateEventDivePlan, type ExposureEvent } from "../engine/planner";
-import { barGauge, depthToAmbientPressure, liters, meters, seconds } from "../domain/units";
+import { barGauge, depthToAmbientPressure, formatMessageDepth, liters, meters, seconds } from "../domain/units";
 import {
   effectiveBailoutGases,
   ocBottomSwitchDepth,
@@ -173,7 +173,7 @@ function validate(input: CavePlanInput): Diagnostic[] {
   if (reserve.kind === "fixed") finite(reserve.minimumPressureBar, "RESERVE_INVALID", "Fixed reserve pressure must be finite and nonnegative.", "reserve.minimumPressureBar");
   if (reserve.kind === "rock-bottom") {
     finite(reserve.teamSize, "RESERVE_INVALID", "Rock-bottom team size must be positive and finite.", "reserve.teamSize", true);
-    finite(reserve.stressedRmvLpm, "RESERVE_INVALID", "Rock-bottom RMV must be positive and finite.", "reserve.stressedRmvLpm", true);
+    finite(reserve.stressedRmvLpm, "RESERVE_INVALID", "Rock-bottom SAC/RMV must be positive and finite.", "reserve.stressedRmvLpm", true);
   }
   for (const request of input.scenarios ?? []) {
     finite(request.targetDistanceM, "SCENARIO_TARGET_INVALID", "Scenario target distance must be finite and nonnegative.", "targetDistanceM");
@@ -183,11 +183,16 @@ function validate(input: CavePlanInput): Diagnostic[] {
     // Route legs are explicit events, so the high setpoint must be achievable wherever it is held.
     const achievableDepth = setpointAchievableDepth(dive.setpointBar, dive.environmentSettings);
     if (switchDownDepth(dive) < achievableDepth - 1e-9) {
-      d.push(error(
-        "CAVE_CCR_SWITCH_DOWN_TOO_SHALLOW",
-        `Cave routes are explicit legs, so the ${dive.setpointBar.toFixed(2)} bar high setpoint must be dropped at or below ${achievableDepth.toFixed(1)} m, where the loop can still hold it. Deepen the switch-down depth.`,
-        "dive.setpointDeactivationDepthM",
-      ));
+      // The achievable depth is a minimum, so it is printed rounded up.
+      d.push({
+        ...error(
+          "CAVE_CCR_SWITCH_DOWN_TOO_SHALLOW",
+          `Cave routes are explicit legs, so the ${dive.setpointBar.toFixed(2)} bar high setpoint must be dropped at or below ${formatMessageDepth(achievableDepth, "up")}, where the loop can still hold it. Deepen the switch-down depth.`,
+          "dive.setpointDeactivationDepthM",
+        ),
+        depthM: meters(achievableDepth),
+        depthMentions: [{ valueM: meters(achievableDepth), rounding: "up" }],
+      });
     }
   }
   return d;

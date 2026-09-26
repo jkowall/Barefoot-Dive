@@ -14,7 +14,7 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   const footer = page.getByRole("contentinfo");
   const versions = footer.locator(".bf-app-footer__versions");
   await expect(versions.getByText("App", { exact: true })).toBeVisible();
-  await expect(versions.getByText("0.5.1", { exact: true })).toBeVisible();
+  await expect(versions.getByText("0.5.2", { exact: true })).toBeVisible();
   await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
   await expect(versions.getByText("barefoot-dive-engine-0.3.0", { exact: true })).toBeVisible();
   const projectLinks = footer.getByRole("navigation", { name: "Project links" });
@@ -81,7 +81,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.5.1 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
+  await expect(settings.getByText("App 0.5.2 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 
@@ -1530,14 +1530,14 @@ test("maps SAC targets to the active planning mode", async ({ page }) => {
   await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   await page.getByRole("button", { name: /^SAC \/ RMV/ }).click();
   let target = page.getByRole("radiogroup", { name: "Plan target" });
-  await expect(target.getByText("OC bottom RMV", { exact: true })).toBeVisible();
-  await expect(target.getByText("OC deco RMV", { exact: true })).toBeVisible();
+  await expect(target.getByText("OC bottom SAC/RMV", { exact: true })).toBeVisible();
+  await expect(target.getByText("OC deco SAC/RMV", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Plan", exact: true }).first().click();
   await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
   await page.getByRole("button", { name: "Tools", exact: true }).first().click();
   target = page.getByRole("radiogroup", { name: "Plan target" });
-  await expect(target.getByText("CCR bailout RMV", { exact: true })).toBeVisible();
-  await expect(target.getByText("CCR bailout deco RMV", { exact: true })).toBeVisible();
+  await expect(target.getByText("CCR bailout SAC/RMV", { exact: true })).toBeVisible();
+  await expect(target.getByText("CCR bailout deco SAC/RMV", { exact: true })).toBeVisible();
 });
 
 test("changes Tool presentation units without rewriting canonical inputs", async ({ page }) => {
@@ -1547,19 +1547,19 @@ test("changes Tool presentation units without rewriting canonical inputs", async
   const oxygen = page.getByRole("spinbutton", { name: "O₂ fraction (%)" });
   await oxygen.fill("32");
   const depthMetric = page.getByText("Maximum operating depth").locator("..");
-  await expect(depthMetric.getByText("111 ft", { exact: true })).toBeVisible();
+  await expect(depthMetric.getByText("110 ft", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("radiogroup", { name: "Depth and distance" }).getByText("Meters", { exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(oxygen).toHaveValue("32");
-  await expect(depthMetric.getByText("34 m", { exact: true })).toBeVisible();
+  await expect(depthMetric.getByText("33 m", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("radiogroup", { name: "Depth and distance" }).getByText("Feet", { exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(oxygen).toHaveValue("32");
-  await expect(depthMetric.getByText("111 ft", { exact: true })).toBeVisible();
+  await expect(depthMetric.getByText("110 ft", { exact: true })).toBeVisible();
 });
 
 test("uses the configured surface-gas units throughout Tools without rewriting canonical values", async ({ page }) => {
@@ -1571,7 +1571,7 @@ test("uses the configured surface-gas units throughout Tools without rewriting c
   const sacMetric = page.locator(".bf-metric").filter({ hasText: "SAC / RMV" });
   await expect(imperialGasUsed).toHaveValue("21.2");
   await expect(imperialGasUsed).toHaveAttribute("step", "0.1");
-  await expect(sacMetric.getByText("0.5 ft³/min", { exact: true })).toBeVisible();
+  await expect(sacMetric.getByText("0.53 ft³/min", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.getByRole("radiogroup", { name: "Cylinder capacity" }).getByText("Water-volume L", { exact: true }).click();
@@ -1585,9 +1585,9 @@ test("uses the configured surface-gas units throughout Tools without rewriting c
   await page.getByRole("radiogroup", { name: "Cylinder capacity" }).getByText("Rated ft³", { exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(imperialGasUsed).toHaveValue("21.2");
-  await expect(sacMetric.getByText("0.5 ft³/min", { exact: true })).toBeVisible();
+  await expect(sacMetric.getByText("0.53 ft³/min", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Apply OC bottom RMV" }).click();
+  await page.getByRole("button", { name: "Apply OC bottom SAC/RMV" }).click();
   const confirmation = page.getByRole("dialog", { name: "Apply this exact change?" });
   await expect(confirmation).toContainText("ft³/min");
   await expect(confirmation).not.toContainText("L/min");
@@ -1595,9 +1595,9 @@ test("uses the configured surface-gas units throughout Tools without rewriting c
 
   await page.getByRole("button", { name: "All tools" }).click();
   await page.getByRole("button", { name: /^Gas Duration/ }).click();
-  const rmv = page.getByRole("spinbutton", { name: "RMV (ft³/min)" });
-  await expect(rmv).toHaveValue("0.7");
-  await expect(rmv).toHaveAttribute("step", "0.1");
+  const rmv = page.getByRole("spinbutton", { name: "SAC/RMV (ft³/min)" });
+  await expect(rmv).toHaveValue("0.71");
+  await expect(rmv).toHaveAttribute("step", "0.01");
 });
 
 test("offers Tank Bank only when the active Tool mode uses cylinder context", async ({ page }) => {
@@ -1672,16 +1672,16 @@ test("keeps Emergency Gas live while never pairing edited inputs with an old res
   await page.getByRole("button", { name: /^Emergency Gas/ }).click();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByText("Calculated assumptions", { exact: true }).click();
-  await expect(page.getByText("Stressed RMV: 0.7 ft³/min", { exact: false })).toBeVisible();
+  await expect(page.getByText("Stressed SAC/RMV: 0.71 ft³/min", { exact: false })).toBeVisible();
   const apply = page.getByRole("button", { name: "Apply reserve assumptions" });
   await expect(apply).toBeEnabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0.9");
+  await page.getByRole("spinbutton", { name: "Stressed SAC/RMV (ft³/min)" }).fill("0.9");
   await expect(page.getByText("Updating", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stressed RMV: 0.7 ft³/min", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Stressed SAC/RMV: 0.71 ft³/min", { exact: false })).toHaveCount(0);
   await expect(apply).toBeDisabled();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByText("Calculated assumptions", { exact: true }).click();
-  await expect(page.getByText("Stressed RMV: 0.9 ft³/min", { exact: false })).toBeVisible();
+  await expect(page.getByText("Stressed SAC/RMV: 0.90 ft³/min", { exact: false })).toBeVisible();
   await expect(apply).toBeEnabled();
   const calculatedAssumptions = page.locator("details.bf-tool-details--nested");
   const afterRmv = await calculatedAssumptions.innerText();
@@ -1699,15 +1699,81 @@ test("keeps Emergency Gas live while never pairing edited inputs with an old res
   await expect(apply).toBeDisabled();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await expect(apply).toBeEnabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0");
+  await page.getByRole("spinbutton", { name: "Stressed SAC/RMV (ft³/min)" }).fill("0");
   await expect(page.getByText("Check inputs", { exact: true })).toBeVisible();
   await expect(page.getByText("Fix the highlighted inputs to restore the live result.", { exact: true })).toBeVisible();
   await expect(apply).toBeDisabled();
-  await page.getByRole("spinbutton", { name: "Stressed RMV (ft³/min)" }).fill("0.9");
+  await page.getByRole("spinbutton", { name: "Stressed SAC/RMV (ft³/min)" }).fill("0.9");
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
   await page.getByRole("radiogroup", { name: "Emergency mode" }).getByText("Simplified Bailout", { exact: true }).click();
   await expect(page.getByText("Updating", { exact: true })).toBeVisible();
   await expect(page.getByText("Planning context: CCR", { exact: false })).toBeVisible();
   await expect(page.getByRole("radiogroup", { name: "Cylinder context" }).getByRole("radio", { name: "Required cylinder" })).toBeChecked();
   await expect(page.getByText("Live result", { exact: true })).toBeVisible();
+});
+
+test("accepts O2 at 20 ft and EAN50 at 70 ft and folds travel between stops into the stop rows", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("spinbutton", { name: "Maximum depth (ft)" }).fill("120");
+  const switchDepths = page.getByRole("spinbutton", { name: "Switch depth (ft)" });
+  // The default EAN50 and oxygen switches (21 m and 6 m) read in whole feet.
+  await expect(switchDepths.nth(0)).toHaveValue("69");
+  await expect(switchDepths.nth(1)).toHaveValue("20");
+  await switchDepths.nth(0).fill("70");
+  await switchDepths.nth(1).fill("20");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results).toBeVisible();
+  const oxygenStop = results.getByRole("table", { name: "Runtime schedule" }).getByRole("row").filter({ hasText: "Oxygen" }).filter({ hasText: "20 ft" }).first();
+  // The row starts when the diver leaves 30 ft on EAN50, so it names both gases and the switch on arrival.
+  await expect(oxygenStop).toContainText("EAN50 → Oxygen");
+  await expect(oxygenStop).toContainText("stop (incl. 1:00 ascent, gas switch on arrival)");
+  await expect(results.getByText("Time at stops", { exact: true })).toBeVisible();
+});
+
+test("keeps a plan current when a displayed switch depth is retyped", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  const switchDepths = page.getByRole("spinbutton", { name: "Switch depth (ft)" });
+  await switchDepths.nth(0).fill("69");
+  await switchDepths.nth(1).fill("20");
+  await expect(page.locator(".bf-plan-status")).toHaveAttribute("data-state", "current");
+});
+
+test("accepts the low setpoint limit it prints", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  const low = page.getByRole("spinbutton", { name: "Low setpoint (bar)" });
+  await low.fill("0.95");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByText(/cannot be held at the surface, where the loop reaches at most 0\.93 bar/)).toBeVisible();
+  await low.fill("0.93");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("region", { name: "Calculated plan" })).toBeVisible();
+});
+
+test("reports gas density in g/L", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).first().click();
+  await page.getByRole("button", { name: /^Gas Density/ }).click();
+  await expect(page.locator(".bf-metric").filter({ hasText: "Gas density" })).toContainText(/\d+\.\d{2} g\/L/);
+});
+
+test("restates stored warning depths in feet in the Saved Plans library", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" }).fill("0");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  await expect(page.getByRole("heading", { name: "Calculated plan" })).toBeVisible();
+  await page.getByRole("button", { name: "Save snapshot" }).click();
+  await page.getByLabel("Plan name").fill("CCR switch-down plan");
+  await page.getByRole("button", { name: "Save plan" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Snapshot saved locally" })).toBeVisible();
+  await page.getByRole("button", { name: /^Saved plans/ }).first().click();
+  const stored = page.getByRole("region", { name: "Stored warnings" });
+  // The stored message prints canonical metres (3.7 m, 0.0 m); the library restates them in feet.
+  await expect(stored).toContainText("shallower than 12 ft, so the plan switches to the low setpoint at 12 ft instead of 0 ft");
+  await expect(stored).not.toContainText("3.7 m");
 });

@@ -23,6 +23,7 @@ import CavePage from "./app/CavePage";
 import { collectCaveDiagnostics } from "./app/caveDiagnostics";
 import { createInitialCaveWorkspaceSession, type CaveWorkspaceSession } from "./app/caveWorkspace";
 import { ActionButton } from "./app/controls";
+import { formatDiagnostic } from "./app/diagnosticText";
 import { DEFAULT_PREFERENCES, type UnitPreferences } from "./app/helpers";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./app/planning";
 import PlanPage from "./app/PlanPage";
@@ -177,11 +178,14 @@ function SavedPlanDetail({
       severity: "warning",
     }]} title="Version status" />}
     {record.caveResultSnapshot && <>
-      <WarningList items={caveDiagnostics.map((item, index) => ({
-        id: `stored-cave-${item.code}-${index}`,
-        message: item.field ? `${item.message} (${item.field})` : item.message,
-        severity: item.severity,
-      }))} title="Stored cave calculation diagnostics" />
+      <WarningList items={caveDiagnostics.map((item, index) => {
+        const message = formatDiagnostic(item, preferences.depth);
+        return {
+          id: `stored-cave-${item.code}-${index}`,
+          message: item.field ? `${message} (${item.field})` : message,
+          severity: item.severity,
+        };
+      })} title="Stored cave calculation diagnostics" />
       <Panel
         eyebrow={caveUnsafe ? "Stored safety errors · do not use" : "Experimental cave context retained"}
         title="Cave snapshot"
@@ -337,6 +341,7 @@ export default function App() {
     content = stores.savedPlans
       ? <SavedPlansPage
           currentEngineVersion={ENGINE_VERSION}
+          depthUnits={preferences.depth}
           onError={reportError}
           onOpenPlan={(_, record) => setOpenedRecord(record)}
           onRecalculate={(record) => buildRecalculation(record, reportError)}

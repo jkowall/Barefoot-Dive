@@ -17,6 +17,7 @@ import {
   tankBankSnapshot,
   tankSourceOptionLabel,
   tankSourceSignature,
+  tankSourcesChanged,
   withGasPlanning,
   type GasDraft,
   type PlanDraft,
@@ -25,6 +26,11 @@ import {
 } from "./planning";
 
 /** The calculable input of a draft whose Tank Bank sources all resolve. */
+/** The entries of a `tankSourceSignature`. */
+function sourcesOf(signature: string): { gasKey: string; tankId: string | null; revision: number | null; active: boolean }[] {
+  return JSON.parse(signature) as { gasKey: string; tankId: string | null; revision: number | null; active: boolean }[];
+}
+
 function calculable(resolved: ResolvedPlanInput): DivePlanInput {
   if (!resolved.ok) throw new Error(resolved.diagnostics.map((item) => item.message).join(" "));
   return resolved.input;
@@ -114,7 +120,8 @@ describe("plan input resolution", () => {
     expect(input.gasOnly).toBe(true);
     expect(resolved.gases.every((gas) => gas.cylinderId === undefined)).toBe(true);
     expect(resolved.gases[0]).toMatchObject({ id: "plan-gas-bottom", oxygen: 0.18, helium: 0.45, maximumPPO2: 1.4 });
-    expect(tankSourceSignature(draft, [])).toBe("[]");
+    // Gas-only plans take no Tank Bank source.
+    expect(sourcesOf(tankSourceSignature(draft, [])).every((entry) => entry.tankId === null)).toBe(true);
   });
 
   it("ignores gas-only planning in Cave and does not emit gas-only fields for cylinder plans", () => {
@@ -238,7 +245,7 @@ describe("unavailable Tank Bank sources", () => {
     expect(input.mode === "oc" && input.bottomGas).toEqual(source.adHoc.gas);
     expect(after.cylinders[0]).toEqual(source.adHoc.cylinder);
     expect(input).toEqual(adHocBottom);
-    expect(tankSourceSignature(detached, [])).toBe("[]");
+    expect(sourcesOf(tankSourceSignature(detached, [])).every((entry) => entry.tankId === null)).toBe(true);
   });
 
   it("resolves again when the diver re-selects a loaded cylinder or the record loads again", () => {
@@ -297,13 +304,13 @@ describe("unavailable Tank Bank sources", () => {
     const snapshot = tankBankSnapshot(loaded);
     expect(snapshot).toEqual({ readable: true, records: [archived, spare] });
     expect(selectableTanks(snapshot)).toEqual([spare]);
-    expect(tankSourceSignature(sourced, snapshot)).toBe(JSON.stringify([{ gasKey: "bottom", tankId: doubles.id, revision: 3 }]));
+    expect(sourcesOf(tankSourceSignature(sourced, snapshot))[0]).toEqual({ gasKey: "bottom", tankId: doubles.id, revision: 3, active: true });
 
     const error = { code: "STORAGE_INVALID", key: "barefoot-dive:tank-bank", message: "Stored data failed runtime validation." } as const;
     const unreadable = tankBankSnapshot({ ok: false, error, diagnostics: [error] });
     expect(unreadable).toEqual({ readable: false, message: "Stored data failed runtime validation." });
     expect(selectableTanks(unreadable)).toEqual([]);
-    expect(tankSourceSignature(sourced, unreadable)).toBe(JSON.stringify([{ gasKey: "bottom", tankId: doubles.id, revision: null }]));
+    expect(sourcesOf(tankSourceSignature(sourced, unreadable))[0]).toEqual({ gasKey: "bottom", tankId: doubles.id, revision: null, active: true });
     expect(tankBankSnapshot(undefined)).toEqual({ readable: false, message: "Local storage is unavailable." });
   });
 
@@ -736,5 +743,76 @@ describe("Tank Bank records whose gases share an identifier", () => {
     expect(lost.find((item) => item.cylinderId === stage.id)).toMatchObject({ gasId: "air~2" });
     expect(used(lost, backGas.id)).toBeGreaterThan(0);
     expect(used(lost, stage.id)).toBeGreaterThan(0);
+  });
+});
+
+describe("hidden inputs and Tank Bank source tracking", () => {
+  const bankTank = (revision: number, switchDepthM?: number): TankRecord => ({
+    id: "o2-stage",
+    name: "O₂ stage",
+    waterVolumeL: liters(7),
+    workingPressureBar: barGauge(200),
+    currentPressureBar: barGauge(200),
+    gas: { id: "bank-o2", name: "Oxygen", oxygen: fraction(1), helium: fraction(0), role: "deco", ...(switchDepthM === undefined ? {} : { switchDepthM: meters(switchDepthM) }) },
+    maximumPPO2: barAbsolute(1.6),
+    revision,
+    createdAt: "2026-09-24T00:00:00.000Z",
+    updatedAt: "2026-09-24T00:00:00.000Z",
+  });
+
+  it("drops a hidden bottom-gas switch depth when no travel gas is in use", () => {
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, switchDepthM: 30 } };
+    const withoutTravel = resolvePlanInput(draft, []);
+    const input = calculable(withoutTravel);
+    expect(input.mode === "oc" && "switchDepthM" in input.bottomGas).toBe(false);
+    const bottomCylinder = withoutTravel.cylinders.find((cylinder) => cylinder.id === withoutTravel.gases[0]!.cylinderId);
+    expect(bottomCylinder && "switchDepthM" in bottomCylinder.gas).toBe(false);
+    const withTravel = calculable(resolvePlanInput({ ...draft, travelGasEnabled: true }, []));
+    expect(withTravel.mode === "oc" && withTravel.bottomGas.switchDepthM).toBe(30);
+  });
+
+  it("drops a Tank Bank switch depth on the bottom gas when no travel gas is in use", () => {
+    const tank = { ...bankTank(1, 6), id: "bank-bottom" };
+    const draft: PlanDraft = { ...DEFAULT_PLAN_DRAFT, bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: tank.id } };
+    const input = calculable(resolvePlanInput(draft, [tank]));
+    expect(input.mode === "oc" && "switchDepthM" in input.bottomGas).toBe(false);
+  });
+
+  it("compares Tank Bank sources only for gases the calculation used", () => {
+    const draft: PlanDraft = {
+      ...DEFAULT_PLAN_DRAFT,
+      decoGases: [DEFAULT_PLAN_DRAFT.decoGases[0]!, { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, cylinderId: "o2-stage" }],
+    };
+    const excluded: PlanDraft = { ...draft, decoGases: [draft.decoGases[0]!, { ...draft.decoGases[1]!, enabled: false }] };
+    const changed = (before: PlanDraft, after: PlanDraft, tanksAfter = [bankTank(1)]) =>
+      tankSourcesChanged(tankSourceSignature(before, [bankTank(1)]), tankSourceSignature(after, tanksAfter));
+    // Switching a Tank Bank gas or the travel gas on or off is an ordinary edit.
+    expect(changed(draft, excluded)).toBe(false);
+    expect(changed(excluded, draft)).toBe(false);
+    expect(changed(draft, { ...draft, travelGasEnabled: true })).toBe(false);
+    // A new revision of a cylinder the calculation used is a change.
+    expect(changed(draft, draft, [bankTank(2)])).toBe(true);
+    // A new revision of a switched-off gas's cylinder is not, and switching that gas back on
+    // recalculates with the cylinder as it is now.
+    expect(changed(excluded, excluded, [bankTank(2)])).toBe(false);
+    expect(changed(excluded, draft, [bankTank(2)])).toBe(false);
+    // Choosing a Tank Bank cylinder for a gas in use, detaching it, or leaving gas-only planning is a change.
+    const adHoc: PlanDraft = { ...draft, decoGases: [draft.decoGases[0]!, { ...draft.decoGases[1]!, cylinderId: undefined }] };
+    expect(changed(adHoc, draft)).toBe(true);
+    expect(changed(draft, adHoc)).toBe(true);
+    expect(changed({ ...draft, gasPlanning: "gas-only" }, draft)).toBe(true);
+    // One stage sourcing a CCR bailout gas and an OC deco gas: switching modes after the stage was
+    // revised is a change, because the calculation used that record; without a revision it is not.
+    const stageBoth: PlanDraft = {
+      ...draft,
+      mode: "ccr",
+      bailoutGases: [{ ...draft.bailoutGases[0]!, cylinderId: "o2-stage" }, ...draft.bailoutGases.slice(1)],
+    };
+    const ocWithStage: PlanDraft = { ...stageBoth, mode: "oc" };
+    expect(changed(stageBoth, ocWithStage, [bankTank(2)])).toBe(true);
+    expect(changed(stageBoth, ocWithStage)).toBe(false);
+    // Values that are not source signatures compare as strings.
+    expect(tankSourcesChanged("source-a", "source-a")).toBe(false);
+    expect(tankSourcesChanged("source-a", "source-b")).toBe(true);
   });
 });

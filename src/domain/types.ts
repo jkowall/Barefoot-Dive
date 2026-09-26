@@ -36,6 +36,16 @@ export type Diagnostic = {
   readonly limit?: number;
   readonly gasId?: string;
   readonly cylinderId?: string;
+  /**
+   * Depths printed in `message`, in order of appearance, with the rounding used to print them,
+   * so a display can restate each one in feet. Omitted when the message prints only `depthM`.
+   */
+  readonly depthMentions?: readonly DepthMention[];
+};
+
+export type DepthMention = {
+  readonly valueM: Meters;
+  readonly rounding: "nearest" | "up" | "down";
 };
 
 export type CalculationResult<T> =

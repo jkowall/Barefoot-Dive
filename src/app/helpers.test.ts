@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capacityInputValue, formatPressure, formatSurfaceGas, formatSurfaceGasRate, pressureFromCanonical, pressureInputStep, pressureInputToCanonical, pressureInputValue, pressureToCanonical, ratedCapacityFromCanonical, surfaceGasInputStep, surfaceGasInputToCanonical, surfaceGasInputValue, surfaceGasRateInputStep, surfaceGasRateInputToCanonical, surfaceGasRateInputValue, surfaceGasRateUnit, surfaceGasUnit, waterVolumeFromRatedCapacity } from "./helpers";
+import { capacityInputValue, depthInputStep, depthInputValue, formatDepthBound, formatPressure, formatSurfaceGas, formatSurfaceGasRate, pressureFromCanonical, pressureInputStep, pressureInputToCanonical, pressureInputValue, pressureToCanonical, ratedCapacityFromCanonical, surfaceGasInputStep, surfaceGasInputToCanonical, surfaceGasInputValue, surfaceGasRateInputStep, surfaceGasRateInputToCanonical, surfaceGasRateInputValue, surfaceGasRateUnit, surfaceGasUnit, resolveDepthEntry, waterVolumeFromRatedCapacity } from "./helpers";
 
 describe("rated cylinder capacity conversions", () => {
   it("round-trips imperial rated cubic feet using working pressure", () => {
@@ -65,12 +65,150 @@ describe("surface gas presentation", () => {
   it("formats and round-trips rates using the same capacity preference", () => {
     expect(surfaceGasRateUnit("imperial")).toBe("ft³/min");
     expect(surfaceGasRateUnit("metric")).toBe("L/min");
-    expect(surfaceGasRateInputValue(20, "imperial")).toBe(0.7);
+    expect(surfaceGasRateInputValue(20, "imperial")).toBe(0.71);
     expect(surfaceGasRateInputValue(20, "metric")).toBe(20);
-    expect(surfaceGasRateInputStep()).toBe(0.1);
-    expect(formatSurfaceGasRate(20, "imperial")).toBe("0.7 ft³/min");
+    expect(surfaceGasRateInputStep("imperial")).toBe(0.01);
+    expect(surfaceGasRateInputStep("metric")).toBe(0.1);
+    expect(formatSurfaceGasRate(20, "imperial")).toBe("0.71 ft³/min");
     expect(formatSurfaceGasRate(20, "metric")).toBe("20.0 L/min");
-    expect(surfaceGasRateInputToCanonical(0.7, "imperial", [20])).toBe(20);
+    expect(surfaceGasRateInputToCanonical(0.71, "imperial", [20])).toBe(20);
     expect(surfaceGasRateInputToCanonical(20.04, "metric")).toBe(20);
+  });
+
+  it("accepts two-decimal ft³/min SAC rates such as 0.55", () => {
+    const canonical = surfaceGasRateInputToCanonical(0.55, "imperial");
+    expect(canonical).toBeCloseTo(0.55 * 28.316846592, 10);
+    expect(surfaceGasRateInputValue(canonical, "imperial")).toBe(0.55);
+  });
+});
+
+describe("depth entry", () => {
+  it("shows whole feet and one-decimal metres", () => {
+    expect(depthInputValue(6, "imperial")).toBe(20);
+    expect(depthInputValue(21, "imperial")).toBe(69);
+    expect(depthInputValue(21.336, "imperial")).toBe(70);
+    expect(depthInputValue(21.336, "metric")).toBe(21.3);
+    expect(depthInputStep("imperial")).toBe(1);
+    expect(depthInputStep("metric")).toBe(0.1);
+  });
+
+  it("keeps the stored depth when its displayed value is retyped", () => {
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6 })).toBe(6);
+    expect(resolveDepthEntry(69, "imperial", { focusM: 21 })).toBe(21);
+    expect(resolveDepthEntry(21.3, "metric", { focusM: 21.336 })).toBe(21.336);
+    // A different value converts exactly.
+    expect(resolveDepthEntry(21, "imperial", { focusM: 6 })).toBeCloseTo(21 / 3.280839895, 9);
+  });
+
+  it.each([
+    [20, 6],
+    [30, 9],
+    [10, 3],
+    [69, 21],
+  ])("aligns a %d ft deco switch with the %d m stop", (feet, metres) => {
+    expect(resolveDepthEntry(feet, "imperial", { bound: "max-ppo2" })).toBe(metres);
+  });
+
+  it("never moves a deco switch deeper than the typed depth", () => {
+    expect(resolveDepthEntry(70, "imperial", { bound: "max-ppo2" })).toBeCloseTo(70 / 3.280839895, 9);
+    expect(resolveDepthEntry(19, "imperial", { bound: "max-ppo2" })).toBeCloseTo(19 / 3.280839895, 9);
+    // On the 3 m grid and the 10 ft (3.048 m) grid.
+    for (const gridM of [3, 3.048]) {
+      for (let feet = 0; feet <= 330; feet += 1) {
+        const resolved = resolveDepthEntry(feet, "imperial", { bound: "max-ppo2", gridM });
+        expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
+        expect(depthInputValue(resolved, "imperial")).toBe(feet);
+      }
+    }
+  });
+
+  it("aligns to the active stop grid", () => {
+    expect(resolveDepthEntry(20, "imperial", { bound: "max-ppo2", gridM: 3.048 })).toBeCloseTo(6.096, 9);
+    expect(resolveDepthEntry(20, "imperial", { bound: "setpoint-switch", gridM: 3.048 })).toBeCloseTo(6.096, 9);
+    expect(resolveDepthEntry(40, "imperial", { bound: "setpoint-switch", gridM: 3.048 })).toBeCloseTo(12.192, 9);
+  });
+
+  it("moves a retyped deco switch onto the stop it displays as, only when that stop is shallower", () => {
+    // A 6.1 m oxygen switch entered in metres reads 20 ft; retyping 20 ft means the 6 m stop.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "max-ppo2" })).toBe(6);
+    // Never deeper: a 5.95 m switch also reads 20 ft and stays where it is.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 5.95, bound: "max-ppo2" })).toBe(5.95);
+    // A fractional entry over a displayed value is a new entry, so it cannot keep a deeper stored switch.
+    expect(resolveDepthEntry(70.6, "imperial", { focusM: 21.6, bound: "max-ppo2" })).toBeCloseTo(70 / 3.280839895, 9);
+    expect(resolveDepthEntry(20.6, "imperial", { focusM: 6.4, bound: "setpoint-switch" })).toBe(6);
+    // Other retyped depths keep the stored value.
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1 })).toBe(6.1);
+    expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "setpoint-switch" })).toBe(6.1);
+  });
+
+  it("never moves a CCR switch depth deeper than typed", () => {
+    // 12 m reads 39 ft, but 39 ft is 11.887 m: a switch-up typed at a 39 ft maximum depth stays in the descent.
+    expect(resolveDepthEntry(39, "imperial", { bound: "setpoint-switch" })).toBeCloseTo(39 / 3.280839895, 9);
+    // On the 3 m grid and the 10 ft (3.048 m) grid.
+    for (const gridM of [3, 3.048]) {
+      for (let feet = 0; feet <= 330; feet += 1) {
+        const resolved = resolveDepthEntry(feet, "imperial", { bound: "setpoint-switch", gridM });
+        expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
+        expect(depthInputValue(resolved, "imperial")).toBe(feet);
+      }
+    }
+  });
+
+  it("takes a new entry at the precision the field shows", () => {
+    // 120.4 ft displays as 120, so the plan uses 120 ft rather than an unseen 0.4 ft.
+    expect(resolveDepthEntry(120.4, "imperial")).toBeCloseTo(120 / 3.280839895, 9);
+    expect(resolveDepthEntry(120.6, "imperial")).toBeCloseTo(121 / 3.280839895, 9);
+    expect(resolveDepthEntry(36.74, "metric")).toBe(36.7);
+    expect(resolveDepthEntry(20.6, "imperial", { bound: "min-ppo2" })).toBeCloseTo(21 / 3.280839895, 9);
+    // A switch depth drops the extra digits toward the surface, then aligns with the stop it shows.
+    expect(resolveDepthEntry(20.6, "imperial", { bound: "max-ppo2" })).toBe(6);
+    expect(resolveDepthEntry(21.9, "imperial", { bound: "setpoint-switch" })).toBeCloseTo(21 / 3.280839895, 9);
+    expect(resolveDepthEntry(6.19, "metric", { bound: "max-ppo2" })).toBe(6.1);
+    for (let tenths = 0; tenths <= 3300; tenths += 1) {
+      const typed = tenths / 10;
+      for (const bound of ["free", "min-ppo2", "max-ppo2", "setpoint-switch"] as const) {
+        const resolved = resolveDepthEntry(typed, "imperial", { bound });
+        // The value used is exactly the whole foot it displays, or a 3 m stop that displays as it.
+        const displayed = depthInputValue(resolved, "imperial");
+        const atDisplay = Math.abs(resolved - displayed / 3.280839895) < 1e-9;
+        const onStop = Math.abs(resolved / 3 - Math.round(resolved / 3)) < 1e-9;
+        if (bound === "max-ppo2" || bound === "setpoint-switch") {
+          expect(atDisplay || onStop).toBe(true);
+          expect(resolved).toBeLessThanOrEqual(typed / 3.280839895 + 1e-9);
+        } else {
+          // Free depths and the travel switch take the nearest displayed value.
+          expect(atDisplay).toBe(true);
+          expect(displayed).toBe(Number(typed.toFixed(0)));
+        }
+      }
+    }
+  });
+
+  it("never aliases a travel-to-bottom switch or a free depth", () => {
+    expect(resolveDepthEntry(20, "imperial", { bound: "min-ppo2" })).toBeCloseTo(6.096, 9);
+    expect(resolveDepthEntry(20, "imperial")).toBeCloseTo(6.096, 9);
+    expect(resolveDepthEntry(6, "metric", { bound: "max-ppo2" })).toBe(6);
+    expect(resolveDepthEntry(5.9, "metric", { bound: "max-ppo2" })).toBe(5.9);
+  });
+
+  it("prints depth limits on their safe side", () => {
+    expect(formatDepthBound(33.75, "imperial", "upper")).toBe("110 ft");
+    expect(formatDepthBound(33.75, "metric", "upper")).toBe("33 m");
+    expect(formatDepthBound(30.2, "metric", "lower")).toBe("31 m");
+    expect(formatDepthBound(6, "imperial", "upper")).toBe("19 ft");
+  });
+
+  it("accepts every printed MOD when it is re-entered as a deco switch depth", () => {
+    for (let oxygenPercent = 21; oxygenPercent <= 100; oxygenPercent += 1) {
+      for (const maximumPPO2 of [1.2, 1.4, 1.5, 1.6]) {
+        const oxygen = oxygenPercent / 100;
+        const modM = (maximumPPO2 / oxygen - 1) * 10;
+        for (const units of ["imperial", "metric"] as const) {
+          const printed = Number(formatDepthBound(modM, units, "upper").split(" ")[0]);
+          const entered = resolveDepthEntry(printed, units, { bound: "max-ppo2" });
+          expect(oxygen * (1 + entered / 10), `${oxygenPercent}% at ${maximumPPO2} bar, ${printed} ${units}`).toBeLessThanOrEqual(maximumPPO2 + 1e-9);
+        }
+      }
+    }
   });
 });
