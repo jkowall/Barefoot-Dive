@@ -9,6 +9,9 @@ import tsconfig from "../../tsconfig.json";
 type BuildTarget = string | readonly string[] | false | undefined;
 type LoadConfigFromFile = (env: { command: "build"; mode: string }) => Promise<{ config: { build?: { target?: BuildTarget; cssTarget?: BuildTarget } } } | null>;
 
+// documentation/architecture.md and variables.md list these targets; change them together.
+const DOCUMENTED_TARGETS = ["safari15.4", "ios15.4", "chrome111", "edge111", "firefox114"];
+
 // Chrome and Android System WebView 119 were the last releases for Android 7 (API 24 and 25).
 const LAST_WEBVIEW_BY_MIN_SDK: Readonly<Record<number, number>> = { 24: 119, 25: 119 };
 
@@ -26,10 +29,9 @@ beforeAll(async () => {
 });
 
 describe("runtime floor", () => {
-  it("pins the JS and CSS build targets instead of Vite's default", () => {
-    expect(targets).not.toHaveLength(0);
+  it("pins the JS and CSS build targets to the documented list instead of Vite's default", () => {
+    expect([...targets].sort()).toEqual([...DOCUMENTED_TARGETS].sort());
     expect(build?.cssTarget).toEqual(build?.target);
-    expect(targetVersion("safari")).toBe(targetVersion("ios"));
   });
 
   it("builds every iOS configuration for the build target's iOS version", () => {

@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
@@ -1508,6 +1509,14 @@ test("ships breakpoints that Safari and iOS 15.4 can parse", async ({ page, requ
   expect(queries).not.toHaveLength(0);
   // Range syntax such as (width>=900px) needs Safari/iOS 16.4; older WebKit ignores the whole query.
   expect(queries.filter((query) => /[<>=]/.test(query))).toEqual([]);
+  // Every width breakpoint in src/styles must still reach the build as min-width or max-width.
+  const styles = new URL("../../src/styles/", import.meta.url);
+  const sourceWidths = new Set(readdirSync(styles).filter((file) => file.endsWith(".css"))
+    .flatMap((file) => readFileSync(new URL(file, styles), "utf8").match(/\((?:min|max)-width:\s*\d+px\)/g) ?? [])
+    .map((feature) => feature.replace(/\s+/g, "")));
+  const builtWidths = new Set(queries.flatMap((query) => query.match(/\((?:min|max)-width:\d+px\)/g) ?? []));
+  expect(sourceWidths.size).toBeGreaterThan(0);
+  expect([...sourceWidths].filter((width) => !builtWidths.has(width))).toEqual([]);
 });
 
 test("keeps a Tool draft through the library and Plan navigation, then resets it on reload", async ({ page }) => {
