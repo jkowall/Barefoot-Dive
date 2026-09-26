@@ -53,15 +53,52 @@ describe("diagnostic depths in the user's unit", () => {
   });
 
   it("converts only whole printed depths, never the tail of a longer number", () => {
-    const diagnostic: Diagnostic = { code: "EXAMPLE", severity: "warning", message: "Checked at 121.3 m; hypoxic at 21.3 m.", depthM: meters(21.336) };
-    expect(formatDiagnostic(diagnostic, "imperial")).toBe("Checked at 121.3 m; hypoxic at 70 ft.");
+    const diagnostic: Diagnostic = { code: "EXAMPLE", severity: "warning", message: "Checked 121.3 min in; hypoxic at 21.3 m.", depthM: meters(21.336) };
+    expect(formatDiagnostic(diagnostic, "imperial")).toBe("Checked 121.3 min in; hypoxic at 70 ft.");
     const mentioned: Diagnostic = {
       code: "EXAMPLE",
       severity: "warning",
-      message: "Between 11.5 m and 1.5 m.",
+      message: "Between 11.5 min and 1.5 m.",
       depthMentions: [{ valueM: meters(1.5), rounding: "nearest" }],
     };
-    expect(formatDiagnostic(mentioned, "imperial")).toBe("Between 11.5 m and 5 ft.");
+    expect(formatDiagnostic(mentioned, "imperial")).toBe("Between 11.5 min and 5 ft.");
+  });
+
+  it("restates every depth of a multi-depth warning saved before depth mentions existed", () => {
+    // Saved by 0.5.1 and earlier: every depth printed to the nearest 0.1 m, no depthMentions.
+    const switchDown: Diagnostic = {
+      code: "CCR_SWITCH_DOWN_DEEPENED",
+      severity: "warning",
+      message: "The loop cannot hold the 1.30 bar high setpoint shallower than 3.6 m, so the plan switches to the low setpoint at 3.6 m instead of 0.0 m.",
+      field: "setpointDeactivationDepthM",
+      depthM: meters(3.627),
+      actual: 0,
+      limit: 3.627,
+    };
+    expect(formatDiagnostic(switchDown, "imperial")).toBe(
+      "The loop cannot hold the 1.30 bar high setpoint shallower than 12 ft, so the plan switches to the low setpoint at 12 ft instead of 0 ft.",
+    );
+    const gap: Diagnostic = {
+      code: "CCR_BAILOUT_COVERAGE_GAP",
+      severity: "error",
+      message: "No bailout gas is breathable between 21.3 m and 45.0 m. Add a bailout gas for that range or adjust switch depths.",
+      field: "bailoutGases",
+      depthM: meters(45),
+      actual: 21.336,
+      limit: 45,
+    };
+    expect(formatDiagnostic(gap, "imperial")).toBe("No bailout gas is breathable between 70 ft and 148 ft. Add a bailout gas for that range or adjust switch depths.");
+  });
+
+  it("keeps a message in metres rather than mixing units when a depth cannot be restated", () => {
+    const diagnostic: Diagnostic = { code: "EXAMPLE", severity: "warning", message: "Switch at 6.1 m, then stop at 9.0 m.", depthM: meters(6.096) };
+    expect(formatDiagnostic(diagnostic, "imperial")).toBe(diagnostic.message);
+    // "21.3 m" inside "121.3 m" is not that depth; converting it would print "170 ft".
+    const longer: Diagnostic = { code: "EXAMPLE", severity: "warning", message: "Checked at 121.3 m; hypoxic at 21.3 m.", depthM: meters(21.336) };
+    expect(formatDiagnostic(longer, "imperial")).toBe(longer.message);
+    // A gas name that reads like a depth does not hold a message back in metres.
+    const named: Diagnostic = { code: "EXAMPLE", severity: "error", message: "EAN50 21 m is hypoxic on open circuit at 21.3 m.", depthM: meters(21.336) };
+    expect(formatDiagnostic(named, "imperial")).toBe("EAN50 21 m is hypoxic on open circuit at 70 ft.");
   });
 
   it("leaves minutes that print like the depth alone", () => {

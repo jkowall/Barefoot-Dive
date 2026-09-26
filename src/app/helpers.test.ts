@@ -133,6 +133,9 @@ describe("depth entry", () => {
     expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "max-ppo2" })).toBe(6);
     // Never deeper: a 5.95 m switch also reads 20 ft and stays where it is.
     expect(resolveDepthEntry(20, "imperial", { focusM: 5.95, bound: "max-ppo2" })).toBe(5.95);
+    // A fractional entry over a displayed value is a new entry, so it cannot keep a deeper stored switch.
+    expect(resolveDepthEntry(70.6, "imperial", { focusM: 21.6, bound: "max-ppo2" })).toBeCloseTo(70 / 3.280839895, 9);
+    expect(resolveDepthEntry(20.6, "imperial", { focusM: 6.4, bound: "setpoint-switch" })).toBe(6);
     // Other retyped depths keep the stored value.
     expect(resolveDepthEntry(20, "imperial", { focusM: 6.1 })).toBe(6.1);
     expect(resolveDepthEntry(20, "imperial", { focusM: 6.1, bound: "setpoint-switch" })).toBe(6.1);
@@ -147,6 +150,36 @@ describe("depth entry", () => {
         const resolved = resolveDepthEntry(feet, "imperial", { bound: "setpoint-switch", gridM });
         expect(resolved).toBeLessThanOrEqual(feet / 3.280839895 + 1e-9);
         expect(depthInputValue(resolved, "imperial")).toBe(feet);
+      }
+    }
+  });
+
+  it("takes a new entry at the precision the field shows", () => {
+    // 120.4 ft displays as 120, so the plan uses 120 ft rather than an unseen 0.4 ft.
+    expect(resolveDepthEntry(120.4, "imperial")).toBeCloseTo(120 / 3.280839895, 9);
+    expect(resolveDepthEntry(120.6, "imperial")).toBeCloseTo(121 / 3.280839895, 9);
+    expect(resolveDepthEntry(36.74, "metric")).toBe(36.7);
+    expect(resolveDepthEntry(20.6, "imperial", { bound: "min-ppo2" })).toBeCloseTo(21 / 3.280839895, 9);
+    // A switch depth drops the extra digits toward the surface, then aligns with the stop it shows.
+    expect(resolveDepthEntry(20.6, "imperial", { bound: "max-ppo2" })).toBe(6);
+    expect(resolveDepthEntry(21.9, "imperial", { bound: "setpoint-switch" })).toBeCloseTo(21 / 3.280839895, 9);
+    expect(resolveDepthEntry(6.19, "metric", { bound: "max-ppo2" })).toBe(6.1);
+    for (let tenths = 0; tenths <= 3300; tenths += 1) {
+      const typed = tenths / 10;
+      for (const bound of ["free", "min-ppo2", "max-ppo2", "setpoint-switch"] as const) {
+        const resolved = resolveDepthEntry(typed, "imperial", { bound });
+        // The value used is exactly the whole foot it displays, or a 3 m stop that displays as it.
+        const displayed = depthInputValue(resolved, "imperial");
+        const atDisplay = Math.abs(resolved - displayed / 3.280839895) < 1e-9;
+        const onStop = Math.abs(resolved / 3 - Math.round(resolved / 3)) < 1e-9;
+        if (bound === "max-ppo2" || bound === "setpoint-switch") {
+          expect(atDisplay || onStop).toBe(true);
+          expect(resolved).toBeLessThanOrEqual(typed / 3.280839895 + 1e-9);
+        } else {
+          // Free depths and the travel switch take the nearest displayed value.
+          expect(atDisplay).toBe(true);
+          expect(displayed).toBe(Number(typed.toFixed(0)));
+        }
       }
     }
   });

@@ -80,8 +80,11 @@ export type DepthEntryBound =
 /**
  * Convert a depth typed in the display unit to canonical metres.
  *
- * Retyping the value shown for `focusM` (the stored depth when the field took focus) keeps that depth,
- * so a 6 m switch shown as 20 ft stays 6 m. Otherwise the typed value converts exactly, except that a
+ * Retyping exactly the value shown for `focusM` (the stored depth when the field took focus) keeps
+ * that depth, so a 6 m switch shown as 20 ft stays 6 m. A new entry is taken at the precision the field shows
+ * (whole feet, or metres to one decimal), so the value used is the value displayed: 120.4 ft is 120 ft,
+ * and a switch depth drops the extra digits toward the surface (20.6 ft is 20 ft) so it is never deepened.
+ * That value converts exactly, except that a
  * switch depth may alias to a stop-grid depth that displays as the same value, because the diver
  * switches at the stop (20 ft typed is the 6 m stop). An aliased switch only ever moves shallower,
  * which never raises a deco or bailout gas's PPO₂ and keeps a CCR switch-up within the descent. A
@@ -95,17 +98,24 @@ export function resolveDepthEntry(
 ): Meters {
   const { focusM, gridM = 3, bound = "free" } = options;
   if (!Number.isFinite(typed)) return meters(typed);
-  const shown = Number(typed.toFixed(depthInputDecimals(units)));
-  const exact = depthToCanonical(typed, units);
-  // The deepest stop-grid depth no deeper than the typed value, when it displays as that value.
-  const gridDepth = (bound === "max-ppo2" || bound === "setpoint-switch") && gridM > 0
-    ? Math.floor((exact + 1e-9) / gridM) * gridM
-    : undefined;
-  const alias = gridDepth !== undefined && depthInputValue(gridDepth, units) === shown ? gridDepth : undefined;
-  if (focusM !== undefined && Number.isFinite(focusM) && depthInputValue(focusM, units) === shown) {
+  const decimals = depthInputDecimals(units);
+  const switchDepth = bound === "max-ppo2" || bound === "setpoint-switch";
+  // What the field displays for the typed value.
+  const shown = Number(typed.toFixed(decimals));
+  // A new entry at the displayed precision; a switch depth drops the extra digits toward the surface.
+  const entered = switchDepth ? roundBound(typed, decimals, "upper") : shown;
+  // The deepest stop-grid depth no deeper than `value`, when it displays as `display`.
+  const aliasOf = (value: number, display: number): number | undefined => {
+    if (!switchDepth || !(gridM > 0)) return undefined;
+    const gridDepth = Math.floor((depthToCanonical(value, units) + 1e-9) / gridM) * gridM;
+    return depthInputValue(gridDepth, units) === display ? gridDepth : undefined;
+  };
+  const alias = aliasOf(typed, shown) ?? aliasOf(entered, entered);
+  // Only retyping exactly the displayed value keeps the stored depth; 70.6 typed over 71 is a new entry.
+  if (typed === shown && focusM !== undefined && Number.isFinite(focusM) && depthInputValue(focusM, units) === shown) {
     return bound === "max-ppo2" && alias !== undefined && alias < focusM ? meters(alias) : meters(focusM);
   }
-  return alias === undefined ? exact : meters(alias);
+  return alias === undefined ? depthToCanonical(entered, units) : meters(alias);
 }
 
 /** CCR setpoint switch depth entry: 20 ft, or a displayed 19.7 ft, is the 6 m stop. */
