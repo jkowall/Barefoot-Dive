@@ -17,6 +17,6 @@ test("warns in Review when a CCR decompression stop runs on the low setpoint", a
   await page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" }).fill("30");
   await page.getByRole("button", { name: "Review plan" }).click();
   await expect(results.getByText(
-    /^The 20 ft stop runs on the 0\.70 bar low setpoint for \d+ min, because the loop switches down when leaving 30 ft\. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1\.30 bar high setpoint\. Set the switch-down depth to 20 ft or shallower to hold the high setpoint at that stop\.$/,
+    /^The 20 ft stop runs on the 0\.70 bar low setpoint for \d+ min, because the loop switches down when leaving 30 ft\. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1\.30 bar high setpoint\. Set the switch-down depth to 20 ft to hold the high setpoint at that stop\.$/,
   )).toBeVisible();
 });

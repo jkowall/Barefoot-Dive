@@ -267,7 +267,7 @@ describe("CCR stops on the low setpoint", () => {
     expect(lowSetpointStops(value)).toEqual([{
       code: "CCR_STOP_ON_LOW_SETPOINT",
       severity: "warning",
-      message: "The 6.0 m stop runs on the 0.70 bar low setpoint for 35 min, because the loop switches down when leaving 9.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 6.0 m or shallower to hold the high setpoint at that stop.",
+      message: "The 6.0 m stop runs on the 0.70 bar low setpoint for 35 min, because the loop switches down when leaving 9.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 6.0 m to hold the high setpoint at that stop.",
       field: "setpointDeactivationDepthM",
       runtimeSeconds: onLow[0].startRuntimeSeconds,
       depthM: 9,
@@ -283,7 +283,7 @@ describe("CCR stops on the low setpoint", () => {
 
   it("lists every stop on the low setpoint with their total time", () => {
     const [warning] = lowSetpointStops(plan(lowCcr({ setpointDeactivationDepthM: meters(12) })));
-    expect(warning?.message).toBe("The 9.0 m and 6.0 m stops run on the 0.70 bar low setpoint for 43 min in total, because the loop switches down when leaving 12.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 6.0 m or shallower to hold the high setpoint at those stops.");
+    expect(warning?.message).toBe("The 9.0 m and 6.0 m stops run on the 0.70 bar low setpoint for 43 min in total, because the loop switches down when leaving 12.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 6.0 m to hold the high setpoint at those stops.");
     expect(warning?.depthMentions?.map((mention) => mention.valueM)).toEqual([9, 6, 12, 6]);
   });
 
@@ -315,6 +315,20 @@ describe("CCR stops on the low setpoint", () => {
     if (!result.ok) return;
     const [warning] = lowSetpointStops(result.value);
     expect(warning?.message).toMatch(/^The 6\.0 m stop runs on the 0\.70 bar low setpoint for \d+ min, because the loop switches down when leaving 9\.0 m\./);
+  });
+
+  it("blames the start of an event ascent already on the low setpoint, not the switch-down depth", () => {
+    const low = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(0.7) };
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(45), durationSeconds: seconds(150), gas: airDiluent, strategy: low },
+      { id: "bottom", kind: "bottom", startDepthM: meters(45), endDepthM: meters(45), durationSeconds: seconds(30 * 60), gas: airDiluent, strategy: low },
+    ];
+    const result = calculateEventDivePlan(lowCcr({ setpointDeactivationDepthM: meters(6) }), events);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [warning] = lowSetpointStops(result.value);
+    expect(warning?.message).toBe("The 27.0 m, 24.0 m, 21.0 m, 18.0 m, 15.0 m, 12.0 m, 9.0 m, and 6.0 m stops run on the 0.70 bar low setpoint for 85 min in total, because the ascent starts on the low setpoint. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint.");
+    expect(warning?.depthMentions?.map((mention) => mention.valueM)).toEqual([27, 24, 21, 18, 15, 12, 9, 6]);
   });
 });
 

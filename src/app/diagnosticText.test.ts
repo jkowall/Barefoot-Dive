@@ -47,7 +47,7 @@ describe("diagnostic depths in the user's unit", () => {
     const stopWarning = result.ok ? result.value.diagnostics.find((item) => item.code === "CCR_STOP_ON_LOW_SETPOINT") : undefined;
     expect(stopWarning).toBeDefined();
     expect(formatDiagnostic(stopWarning!, "imperial")).toBe(
-      "The 20 ft stop runs on the 0.70 bar low setpoint for 35 min, because the loop switches down when leaving 30 ft. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 20 ft or shallower to hold the high setpoint at that stop.",
+      "The 20 ft stop runs on the 0.70 bar low setpoint for 35 min, because the loop switches down when leaving 30 ft. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 20 ft to hold the high setpoint at that stop.",
     );
   });
 

@@ -516,10 +516,11 @@ function aggregateStops(segments: readonly ProfileSegment[]): readonly DecoStop[
 
 /**
  * Low-setpoint mode: reports the decompression stops this ascent breathes on the low setpoint,
- * because the loop switched down when leaving a depth deeper than the stop. With the defaults
- * (switch-down at the 6 m last stop) there are none; a deeper switch-down depth, or one moved
- * deeper to where the high setpoint is achievable, puts the shallower stops on the low setpoint.
- * The schedule is already final; this names the stops, their time, and the switch-down depth.
+ * because the loop switched down when leaving a depth deeper than the stop. An open-water plan
+ * with the defaults (switch-down at the 6 m last stop) has none; a deeper switch-down depth, or
+ * one moved deeper to where the high setpoint is achievable, puts the shallower stops on the low
+ * setpoint, and so does a Cave route that ends shallower than the switch-down depth with
+ * decompression left. The schedule is already final; this names the stops, their time, and why.
  */
 function lowSetpointStopDiagnostic(
   initial: WorkingState,
@@ -551,15 +552,29 @@ function lowSetpointStopDiagnostic(
   const listed = names.length === 1
     ? `The ${names[0]} stop runs`
     : `The ${names.length === 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`} stops run`;
+  // An event ascent can start on the low setpoint below the switch-down depth. The switch-down
+  // depth did not put those stops on the low setpoint, so it is neither named nor suggested.
+  const startsOnLow = initial.currentStrategy.kind === "ccr" &&
+    Math.abs(initial.currentStrategy.setpointBar - lowSetpoint) <= EPSILON &&
+    initial.depthM > ascent.switchDownDepthM + EPSILON;
   // A switch-down moved deeper to where the high setpoint is achievable is printed rounded up,
   // as CCR_SWITCH_DOWN_DEEPENED prints it; a switch-down depth the diver entered prints as entered.
   const deepened = ascent.switchDownDepthM > switchDownDepth(input) + EPSILON;
-  const switchDownRounding = deepened ? "up" : "nearest";
+  const switchDownRounding: "up" | "nearest" = deepened ? "up" : "nearest";
   const shallowest = stops.at(-1)!;
-  // Suggest a shallower switch-down only where it would hold the high setpoint at every listed stop.
-  const fixable = !deepened &&
+  const gridSteps = shallowest.depthM / input.settings.stopIncrementM;
+  // Suggest the shallowest listed stop's own depth, which holds the high setpoint at every listed
+  // stop, only where entering it does: a stop on the stop grid prints as itself in metres and as the
+  // feet that align onto it, and one no shallower than where the high setpoint is achievable is
+  // accepted by Cave, which rejects a shallower switch-down.
+  const fixable = !startsOnLow &&
+    !deepened &&
+    Math.abs(gridSteps - Math.round(gridSteps)) < 1e-6 &&
     shallowest.depthM >= setpointAchievableDepth(input.setpointBar, input.environmentSettings) - EPSILON;
-  const message = `${listed} on the ${lowSetpoint.toFixed(2)} bar low setpoint for ${minutes} min${stops.length === 1 ? "" : " in total"}, because the loop switches down when leaving ${formatMessageDepth(ascent.switchDownDepthM, switchDownRounding)}. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the ${input.setpointBar.toFixed(2)} bar high setpoint.${fixable ? ` Set the switch-down depth to ${formatMessageDepth(shallowest.depthM)} or shallower to hold the high setpoint at ${stops.length === 1 ? "that stop" : "those stops"}.` : ""}`;
+  const reason = startsOnLow
+    ? "because the ascent starts on the low setpoint"
+    : `because the loop switches down when leaving ${formatMessageDepth(ascent.switchDownDepthM, switchDownRounding)}`;
+  const message = `${listed} on the ${lowSetpoint.toFixed(2)} bar low setpoint for ${minutes} min${stops.length === 1 ? "" : " in total"}, ${reason}. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the ${input.setpointBar.toFixed(2)} bar high setpoint.${fixable ? ` Set the switch-down depth to ${formatMessageDepth(shallowest.depthM)} to hold the high setpoint at ${stops.length === 1 ? "that stop" : "those stops"}.` : ""}`;
   return diagnostic("CCR_STOP_ON_LOW_SETPOINT", "warning", message, {
     field: "setpointDeactivationDepthM",
     ...(firstStopRuntime === undefined ? {} : { runtimeSeconds: firstStopRuntime }),
@@ -567,7 +582,7 @@ function lowSetpointStopDiagnostic(
     actual: totalSeconds,
     depthMentions: [
       ...stops.map((stop) => ({ valueM: stop.depthM, rounding: "nearest" as const })),
-      { valueM: ascent.switchDownDepthM, rounding: switchDownRounding },
+      ...(startsOnLow ? [] : [{ valueM: ascent.switchDownDepthM, rounding: switchDownRounding }]),
       ...(fixable ? [{ valueM: shallowest.depthM, rounding: "nearest" as const }] : []),
     ],
   });
