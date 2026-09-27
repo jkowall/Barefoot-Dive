@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("Cave omits inapplicable defaults and exposes per-scenario triggers", async ({ page }) => {
+  await page.goto("/");
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await expect(page.getByRole("checkbox", { name: "Scooter failure" })).toBeDisabled();
@@ -13,6 +14,7 @@ test("Cave omits inapplicable defaults and exposes per-scenario triggers", async
 });
 
 test("Cave scooter trigger is keyboard-accessible", async ({ page }) => {
+  await page.goto("/");
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await page.getByRole("button", { name: "Add route leg" }).click();
