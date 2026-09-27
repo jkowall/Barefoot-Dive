@@ -26,6 +26,14 @@ export function CaveRouteTimeline({
   const unit = depthUnit(preferences.depth);
   const distance = (value: number) => `${depthFromCanonical(value, preferences.depth).toFixed(0)} ${unit}`;
   const time = (value: number) => `${value.toFixed(value % 1 === 0 ? 0 : 1)} min`;
+  const markerSpotIndex = model.markers.map((marker, index) => {
+    let spotIndex = 0;
+    for (let earlier = 0; earlier < index; earlier += 1) {
+      if (Math.abs(model.markers[earlier].distanceM - marker.distanceM) <= 1e-6) spotIndex += 1;
+    }
+    return spotIndex;
+  });
+  const pinStackRows = markerSpotIndex.reduce((max, spotIndex) => Math.max(max, spotIndex + 1), 0);
 
   return <section aria-label={readOnly ? "Calculated cave route timeline" : "Cave route timeline"} className="bf-cave-timeline">
     <header className="bf-cave-timeline__intro">
@@ -70,14 +78,22 @@ export function CaveRouteTimeline({
         })}
       </ol>
 
-      {model.markers.length > 0 && <div aria-hidden="true" className="bf-cave-timeline__pins">
+      {model.markers.length > 0 && <div
+        aria-hidden="true"
+        className="bf-cave-timeline__pins"
+        style={{ "--bf-timeline-pin-rows": String(pinStackRows) } as CSSProperties}
+      >
         {model.markers.map((marker, index) => {
           const position = percentage(marker.distanceM, model.totalDistanceM);
           const shift = position <= 0 ? "0%" : position >= 100 ? "-100%" : "-50%";
           return <span
             className={`bf-cave-timeline__pin bf-cave-timeline__pin--${marker.type}`}
             key={marker.type === "scenario" ? marker.kind : `${marker.legId}-${marker.action}`}
-            style={{ "--bf-timeline-position": `${position}%`, "--bf-timeline-shift": shift } as CSSProperties}
+            style={{
+              "--bf-timeline-position": `${position}%`,
+              "--bf-timeline-shift": shift,
+              "--bf-timeline-stack": `${markerSpotIndex[index] * 1.15}rem`,
+            } as CSSProperties}
           >{index + 1}</span>;
         })}
       </div>}
