@@ -531,6 +531,8 @@ function lowSetpointStopDiagnostic(
   const ascent = configuration.ccrAscent;
   if (ascent?.mode !== "low" || input.mode !== "ccr") return undefined;
   const lowSetpoint = ascent.lowStrategy.setpointBar;
+  // Validation accepts a low setpoint equal to the high one; no stop is then on a lower setpoint.
+  if (lowSetpoint >= input.setpointBar - EPSILON) return undefined;
   const stops: { depthM: Meters; seconds: number }[] = [];
   let firstStopRuntime: Seconds | undefined;
   for (const segment of result.state.segments.slice(initial.segments.length)) {

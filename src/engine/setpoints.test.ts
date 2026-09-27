@@ -311,6 +311,13 @@ describe("CCR stops on the low setpoint", () => {
     expect(warning?.depthMentions).toHaveLength(2);
   });
 
+  it("does not warn when the low setpoint equals the high setpoint", () => {
+    // Validation accepts equal setpoints; the stops then run on the one setpoint, not a lower one.
+    const value = plan(lowCcr({ setpointBar: barAbsolute(0.9), lowSetpointBar: barAbsolute(0.9), setpointDeactivationDepthM: meters(9) }));
+    expect(value.segments.some((segment) => segment.kind === "stop")).toBe(true);
+    expect(lowSetpointStops(value)).toEqual([]);
+  });
+
   it("never warns in legacy mode, where the loop opens to open-circuit diluent instead", () => {
     expect(lowSetpointStops(plan(ccr()))).toEqual([]);
   });
