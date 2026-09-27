@@ -159,13 +159,11 @@ function ReviewGasIncludes({
   </ul>;
 }
 
-function ScheduleAndLedger({ plan, preferences, title, compact = false, reviewGases, onToggleReviewGas }: {
+function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
   readonly title: string;
   readonly compact?: boolean;
-  readonly reviewGases?: readonly ReviewGasSwitch[];
-  readonly onToggleReviewGas?: (key: string, included: boolean) => void;
 }) {
   const rows = runtimeRows(plan, preferences);
   const ledger = plan.gasLedger.map((entry) => ledgerRow(entry, preferences));
@@ -174,17 +172,10 @@ function ScheduleAndLedger({ plan, preferences, title, compact = false, reviewGa
   const decoRmvFromBottomEnd = plan.mode === "oc" &&
     plan.environment === "open-water" &&
     !plan.diagnostics.some((item) => item.code === "DECO_RMV_FROM_FIRST_STOP");
-  const includes = reviewGases && onToggleReviewGas
-    ? <ReviewGasIncludes gases={reviewGases} onToggle={onToggleReviewGas} />
-    : null;
   const ledgerView = ledger.length === 0
-    ? <>
-      <p className="bf-panel__note">No open-circuit gas is breathed on this plan. Loop oxygen and diluent use are not modeled{plan.mode === "ccr" ? "; bailout gas is accounted for in the CCR bailout plan" : ""}.</p>
-      {includes}
-    </>
+    ? <p className="bf-panel__note">No open-circuit gas is breathed on this plan. Loop oxygen and diluent use are not modeled{plan.mode === "ccr" ? "; bailout gas is accounted for in the CCR bailout plan" : ""}.</p>
     : <>
       <GasLedger rows={ledger} />
-      {includes}
       {gasOnly && <p className="bf-panel__note">Minimum to carry is the surface volume for expected use plus the reserve policy. It excludes unusable residual gas and any per-cylinder minimum pressure.</p>}
       {decoRmvFromBottomEnd && <p className="bf-panel__note">Gas use charges the deco RMV from the end of bottom time, including the climb to the first stop (the rule before 0.5.0).</p>}
     </>;
@@ -250,21 +241,24 @@ export function PlanResultView({
   /** Calculation diagnostics while Review is open in needs-attention. */
   readonly attentionDiagnostics?: readonly WarningItem[];
 }) {
-  const decoSwitches = reviewGasSwitches?.filter((gas) => gas.role === "deco");
-  const bailoutSwitches = reviewGasSwitches?.filter((gas) => gas.role === "bailout");
   const showResult = plan !== undefined && !stale && statusNotice === undefined && attentionDiagnostics === undefined;
+  // One stable "Gases in this plan" panel keeps the same checkbox DOM across updating / current /
+  // needs-attention so keyboard focus survives recalculation (ledger placement remounted them).
+  const reviewIncludes = reviewGasSwitches && onToggleReviewGas && reviewGasSwitches.length > 0
+    ? <Panel title="Gases in this plan">
+      <ReviewGasIncludes gases={reviewGasSwitches} onToggle={onToggleReviewGas} />
+    </Panel>
+    : null;
 
   return <section className="bf-results" aria-label={title}>
     {completion}
+    {/* Fixed slot so include checkboxes are not remounted when status/result siblings appear or leave. */}
+    {reviewIncludes}
     {statusNotice && <Panel eyebrow="Updating" title={title}>
       <p>{statusNotice}</p>
-      {decoSwitches && onToggleReviewGas && <ReviewGasIncludes gases={decoSwitches} onToggle={onToggleReviewGas} />}
-      {bailoutSwitches && onToggleReviewGas && <ReviewGasIncludes gases={bailoutSwitches} onToggle={onToggleReviewGas} />}
     </Panel>}
     {attentionDiagnostics && <Panel eyebrow="Needs attention" title={title}>
       <WarningList items={attentionDiagnostics} title="Calculation diagnostics" />
-      {decoSwitches && onToggleReviewGas && <ReviewGasIncludes gases={decoSwitches} onToggle={onToggleReviewGas} />}
-      {bailoutSwitches && onToggleReviewGas && <ReviewGasIncludes gases={bailoutSwitches} onToggle={onToggleReviewGas} />}
     </Panel>}
     {showResult && plan && <>
       <Panel
@@ -287,14 +281,7 @@ export function PlanResultView({
         </div>
       </Panel>
       <WarningList items={warningsFor(plan, preferences)} title="Plan diagnostics" />
-      <ScheduleAndLedger
-        compact={compact}
-        onToggleReviewGas={onToggleReviewGas}
-        plan={plan}
-        preferences={preferences}
-        reviewGases={decoSwitches}
-        title="Primary"
-      />
+      <ScheduleAndLedger compact={compact} plan={plan} preferences={preferences} title="Primary" />
       {plan.bailoutPlan && <>
         <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
           <div className="bf-metric-grid">
@@ -309,19 +296,8 @@ export function PlanResultView({
           </div>
         </Panel>
         <WarningList items={warningsFor(plan.bailoutPlan, preferences)} title="Bailout diagnostics" />
-        <ScheduleAndLedger
-          compact={compact}
-          onToggleReviewGas={onToggleReviewGas}
-          plan={plan.bailoutPlan}
-          preferences={preferences}
-          reviewGases={bailoutSwitches}
-          title="Bailout"
-        />
+        <ScheduleAndLedger compact={compact} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
       </>}
-      {/* CCR with no bailout plan yet still lists bailout include switches when Review provides them. */}
-      {!plan.bailoutPlan && bailoutSwitches && bailoutSwitches.length > 0 && onToggleReviewGas && <Panel title="Bailout gas ledger">
-        <ReviewGasIncludes gases={bailoutSwitches} onToggle={onToggleReviewGas} />
-      </Panel>}
     </>}
   </section>;
 }

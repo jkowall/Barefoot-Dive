@@ -23,7 +23,7 @@ test("switches Oxygen off and on from Plan Review without leaving Review", async
 
   const includeOxygen = results.getByRole("checkbox", { name: "Include Oxygen in plan" });
   await expect(includeOxygen).toBeChecked();
-  await expect(results.getByRole("heading", { name: "Primary gas ledger" })).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Gases in this plan" })).toBeVisible();
   await includeOxygen.uncheck();
 
   await expect(page.getByRole("radiogroup", { name: "Plan workspace" }).getByRole("radio", { name: "Review" })).toBeChecked();
@@ -62,8 +62,8 @@ test("toggles a CCR bailout gas from the Bailout gas ledger and recovers when al
   await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
   const results = await calculateAndOpenReview(page);
 
-  const bailoutLedger = results.getByRole("heading", { name: "Bailout gas ledger" });
-  await expect(bailoutLedger).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Gases in this plan" })).toBeVisible();
+  await expect(results.getByRole("heading", { name: "Bailout gas ledger" })).toBeVisible();
   const includeEan50 = results.getByRole("checkbox", { name: "Include EAN50 bailout in plan" });
   const includeBottom = results.getByRole("checkbox", { name: "Include Tx18/45 bailout in plan" });
   await expect(includeEan50).toBeChecked();
