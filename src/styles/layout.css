@@ -126,6 +126,79 @@
 .bf-cave-access-table tbody th { color: var(--bf-text); font-family: var(--bf-font-sans); font-size: var(--bf-text-sm); font-weight: 500; letter-spacing: 0; text-transform: none; }
 .bf-cave-access-table td { min-width: 9rem; font-family: var(--bf-font-mono); }
 
+/* Cave route geometry stays on a distance axis; the route editors remain authoritative. */
+.bf-cave-timeline {
+  display: grid;
+  gap: var(--bf-space-3);
+  margin-bottom: var(--bf-space-4);
+  padding: var(--bf-space-3);
+  border: 1px solid var(--bf-line);
+  background: var(--bf-bg);
+}
+.bf-cave-timeline__header { display: flex; align-items: start; justify-content: space-between; gap: var(--bf-space-3); }
+.bf-cave-timeline__header > div { display: grid; gap: var(--bf-space-1); }
+.bf-cave-timeline__header h3, .bf-cave-timeline__header p, .bf-cave-timeline__note { margin: 0; }
+.bf-cave-timeline__header > p, .bf-cave-timeline__note { color: var(--bf-text-muted); font-size: var(--bf-text-sm); line-height: 1.45; }
+.bf-cave-timeline__header > p { font-family: var(--bf-font-mono); white-space: nowrap; }
+.bf-cave-timeline__axis {
+  position: relative;
+  display: flex;
+  min-height: calc(var(--bf-control-h) + var(--bf-space-8));
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--bf-line-strong);
+  list-style: none;
+}
+.bf-cave-timeline__segment { flex: 0 0 var(--bf-timeline-width); min-width: 0; border-right: 1px solid var(--bf-bg); }
+.bf-cave-timeline__segment:last-child { border-right: 0; }
+.bf-cave-timeline__segment > button {
+  display: grid;
+  width: 100%;
+  min-height: calc(var(--bf-control-h) + var(--bf-space-8));
+  padding: var(--bf-space-2);
+  border: 0;
+  background: var(--bf-surface-2);
+  color: var(--bf-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bf-cave-timeline__segment:nth-child(2n) > button { background: var(--bf-surface-3); }
+.bf-cave-timeline__segment strong, .bf-cave-timeline__segment span, .bf-cave-timeline__segment small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-cave-timeline__segment span, .bf-cave-timeline__segment small { color: var(--bf-text-muted); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); }
+.bf-cave-timeline__segment > button:focus-visible, .bf-cave-timeline__marker--scenario > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--bf-accent);
+  outline-offset: -2px;
+}
+.bf-cave-timeline__markers {
+  position: relative;
+  display: grid;
+  gap: var(--bf-space-2);
+  min-height: var(--bf-control-h);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bf-cave-timeline__marker { margin-left: var(--bf-timeline-position); }
+.bf-cave-timeline__marker--scenario > button {
+  display: grid;
+  min-height: var(--bf-control-h);
+  padding: var(--bf-space-1) var(--bf-space-2);
+  border: 1px solid var(--bf-accent);
+  border-left-width: var(--bf-space-1);
+  background: var(--bf-accent-bg);
+  color: var(--bf-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bf-cave-timeline__marker--scenario span { font-size: var(--bf-text-sm); font-weight: 600; }
+.bf-cave-timeline__marker--scenario small, .bf-cave-timeline__marker--stage span { color: var(--bf-text-muted); font-family: var(--bf-font-mono); font-size: var(--bf-text-xs); }
+.bf-cave-timeline__marker--stage { padding: var(--bf-space-1) var(--bf-space-2); border-left: var(--bf-space-1) solid var(--bf-warning); background: var(--bf-warning-bg); }
+.bf-cave-timeline:has(+ .bf-cave-access-table) { margin-bottom: var(--bf-space-3); }
+
 /* Sticky Plan/Cave context strip: workspace switch, current-plan summary, status, action. */
 .bf-plan-context {
   position: sticky;
