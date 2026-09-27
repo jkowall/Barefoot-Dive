@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { calculateCavePlan, type CavePlanInput, type RouteLeg } from "../cave";
+import { AIR, DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV } from "../domain/defaults";
+import { barAbsolute, barGauge, liters, meters, seconds } from "../domain/units";
 import {
   buildScenarioRequests,
   defaultScenarioTrigger,
@@ -51,5 +54,36 @@ describe("cave scenario session helpers", () => {
     expect(buildScenarioRequests(["lost-buddy", "scooter-failure", "stage-failure"], route, cylinders, triggers).map((request) => request.kind)).toEqual(["lost-buddy", "scooter-failure", "stage-failure"]);
     expect(buildScenarioRequests(["scooter-failure"], [route[0]], cylinders, triggers)).toEqual([]);
     expect(scenarioTriggerPoint(triggers["lost-buddy"], route)).toMatchObject({ distanceM: 410, depthM: 15 });
+  });
+
+  it("characterizes the model lines against calculateCavePlan", () => {
+    const bottom = { ...AIR, id: "back-air", cylinderId: "back", switchDepthM: meters(10) };
+    const stage = { ...AIR, id: "stage-air", name: "Stage air", role: "travel" as const, cylinderId: "stage" };
+    const leg: RouteLeg = {
+      id: "scooter-stage", startDepthM: meters(0), endDepthM: meters(20), durationSeconds: seconds(60), distanceM: meters(100),
+      propulsion: "scooter", accessibleCylinderIds: ["back", "stage"], stageAction: "drop", stageCylinderId: "stage",
+    };
+    const input: CavePlanInput = {
+      mode: "oc", reserve: { kind: "thirds" },
+      dive: {
+        mode: "oc", environment: "cave", depthM: meters(20), bottomTimeSeconds: seconds(60), bottomGas: bottom, travelGas: stage, decoGases: [],
+        cylinders: [
+          { id: "back", name: "Back", waterVolumeL: liters(24), workingPressureBar: barGauge(232), currentPressureBar: barGauge(220), gas: bottom, maximumPPO2: barAbsolute(1.4), revision: 1 },
+          { id: "stage", name: "Stage", waterVolumeL: liters(11), workingPressureBar: barGauge(200), currentPressureBar: barGauge(200), gas: stage, maximumPPO2: barAbsolute(1.4), revision: 1 },
+        ],
+        settings: DEFAULT_PLANNER_SETTINGS, environmentSettings: DEFAULT_ENVIRONMENT, rmv: DEFAULT_RMV, reservePolicy: DEFAULT_RESERVE_POLICY,
+      },
+      route: [leg],
+      scenarios: ["oc-lost-gas", "lost-buddy", "scooter-failure", "stage-failure"].map((kind) => ({ kind, targetLegId: leg.id })) as CavePlanInput["scenarios"],
+    };
+    const result = calculateCavePlan(input);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const scenarios = new Map(result.value.scenarios.map((scenario) => [scenario.kind, scenario]));
+    // Each transformation turns at this sole leg's endpoint; only loop failure would add a trigger event.
+    expect(scenarios.get("lost-buddy")?.plan?.segments.filter((segment) => segment.kind === "exit").reduce((sum, segment) => sum + segment.durationSeconds, 0)).toBe(120);
+    expect(scenarios.get("scooter-failure")?.plan?.segments.filter((segment) => segment.kind === "exit").reduce((sum, segment) => sum + segment.durationSeconds, 0)).toBe(120);
+    expect(scenarios.get("oc-lost-gas")?.plan?.segments.some((segment) => segment.kind === "exit" && segment.gasId === bottom.id)).toBe(false);
+    expect(scenarios.get("stage-failure")?.plan?.segments.some((segment) => segment.kind === "exit" && segment.gasId === stage.id)).toBe(false);
   });
 });
