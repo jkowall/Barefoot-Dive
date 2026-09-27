@@ -117,6 +117,28 @@ test("a switch depth deeper than the MOD shows a form error", async ({ page }) =
   await expect(page.getByRole("heading", { name: "Oxygen stage" })).toHaveCount(0);
 });
 
+test("clearing an invalid Tank Bank switch depth removes its stale error before save", async ({ page }) => {
+  await page.goto("/");
+  await acceptSafety(page);
+  await useFeet(page);
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("spinbutton", { name: "O₂ (%)" }).fill("100");
+  await page.getByRole("spinbutton", { name: "Maximum PPO₂ (bar)" }).fill("1.6");
+  await page.getByLabel("Cylinder role").selectOption("deco");
+  const switchDepth = page.getByRole("spinbutton", { name: /Switch depth/ });
+  await switchDepth.fill("70");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  const error = page.getByRole("listitem").filter({
+    hasText: "Switch depth must not be deeper than the MOD at this maximum PPO₂.",
+  });
+  await expect(error).toBeVisible();
+
+  await switchDepth.fill("");
+  await expect(error).toHaveCount(0);
+});
+
 test("choosing an EAN50 bailout Tank Bank cylinder fills the CCR bailout switch depth", async ({ page }) => {
   await page.goto("/");
   await acceptSafety(page);

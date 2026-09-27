@@ -196,10 +196,7 @@ export function TankBankPage({
   const editingModM = editing ? tankBankDraftModM(editing.draft) : undefined;
   const isSwitchDepthError = (item: string) => item.toLowerCase().includes("switch depth");
   const switchDepthError = errors.find(isSwitchDepthError);
-  // A switch-depth error describes the value that was saved; editing the field retires it.
-  const clearSwitchDepthErrors = () => setErrors((current) => current.some(isSwitchDepthError)
-    ? current.filter((item) => !isSwitchDepthError(item))
-    : current);
+  const revalidateSwitchDepth = (draft: TankBankDraftState) => setErrors(validateTankBankDraft(draft));
   return (
     <>
       <PageHeader
@@ -470,15 +467,17 @@ export function TankBankPage({
                       : key === "minimumPressureBar"
                         ? [editing.draft.minimumPressureBar, editing.draft.currentPressureBar]
                         : [];
+                    const draft = {
+                      ...editing.draft,
+                      [key]: key.endsWith("PressureBar")
+                        ? pressureInputToCanonical(inputValue, units.pressure, pressureEquivalents)
+                        : inputValue,
+                    };
                     setEditing({
                       ...editing,
-                      draft: {
-                        ...editing.draft,
-                        [key]: key.endsWith("PressureBar")
-                          ? pressureInputToCanonical(inputValue, units.pressure, pressureEquivalents)
-                          : inputValue,
-                      },
+                      draft,
                     });
+                    if (key === "oxygen" || key === "helium" || key === "maximumPPO2") revalidateSwitchDepth(draft);
                   }}
                   step={
                     key === "maximumPPO2"
@@ -504,16 +503,18 @@ export function TankBankPage({
                 aria-label="Cylinder role"
                 onChange={(event) => {
                   const nextRole = event.target.value as CylinderRole;
+                  const draft = {
+                    ...editing.draft,
+                    role: nextRole,
+                    ...(roleStoresSwitchDepth(nextRole)
+                      ? {}
+                      : { switchDepthM: undefined }),
+                  };
                   setEditing({
                     ...editing,
-                    draft: {
-                      ...editing.draft,
-                      role: nextRole,
-                      ...(roleStoresSwitchDepth(nextRole)
-                        ? {}
-                        : { switchDepthM: undefined }),
-                    },
+                    draft,
                   });
+                  revalidateSwitchDepth(draft);
                 }}
                 value={editing.draft.role}
               >
@@ -535,14 +536,15 @@ export function TankBankPage({
                 label={`Switch depth (${depthUnit(units.depth)})`}
                 min={0}
                 onChange={(next) => {
-                  clearSwitchDepthErrors();
+                  const draft = {
+                    ...editing.draft,
+                    ...(next === undefined ? { switchDepthM: undefined } : { switchDepthM: next }),
+                  };
                   setEditing({
                     ...editing,
-                    draft: {
-                      ...editing.draft,
-                      ...(next === undefined ? { switchDepthM: undefined } : { switchDepthM: next }),
-                    },
+                    draft,
                   });
+                  revalidateSwitchDepth(draft);
                 }}
                 units={units.depth}
                 valueM={editing.draft.switchDepthM}
@@ -550,11 +552,12 @@ export function TankBankPage({
               {editingModM !== undefined && <div className="bf-tank-switch-depth-actions">
                 <ActionButton
                   onClick={() => {
-                    clearSwitchDepthErrors();
+                    const draft = { ...editing.draft, switchDepthM: modSwitchDepthM(editing.draft) };
                     setEditing({
                       ...editing,
-                      draft: { ...editing.draft, switchDepthM: modSwitchDepthM(editing.draft) },
+                      draft,
                     });
+                    revalidateSwitchDepth(draft);
                   }}
                   quiet
                   small
