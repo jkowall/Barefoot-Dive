@@ -349,6 +349,26 @@ export function reviewStaysOpen(status: string): boolean {
   return status === "current" || status === "updating" || status === "needs-attention";
 }
 
+/**
+ * Apply a cylinder-source selection to a gas draft. Deco and bailout gases copy a Tank Bank
+ * record's `switchDepthM` when the record has one; a record without one leaves the draft's value;
+ * detaching to an ad hoc cylinder keeps the draft's switch depth. Other roles only change
+ * `cylinderId`. The plan owns the value after selection — later Tank Bank edits do not call this.
+ */
+export function withTankSourceSelection(
+  gas: GasDraft,
+  cylinderId: string | undefined,
+  tanks: readonly TankRecord[],
+): GasDraft {
+  if (cylinderId === undefined) return { ...gas, cylinderId: undefined };
+  const record = tanks.find((tank) => tank.id === cylinderId);
+  if (!record) return { ...gas, cylinderId };
+  if ((gas.role !== "deco" && gas.role !== "bailout") || record.gas.switchDepthM === undefined) {
+    return { ...gas, cylinderId };
+  }
+  return { ...gas, cylinderId, switchDepthM: record.gas.switchDepthM };
+}
+
 /** Gas-only: the draft's own mix and PPO₂ ceiling, with no cylinder or Tank Bank source. */
 function resolveGasOnly(draft: GasDraft): Gas {
   return {

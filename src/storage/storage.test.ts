@@ -4,7 +4,7 @@ import { SAVED_PLANS_KEY, SavedPlansStore } from "./savedPlans";
 import { cylinderIssues, isCylinder, writeEntries } from "./schema";
 import { TANK_BANK_KEY, TankBankStore } from "./tankBank";
 import type { StorageLike, TankDraft } from "./types";
-import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
+import { barAbsolute, barGauge, fraction, liters, meters } from "../domain/units";
 
 class MemoryStorage implements StorageLike {
   private readonly values = new Map<string, string>();
@@ -24,6 +24,31 @@ const storedEnvelope = (storage: MemoryStorage, key: string) => JSON.parse(stora
 const stringOxygenTank = () => ({ ...storedTank("cylinder-bad", "Deco 50"), gas: { id: "ean50", name: "EAN50", oxygen: "0.50", helium: 0, role: "deco" } });
 
 describe("TankBankStore", () => {
+  it("round-trips a record with gas.switchDepthM unchanged", () => {
+    const storage = new MemoryStorage();
+    const store = new TankBankStore(options(storage));
+    const created = store.create({
+      ...tank("Oxygen"),
+      role: "deco",
+      maximumPPO2: barAbsolute(1.6),
+      gas: {
+        id: "oxygen",
+        name: "Oxygen",
+        oxygen: fraction(1),
+        helium: fraction(0),
+        role: "deco",
+        switchDepthM: meters(6),
+      },
+    });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.value.gas.switchDepthM).toBe(6);
+    const reread = store.get(created.value.id);
+    expect(reread.ok && reread.value?.gas.switchDepthM).toBe(6);
+    const envelope = storedEnvelope(storage, TANK_BANK_KEY);
+    expect((envelope.records[0] as { gas: { switchDepthM: number } }).gas.switchDepthM).toBe(6);
+  });
+
   it("migrates a legacy array, isolates edits, and supports archive/restore", () => {
     const storage = new MemoryStorage();
     storage.setItem("barefoot-dive:tank-bank", JSON.stringify([{ ...tank(), id: "legacy", revision: 1, archived: false, createdAt: "a", updatedAt: "a" }]));

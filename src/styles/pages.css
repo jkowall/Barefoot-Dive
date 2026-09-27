@@ -51,6 +51,7 @@
 .bf-tank-card .bf-panel__header { align-items: flex-start; flex-direction: column; }
 .bf-tank-card__actions { display: grid; width: 100%; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); gap: var(--bf-space-2); }
 .bf-tank-card__actions .bf-button { min-width: 0; }
+.bf-tank-switch-depth-actions { display: flex; align-items: center; min-height: 32px; }
 
 @media (min-width: 600px) {
   .bf-form-grid--filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }

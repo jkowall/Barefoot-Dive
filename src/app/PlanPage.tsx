@@ -54,6 +54,7 @@ import {
   tankSourceUnavailableText,
   withGasIncluded,
   withGasPlanning,
+  withTankSourceSelection,
   type GasDraft,
   type PlanDraft,
   type ReserveDraft,
@@ -164,6 +165,11 @@ function GasEditor({
     : enteredMinimumBar > policyMinimumBar
       ? `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy; the entered cylinder minimum is higher than ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure, so it governs.`
       : `Locked by the ${reserveKind === "thirds" ? "cave thirds" : "cave sixths"} policy: ${reserveKind === "thirds" ? "one third" : "two thirds"} of the starting pressure.`;
+  // When a deco/bailout draft has no switch depth of its own, show the selected record's value —
+  // that is what `bankGasAndCylinder` uses in the calculation.
+  const displayedSwitchDepthM = value.switchDepthM
+    ?? ((value.role === "deco" || value.role === "bailout") ? selected?.gas.switchDepthM : undefined)
+    ?? 0;
   // A deco or bailout switch may align shallower onto the stop grid (20 ft is the 6 m stop); the
   // travel-to-bottom switch has a minimum PPO₂ as well as a maximum, so it is taken exactly.
   const switchDepthField = showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <DepthField
@@ -174,7 +180,7 @@ function GasEditor({
     min={0}
     onChange={(next) => change("switchDepthM", next)}
     units={preferences.depth}
-    valueM={value.switchDepthM ?? 0}
+    valueM={displayedSwitchDepthM}
   />;
   return <article className="bf-gas-editor" data-excluded={included ? undefined : ""} ref={containerRef}>
     <header className="bf-row-header">
@@ -218,7 +224,7 @@ function GasEditor({
           aria-describedby={sharedError ? sharedErrorId : undefined}
           aria-invalid={sharedError ? true : undefined}
           aria-label={`${value.name} cylinder source`}
-          onChange={(event) => change("cylinderId", event.currentTarget.value || undefined)}
+          onChange={(event) => onChange(withTankSourceSelection(value, event.currentTarget.value || undefined, tanks))}
           ref={sourceRef}
           value={value.cylinderId ?? ""}
         >

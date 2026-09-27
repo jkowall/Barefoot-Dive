@@ -22,6 +22,7 @@ import {
   reviewStaysOpen,
   withGasIncluded,
   withGasPlanning,
+  withTankSourceSelection,
   type GasDraft,
   type PlanDraft,
   type ResolvedPlanInput,
@@ -892,5 +893,73 @@ describe("reviewGasDisplayName", () => {
     expect(reviewGasDisplayName(draft, [tank])).toBe("Oxygen");
     expect(reviewGasDisplayName({ ...draft, cylinderId: tank.id }, [{ ...tank, archived: true }])).toBe("Oxygen");
     expect(reviewGasDisplayName({ ...draft, name: "   " }, [])).toBe("Plan gas");
+  });
+});
+
+describe("withTankSourceSelection", () => {
+  const oxygenStage = (revision = 1, switchDepthM: number | null = 6): TankRecord => ({
+    id: "o2-stage",
+    name: "Oxygen stage",
+    waterVolumeL: liters(11.1),
+    workingPressureBar: barGauge(207),
+    currentPressureBar: barGauge(200),
+    gas: {
+      id: "oxygen",
+      name: "Oxygen",
+      oxygen: fraction(1),
+      helium: fraction(0),
+      role: "deco",
+      ...(switchDepthM === null ? {} : { switchDepthM: meters(switchDepthM) }),
+    },
+    maximumPPO2: barAbsolute(1.6),
+    role: "deco",
+    revision,
+    archived: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+
+  it("copies a deco or bailout record's switch depth into the draft", () => {
+    const deco = DEFAULT_PLAN_DRAFT.decoGases[1]!;
+    expect(deco.switchDepthM).toBe(6);
+    const fromDefault = withTankSourceSelection({ ...deco, switchDepthM: 21 }, "o2-stage", [oxygenStage(1, 6)]);
+    expect(fromDefault).toMatchObject({ cylinderId: "o2-stage", switchDepthM: 6 });
+
+    const bailout = DEFAULT_PLAN_DRAFT.bailoutGases[0]!;
+    expect(bailout.switchDepthM).toBeUndefined();
+    expect(withTankSourceSelection(bailout, "o2-stage", [oxygenStage(1, 6)])).toMatchObject({
+      cylinderId: "o2-stage",
+      switchDepthM: 6,
+    });
+  });
+
+  it("leaves the draft switch depth when the record has none, and when detaching", () => {
+    const deco = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, switchDepthM: 21 };
+    expect(withTankSourceSelection(deco, "o2-stage", [oxygenStage(1, null)])).toMatchObject({
+      cylinderId: "o2-stage",
+      switchDepthM: 21,
+    });
+    expect(withTankSourceSelection({ ...deco, cylinderId: "o2-stage" }, undefined, [oxygenStage()])).toMatchObject({
+      cylinderId: undefined,
+      switchDepthM: 21,
+    });
+  });
+
+  it("does not change switch depth for bottom gas; after selection the plan owns the value", () => {
+    const bottom = DEFAULT_PLAN_DRAFT.bottomGas;
+    expect(withTankSourceSelection(bottom, "o2-stage", [oxygenStage(1, 6)]).switchDepthM).toBe(bottom.switchDepthM);
+    const selected = withTankSourceSelection(
+      { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, switchDepthM: 21 },
+      "o2-stage",
+      [oxygenStage(1, 6)],
+    );
+    expect(selected.switchDepthM).toBe(6);
+    // Plan edits are plain draft writes; a later Tank Bank revision is not applied through this helper
+    // unless the diver chooses the cylinder again. Detaching keeps the plan's value.
+    const planEdited = { ...selected, switchDepthM: 9 };
+    expect(withTankSourceSelection(planEdited, undefined, [oxygenStage(2, 6)])).toMatchObject({
+      cylinderId: undefined,
+      switchDepthM: 9,
+    });
   });
 });
