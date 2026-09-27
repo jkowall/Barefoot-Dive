@@ -41,8 +41,9 @@ Depth entry and diagnostic presentation have their own coverage. Vitest checks d
 Browser coverage includes:
 
 - accessible Setup and Review views for the top-level Plan and Cave workspaces;
+- Plan Review Include-in-plan switches for every deco gas (with the Primary gas ledger) and every CCR bailout gas (with the Bailout gas ledger), including switched-off gases labeled "Not in plan"; Vitest covers `withGasIncluded` and `reviewStaysOpen` (`src/app/planning.test.ts`); Playwright (`tests/ui/review-gas-switches.spec.ts`) covers OC oxygen off/on with Review staying open through Updating, a longer then restored runtime, CCR bailout toggles and all-bailout-off diagnostics recoverable from Review, Space-key focus retention, and no switches in Cave Review or a reopened Saved Plan;
 - an explicit first Plan or Cave calculation followed by debounced recalculation after direct valid edits;
-- immediate suppression of superseded numeric output and Save while either workspace is updating or invalid, followed by restoration only when the result signature matches;
+- immediate suppression of superseded numeric output and Save while either workspace is updating or invalid, followed by restoration only when the result signature matches, including Plan Review include toggles that keep Review open while hiding the previous result;
 - retention of the current Plan and Cave drafts and matching results while navigating among primary workspaces during the app session;
 - Plan calculations and saved snapshots with two Tank Bank cylinders whose gases share an identifier (a cylinder and its Duplicate, and a CCR air diluent with an air bailout);
 - explicit Tank Bank source-revision update actions, with no silent replacement of either calculated snapshot;

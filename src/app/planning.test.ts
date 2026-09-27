@@ -18,6 +18,8 @@ import {
   tankSourceOptionLabel,
   tankSourceSignature,
   tankSourcesChanged,
+  reviewStaysOpen,
+  withGasIncluded,
   withGasPlanning,
   type GasDraft,
   type PlanDraft,
@@ -814,5 +816,51 @@ describe("hidden inputs and Tank Bank source tracking", () => {
     // Values that are not source signatures compare as strings.
     expect(tankSourcesChanged("source-a", "source-a")).toBe(false);
     expect(tankSourcesChanged("source-a", "source-b")).toBe(true);
+  });
+});
+
+describe("withGasIncluded", () => {
+  it("switches a deco gas and a bailout gas off and on without touching other fields", () => {
+    const offDeco = withGasIncluded(DEFAULT_PLAN_DRAFT, "deco-o2", false);
+    expect(offDeco.decoGases.map((gas) => ({ key: gas.key, enabled: gas.enabled }))).toEqual([
+      { key: "deco-50", enabled: undefined },
+      { key: "deco-o2", enabled: false },
+    ]);
+    expect(offDeco.bailoutGases).toEqual(DEFAULT_PLAN_DRAFT.bailoutGases);
+    expect(offDeco.bottomGas).toEqual(DEFAULT_PLAN_DRAFT.bottomGas);
+    expect(offDeco.depthM).toBe(DEFAULT_PLAN_DRAFT.depthM);
+
+    const onDeco = withGasIncluded(offDeco, "deco-o2", true);
+    expect(onDeco.decoGases[1]).toMatchObject({ key: "deco-o2", enabled: true });
+
+    const ccr = { ...DEFAULT_PLAN_DRAFT, mode: "ccr" as const };
+    const offBailout = withGasIncluded(ccr, "bailout-50", false);
+    expect(offBailout.bailoutGases.map((gas) => ({ key: gas.key, enabled: gas.enabled }))).toEqual([
+      { key: "bailout-bottom", enabled: undefined },
+      { key: "bailout-50", enabled: false },
+    ]);
+    expect(offBailout.decoGases).toEqual(ccr.decoGases);
+    expect(withGasIncluded(offBailout, "bailout-50", true).bailoutGases[1]).toMatchObject({
+      key: "bailout-50",
+      enabled: true,
+    });
+  });
+
+  it("treats an unknown key as a no-op", () => {
+    expect(withGasIncluded(DEFAULT_PLAN_DRAFT, "missing-gas", false)).toBe(DEFAULT_PLAN_DRAFT);
+  });
+});
+
+describe("reviewStaysOpen", () => {
+  it.each([
+    ["current", true],
+    ["updating", true],
+    ["needs-attention", true],
+    ["draft", false],
+    ["source-changed", false],
+    ["source-unavailable", false],
+    ["cylinder-shared", false],
+  ] as const)("%s → %s", (status, expected) => {
+    expect(reviewStaysOpen(status)).toBe(expected);
   });
 });

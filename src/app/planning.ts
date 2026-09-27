@@ -315,6 +315,29 @@ export function activeGasDrafts(draft: PlanDraft): readonly GasDraft[] {
     : [draft.diluent, ...draft.bailoutGases.filter(included)];
 }
 
+/**
+ * Include or exclude a deco or bailout gas by key. Unknown keys are a no-op. Every other gas and
+ * field is left untouched so Review and Setup share one draft update path.
+ */
+export function withGasIncluded(draft: PlanDraft, key: string, included: boolean): PlanDraft {
+  const update = (gas: GasDraft): GasDraft => gas.key !== key ? gas : { ...gas, enabled: included };
+  if (draft.decoGases.some((gas) => gas.key === key)) {
+    return { ...draft, decoGases: draft.decoGases.map(update) };
+  }
+  if (draft.bailoutGases.some((gas) => gas.key === key)) {
+    return { ...draft, bailoutGases: draft.bailoutGases.map(update) };
+  }
+  return draft;
+}
+
+/**
+ * Plan Review stays open through include-toggle recalculation and recoverable calculation failures.
+ * Source and shared-cylinder states still return to Setup, where their controls live.
+ */
+export function reviewStaysOpen(status: string): boolean {
+  return status === "current" || status === "updating" || status === "needs-attention";
+}
+
 /** Gas-only: the draft's own mix and PPO₂ ceiling, with no cylinder or Tank Bank source. */
 function resolveGasOnly(draft: GasDraft): Gas {
   return {

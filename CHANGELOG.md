@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Plan Review lists each deco gas, and each CCR bailout gas, with an Include in plan switch, so you can see the plan without a gas without going back to Setup. Review stays open while the plan recalculates.
 - On Safari and iOS 15.4 to 16.3, the layout now follows the screen size. The build wrote every breakpoint in range syntax (`width>=900px`), which WebKit parses only from 16.4, so those versions ignored all of them: phones lost their narrow-screen adjustments, wider screens kept the phone's narrower form, card, and settings grids, and screens 900 px and wider showed bottom navigation instead of the side rail. The build now targets Safari and iOS 15.4, Chrome and Edge 111, and Firefox 114 and keeps `min-width` breakpoints.
 - The iOS app now requires iOS 15.4 or later instead of 15.0. The app calls `Array.prototype.at` and `structuredClone`, which iOS 15.0 to 15.3 lack, so it could not start there; the web app has the same floor. Every iPhone and iPad that runs iOS 15 can update to 15.4 or later.
 
