@@ -122,9 +122,16 @@ export function scenarioTriggerPoint(trigger: CaveScenarioTrigger, route: readon
   return undefined;
 }
 
-export function initialScenarioTriggers(mode: "oc" | "ccr", route: readonly RouteDraft[]): Record<CaveScenarioKind, CaveScenarioTrigger> {
+export function initialScenarioTriggers(
+  mode: "oc" | "ccr",
+  route: readonly RouteDraft[],
+  cylinders: readonly RouteCylinder[] = [],
+): Record<CaveScenarioKind, CaveScenarioTrigger> {
   const kinds: readonly CaveScenarioKind[] = mode === "oc"
     ? ["oc-lost-gas", "lost-buddy", "scooter-failure", "stage-failure"]
     : ["ccr-loop-failure"];
-  return kinds.reduce((all, kind) => ({ ...all, [kind]: { targetLegId: route.at(-1)?.id ?? "" } }), {} as Record<CaveScenarioKind, CaveScenarioTrigger>);
+  return kinds.reduce(
+    (all, kind) => ({ ...all, [kind]: defaultScenarioTrigger(kind, route, cylinders) }),
+    {} as Record<CaveScenarioKind, CaveScenarioTrigger>,
+  );
 }

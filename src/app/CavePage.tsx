@@ -456,7 +456,8 @@ export default function CavePage({
           ...current,
           draft: next,
           enabledScenarios: caveScenarioKinds(next.mode),
-          scenarioTriggers: initialScenarioTriggers(next.mode, current.route),
+          // Per-scenario last eligible leg (not always the route's final leg).
+          scenarioTriggers: initialScenarioTriggers(next.mode, current.route, cylinders),
           selectedScenario: 0,
         });
   };
@@ -636,8 +637,16 @@ export default function CavePage({
                     label={`${scenarioLabel(kind)} trigger distance (${depthUnit(preferences.depth)}; 0 = end of leg)`}
                     min={0}
                     onChange={(value) => {
-                      const next = { targetLegId: trigger.targetLegId, ...(value > 0 ? { targetDistanceM: value } : {}) };
-                      changeScenarioTrigger(kind, isScenarioDistanceValid(next, route) ? next : { ...trigger, repairNote: "Enter a distance inside this leg that leaves at least 1 s after rounding." });
+                      // Keep the typed distance in state so intermediate values (e.g. `4` while
+                      // entering `410`) are not snapped back to the previous valid trigger.
+                      const next: CaveScenarioTrigger = {
+                        targetLegId: trigger.targetLegId,
+                        ...(value > 0 ? { targetDistanceM: value } : {}),
+                        ...(value > 0 && !isScenarioDistanceValid({ targetLegId: trigger.targetLegId, targetDistanceM: value }, route)
+                          ? { repairNote: "Enter a distance inside this leg that leaves at least 1 s after rounding." }
+                          : {}),
+                      };
+                      changeScenarioTrigger(kind, next);
                     }}
                     units={preferences.depth}
                     valueM={trigger.targetDistanceM ?? 0}
