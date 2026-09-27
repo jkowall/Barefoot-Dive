@@ -3,7 +3,7 @@
 - **Source:** product direction after Cave timeline work. Extend the existing Plan/Cave/Saved Plan profile scrubber with continuous traces (cylinder pressure, GF, tissues, PPO₂, CNS), not a one-off UI formula. Roadmap Later item 5 under open-water planning depth.
 - **Status:** design-ready; **not** ready to implement until the contracts below are written and a scientific review pass is recorded. No silent clamping of unsafe values.
 - **Suggested branch:** `cursor/profile-exposure-traces`, from `main` after Cave timeline lands if that PR touches shared profile UI; otherwise from latest `main`.
-- **Order:** after Cave distance-axis timeline if both are open and share `src/ui` profile components; otherwise independent. Do not start coding until contracts §1–§4 exist in `documentation/calculation-model.md` (or a linked design note) and Sol (or equivalent) has read-only reviewed them.
+- **Order:** after Cave distance-axis timeline if both are open and share `src/ui` profile components; otherwise independent. Do not start coding until contracts §1–§5 exist in `documentation/calculation-model.md` (or a linked design note) and Sol (or equivalent) has read-only reviewed them.
 
 Read `AGENTS.md` first. It is binding, including scientific invariants, branded units, and the rule that motion must not animate safety-critical numbers. Analyzer readings, manufacturer limits, and a dive computer remain authoritative.
 
