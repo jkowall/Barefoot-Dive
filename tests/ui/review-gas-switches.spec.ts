@@ -83,10 +83,30 @@ test("toggles a CCR bailout gas from the Bailout gas ledger and recovers when al
   await expect(includeBottom).toBeVisible();
   await expect(includeEan50).toBeVisible();
   await expect(results.locator(".bf-metric").filter({ hasText: "Runtime" })).toHaveCount(0);
+  // Only Review can offer its switches; Setup keeps its own instruction while Review is disabled.
+  await expect(page.getByText("Current inputs could not produce a plan. Switch a gas back on here, or fix the diagnostics in Setup.")).toBeVisible();
 
   await includeBottom.check();
   await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
   await expect(results.locator(".bf-metric").filter({ hasText: "Runtime" }).first()).toBeVisible();
+});
+
+test("drops the saved-snapshot notice when a Review switch supersedes the saved result", async ({ page }) => {
+  await page.goto("/");
+  await acceptSafety(page);
+  const results = await calculateAndOpenReview(page);
+  await results.getByRole("button", { name: "Save snapshot" }).click();
+  await page.getByLabel("Plan name").fill("Before the switch");
+  await page.getByRole("button", { name: "Save plan" }).click();
+  const savedNotice = page.getByRole("status").filter({ hasText: "Snapshot saved locally" });
+  await expect(savedNotice).toBeVisible();
+
+  await results.getByRole("checkbox", { name: "Include Oxygen in plan" }).uncheck();
+  await expect(page.getByRole("status").filter({ hasText: /^Updating$/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Current$/ })).toBeVisible();
+  await expect(results.locator(".bf-metric").filter({ hasText: "Runtime" }).first()).toBeVisible();
+  // The new result was never saved, so the earlier notice must not return above it.
+  await expect(savedNotice).toHaveCount(0);
 });
 
 test("keeps keyboard focus on the Review include switch across recalculation", async ({ page }) => {

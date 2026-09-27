@@ -332,10 +332,11 @@ export function withGasIncluded(draft: PlanDraft, key: string, included: boolean
 
 /**
  * Display name for a Review Include switch, matching Setup's GasEditor: the selected non-archived
- * Tank Bank gas name when present, otherwise the draft name.
+ * Tank Bank gas name when present, otherwise the draft name. A gas-only plan ignores Tank Bank
+ * sources, so it always uses the draft name.
  */
-export function reviewGasDisplayName(gas: GasDraft, tanks: readonly TankRecord[]): string {
-  const record = gas.cylinderId === undefined
+export function reviewGasDisplayName(gas: GasDraft, tanks: readonly TankRecord[], gasOnly = false): string {
+  const record = gasOnly || gas.cylinderId === undefined
     ? undefined
     : tanks.find((tank) => tank.id === gas.cylinderId && !tank.archived);
   return record?.gas.name.trim() || gas.name.trim() || "Plan gas";
@@ -360,7 +361,14 @@ export function withTankSourceSelection(
   cylinderId: string | undefined,
   tanks: readonly TankRecord[],
 ): GasDraft {
-  if (cylinderId === undefined) return { ...gas, cylinderId: undefined };
+  if (cylinderId === undefined) {
+    // A deco or bailout gas without its own switch depth shows and plans with its record's; detaching
+    // keeps that value instead of dropping to none.
+    const inherited = usesRecordSwitchDepth(gas) && gas.switchDepthM === undefined
+      ? tanks.find((tank) => tank.id === gas.cylinderId)?.gas.switchDepthM
+      : undefined;
+    return { ...gas, cylinderId: undefined, ...(inherited === undefined ? {} : { switchDepthM: inherited }) };
+  }
   const record = tanks.find((tank) => tank.id === cylinderId);
   if (!record) return { ...gas, cylinderId };
   if ((gas.role !== "deco" && gas.role !== "bailout") || record.gas.switchDepthM === undefined) {
@@ -541,12 +549,24 @@ export function sharedTankSourceText(otherGases: readonly Pick<GasDraft, "role" 
   return sentence(`${listText(otherGases.map(gasSourceLabel))} also ${otherGases.length === 1 ? "uses" : "use"} this cylinder. Give each gas its own cylinder.`);
 }
 
+/** Deco and bailout gases are the only ones whose switch depth a Tank Bank record can supply. */
+function usesRecordSwitchDepth(draft: Pick<GasDraft, "role">): boolean {
+  return draft.role === "deco" || draft.role === "bailout";
+}
+
 function bankGasAndCylinder(draft: GasDraft, bankCylinder: TankRecord): { gas: Gas; cylinder: Cylinder } {
+  // Any record can supply any gas, so a record's stored switch depth reaches only a deco or bailout
+  // gas without its own, where the Setup field shows it. A bottom, travel, or diluent gas taking a
+  // deco or bailout record never inherits a switch depth it does not show.
+  const { switchDepthM: recordSwitchDepthM, ...recordGas } = bankCylinder.gas;
+  const switchDepthM = draft.switchDepthM !== undefined
+    ? meters(draft.switchDepthM)
+    : usesRecordSwitchDepth(draft) ? recordSwitchDepthM : undefined;
   const gas: Gas = {
-    ...bankCylinder.gas,
+    ...recordGas,
     name: bankCylinder.gas.name || draft.name,
     role: draft.role,
-    ...(draft.switchDepthM === undefined ? {} : { switchDepthM: meters(draft.switchDepthM) }),
+    ...(switchDepthM === undefined ? {} : { switchDepthM }),
     cylinderId: bankCylinder.id,
   };
   return {

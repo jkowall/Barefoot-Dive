@@ -1,7 +1,8 @@
 import { calculateMOD } from "../calculations";
 import { DEFAULT_ENVIRONMENT } from "../domain/defaults";
 import type { CylinderRole, Gas } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters, meters } from "../domain/units";
+import { barAbsolute, barGauge, depthToAmbientPressure, fraction, liters, meters } from "../domain/units";
+import { isAboveMaximumPPO2 } from "../domain/validation";
 import type { TankDraft, TankRecord } from "../storage/types";
 
 /** Form state for the Tank Bank create/edit panel. */
@@ -54,6 +55,37 @@ export function tankBankDraftModM(draft: Pick<TankBankDraftState, "oxygen" | "ma
     ...DEFAULT_ENVIRONMENT,
   });
   return result.ok ? result.value.depthM : undefined;
+}
+
+/**
+ * The switch depth "Use MOD" fills in: the deepest 0.1 m step at or shallower than the MOD whose
+ * PPO₂, computed as the planner computes it, does not exceed the maximum (same 1e-8 bar tolerance).
+ * The raw MOD can land a hair past the maximum after floating-point rounding; Oxygen at 1.6 bar
+ * stays on its 6 m stop. Uses a binary search so a tiny but valid oxygen fraction cannot freeze
+ * the form by walking millions of 0.1 m steps.
+ */
+export function modSwitchDepthM(draft: Pick<TankBankDraftState, "oxygen" | "maximumPPO2">): number | undefined {
+  const modM = tankBankDraftModM(draft);
+  if (modM === undefined) return undefined;
+  const oxygen = fraction(draft.oxygen / 100);
+  const accepts = (depthM: number) =>
+    !isAboveMaximumPPO2(
+      oxygen *
+        depthToAmbientPressure(
+          meters(depthM),
+          DEFAULT_ENVIRONMENT.surfacePressureBar,
+          DEFAULT_ENVIRONMENT.metersPerBar,
+        ),
+      draft.maximumPPO2,
+    );
+  let lo = 0;
+  let hi = Math.floor(modM * 10 + 1e-9);
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (accepts(mid / 10)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo / 10;
 }
 
 export function draftStateFromRecord(record: TankRecord): TankBankDraftState {

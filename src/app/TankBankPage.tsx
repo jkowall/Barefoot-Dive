@@ -35,6 +35,7 @@ import { PLAN_STOP_INCREMENT_M } from "./planning";
 import {
   draftStateFromRecord,
   EMPTY_TANK_BANK_DRAFT,
+  modSwitchDepthM,
   roleStoresSwitchDepth,
   TANK_BANK_ROLES,
   tankBankDraftModM,
@@ -193,7 +194,12 @@ export function TankBankPage({
   };
   const cylinderCapacityLabel = capacityLabel(units.cylinderCapacity);
   const editingModM = editing ? tankBankDraftModM(editing.draft) : undefined;
-  const switchDepthError = errors.find((item) => item.toLowerCase().includes("switch depth"));
+  const isSwitchDepthError = (item: string) => item.toLowerCase().includes("switch depth");
+  const switchDepthError = errors.find(isSwitchDepthError);
+  // A switch-depth error describes the value that was saved; editing the field retires it.
+  const clearSwitchDepthErrors = () => setErrors((current) => current.some(isSwitchDepthError)
+    ? current.filter((item) => !isSwitchDepthError(item))
+    : current);
   return (
     <>
       <PageHeader
@@ -528,22 +534,28 @@ export function TankBankPage({
                   : `Optional. MOD at this max PPO₂ is ${formatDepthBound(editingModM, units.depth, "upper")}.`}
                 label={`Switch depth (${depthUnit(units.depth)})`}
                 min={0}
-                onChange={(next) => setEditing({
-                  ...editing,
-                  draft: {
-                    ...editing.draft,
-                    ...(next === undefined ? { switchDepthM: undefined } : { switchDepthM: next }),
-                  },
-                })}
+                onChange={(next) => {
+                  clearSwitchDepthErrors();
+                  setEditing({
+                    ...editing,
+                    draft: {
+                      ...editing.draft,
+                      ...(next === undefined ? { switchDepthM: undefined } : { switchDepthM: next }),
+                    },
+                  });
+                }}
                 units={units.depth}
                 valueM={editing.draft.switchDepthM}
               />
               {editingModM !== undefined && <div className="bf-tank-switch-depth-actions">
                 <ActionButton
-                  onClick={() => setEditing({
-                    ...editing,
-                    draft: { ...editing.draft, switchDepthM: editingModM },
-                  })}
+                  onClick={() => {
+                    clearSwitchDepthErrors();
+                    setEditing({
+                      ...editing,
+                      draft: { ...editing.draft, switchDepthM: modSwitchDepthM(editing.draft) },
+                    });
+                  }}
                   quiet
                   small
                 >
