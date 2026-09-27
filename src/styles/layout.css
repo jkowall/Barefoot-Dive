@@ -181,7 +181,13 @@
   padding: 0;
   list-style: none;
 }
-.bf-cave-timeline__marker { margin-left: var(--bf-timeline-position); }
+.bf-cave-timeline__marker { position: relative; min-height: var(--bf-control-h); }
+.bf-cave-timeline__marker > * {
+  position: absolute;
+  left: var(--bf-timeline-position);
+  transform: translateX(var(--bf-timeline-shift));
+  max-width: 100%;
+}
 .bf-cave-timeline__marker--scenario > button {
   display: grid;
   min-height: var(--bf-control-h);

@@ -52,15 +52,19 @@ export function CaveTimeline({
     {model.markers.length > 0 && <ul className="bf-cave-timeline__markers" aria-label="Route events">
       {model.markers.map((marker) => {
         const position = percentage(marker.distanceM, model.totalDistanceM);
+        const markerStyle = {
+          "--bf-timeline-position": `${position}%`,
+          "--bf-timeline-shift": position <= 0 ? "0%" : position >= 100 ? "-100%" : "-50%",
+        } as CSSProperties;
         if (marker.type === "scenario") {
-          return <li className="bf-cave-timeline__marker bf-cave-timeline__marker--scenario" key={marker.kind} style={{ "--bf-timeline-position": `${position}%` } as CSSProperties}>
+          return <li className="bf-cave-timeline__marker bf-cave-timeline__marker--scenario" key={marker.kind} style={markerStyle}>
             <button aria-label={`${marker.label} trigger at ${distance(marker.distanceM)}, ${distance(marker.depthM)} depth`} onClick={() => onScenarioActivate?.(marker.kind)} type="button">
               <span>{marker.label}</span>
               <small>{distance(marker.distanceM)}</small>
             </button>
           </li>;
         }
-        return <li className="bf-cave-timeline__marker bf-cave-timeline__marker--stage" key={`${marker.legId}-${marker.action}`} style={{ "--bf-timeline-position": `${position}%` } as CSSProperties}>
+        return <li className="bf-cave-timeline__marker bf-cave-timeline__marker--stage" key={`${marker.legId}-${marker.action}`} style={markerStyle}>
           <span aria-label={`${marker.action} ${marker.cylinderName} at ${distance(marker.distanceM)}`}>
             {marker.action} {marker.cylinderName} · {distance(marker.distanceM)}
           </span>
