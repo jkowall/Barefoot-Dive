@@ -32,7 +32,7 @@ import {
 } from "../ui";
 import { ActionButton, DepthField, NumberField, SelectField } from "./controls";
 import { CaveAccessTable } from "./CaveAccessTable";
-import { CaveTimeline } from "./CaveTimeline";
+import { CaveRouteTimeline } from "./CaveRouteTimeline";
 import { collectCaveDiagnostics, formatCaveCeilingViolation } from "./caveDiagnostics";
 import { buildCaveTimeline } from "./caveTimeline";
 import { formatDiagnostic } from "./diagnosticText";
@@ -635,7 +635,7 @@ export default function CavePage({
       <WarningList items={diagnosticsToItems(routeNotices, preferences.depth)} title="Leg cylinders to confirm" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
-        <CaveTimeline model={timeline} onScenarioActivate={focusSetupScenario} onSegmentActivate={focusSetupRoute} preferences={preferences} />
+        <CaveRouteTimeline model={timeline} onScenarioActivate={focusSetupScenario} onSegmentActivate={focusSetupRoute} preferences={preferences} />
         <CaveAccessTable cylinders={cylinders} preferences={preferences} route={route} />
         {route.map((leg, index) => <RouteEditor
           containerRef={leg.id === pendingRouteId ? pendingRouteRef : undefined}
@@ -761,7 +761,7 @@ export default function CavePage({
       </Panel>
       <WarningList items={diagnosticsToItems([...aggregateCaveDiagnostics, ...routeNotices], preferences.depth)} title="Aggregate cave diagnostics" />
       <Panel title="Penetration route">
-        <CaveTimeline model={timeline} onScenarioActivate={selectTimelineScenario} preferences={preferences} readOnly />
+        <CaveRouteTimeline model={timeline} onScenarioActivate={selectTimelineScenario} preferences={preferences} readOnly />
       </Panel>
       <Panel title="Failure scenarios">
         <SegmentedControl

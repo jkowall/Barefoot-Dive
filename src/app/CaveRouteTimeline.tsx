@@ -5,7 +5,8 @@ import type { CaveTimelineModel } from "./caveTimeline";
 
 const percentage = (value: number, total: number): number => total <= 0 ? 0 : (value / total) * 100;
 
-export function CaveTimeline({
+/** Presentational distance-axis route timeline. Named distinctly from `caveTimeline.ts` so case-insensitive filesystems do not collide. */
+export function CaveRouteTimeline({
   model,
   preferences,
   readOnly = false,
