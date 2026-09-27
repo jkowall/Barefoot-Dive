@@ -19,7 +19,7 @@ test("Cave scooter trigger is keyboard-accessible", async ({ page }) => {
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await page.getByRole("button", { name: "Add route leg" }).click();
   const added = page.locator(".bf-route-editor").last();
-  await added.getByLabel("Propulsion").selectOption("scooter");
+  await added.locator('select[aria-label="Propulsion"]').selectOption("scooter");
   const trigger = page.getByLabel("Scooter failure trigger leg");
   await expect(trigger).toBeEnabled();
   await trigger.focus();
