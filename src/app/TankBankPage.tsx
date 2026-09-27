@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { calculateMOD } from "../calculations";
 import { DEFAULT_ENVIRONMENT } from "../domain/defaults";
-import type { CylinderRole, Gas } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters } from "../domain/units";
+import type { CylinderRole } from "../domain/types";
 import {
   CompletionNotice,
   ConfirmDialog,
@@ -20,6 +19,8 @@ import {
   capacityInputValue,
   capacityLabel,
   capacityUnit,
+  depthUnit,
+  formatDepth,
   formatDepthBound,
   formatPressure,
   pressureInputStep,
@@ -29,10 +30,20 @@ import {
   waterVolumeFromRatedCapacity,
   type UnitPreferences,
 } from "./helpers";
-import { ActionButton } from "./controls";
+import { ActionButton, OptionalDepthField } from "./controls";
+import { PLAN_STOP_INCREMENT_M } from "./planning";
+import {
+  draftStateFromRecord,
+  EMPTY_TANK_BANK_DRAFT,
+  roleStoresSwitchDepth,
+  TANK_BANK_ROLES,
+  tankBankDraftModM,
+  toTankDraft,
+  validateTankBankDraft,
+  type TankBankDraftState,
+} from "./tankBankDraft";
 import type { TankBankStore } from "../storage/tankBank";
 import type {
-  TankDraft,
   TankRecord,
   StorageDiagnostic,
 } from "../storage/types";
@@ -71,117 +82,6 @@ export type TankBankPageProps = {
   readonly onSelectCylinder?: (record: TankRecord) => void;
   readonly onRecordsChange?: (records: readonly TankRecord[]) => void;
 };
-type DraftState = {
-  name: string;
-  waterVolumeL: number;
-  workingPressureBar: number;
-  currentPressureBar: number;
-  minimumPressureBar: number;
-  oxygen: number;
-  helium: number;
-  maximumPPO2: number;
-  role: CylinderRole;
-  gasName: string;
-};
-const roles: readonly CylinderRole[] = [
-  "bottom",
-  "travel",
-  "deco",
-  "bailout",
-  "diluent",
-  "stage",
-];
-const emptyDraft: DraftState = {
-  name: "New cylinder",
-  waterVolumeL: 24,
-  workingPressureBar: 232,
-  currentPressureBar: 232,
-  minimumPressureBar: 35,
-  oxygen: 21,
-  helium: 0,
-  maximumPPO2: 1.6,
-  role: "bottom",
-  gasName: "Air",
-};
-
-function draftFromRecord(record: TankRecord): DraftState {
-  return {
-    name: record.name,
-    waterVolumeL: record.waterVolumeL,
-    workingPressureBar: record.workingPressureBar,
-    currentPressureBar: record.currentPressureBar,
-    minimumPressureBar: record.minimumPressureBar ?? 0,
-    oxygen: record.gas.oxygen * 100,
-    helium: record.gas.helium * 100,
-    maximumPPO2: record.maximumPPO2,
-    role: record.role ?? record.gas.role,
-    gasName: record.gas.name,
-  };
-}
-function toDraft(draft: DraftState, source?: TankRecord): TankDraft {
-  const gas: Gas = {
-    id:
-      source?.gas.id ??
-      (draft.gasName
-        .trim()
-        .toLocaleLowerCase()
-        .replace(/[^a-z0-9]+/g, "-") ||
-        "gas"),
-    name: draft.gasName.trim() || "Unnamed gas",
-    oxygen: fraction(draft.oxygen / 100),
-    helium: fraction(draft.helium / 100),
-    role: draft.role === "stage" ? "bottom" : draft.role,
-    ...(source?.gas.switchDepthM === undefined
-      ? {}
-      : { switchDepthM: source.gas.switchDepthM }),
-  };
-  return {
-    name: draft.name.trim(),
-    waterVolumeL: liters(draft.waterVolumeL),
-    workingPressureBar: barGauge(draft.workingPressureBar),
-    currentPressureBar: barGauge(draft.currentPressureBar),
-    minimumPressureBar: barGauge(draft.minimumPressureBar),
-    maximumPPO2: barAbsolute(draft.maximumPPO2),
-    role: draft.role,
-    gas,
-  };
-}
-function validateDraft(draft: DraftState): string[] {
-  const errors: string[] = [];
-  if (!draft.name.trim()) errors.push("Cylinder name is required.");
-  if (!draft.gasName.trim()) errors.push("Gas name is required.");
-  if (!Number.isFinite(draft.waterVolumeL) || draft.waterVolumeL <= 0)
-    errors.push("Water volume must be greater than zero.");
-  if (
-    !Number.isFinite(draft.workingPressureBar) ||
-    draft.workingPressureBar <= 0
-  )
-    errors.push("Working pressure must be greater than zero.");
-  if (
-    !Number.isFinite(draft.currentPressureBar) ||
-    draft.currentPressureBar < 0 ||
-    draft.currentPressureBar > draft.workingPressureBar
-  )
-    errors.push("Current pressure must be between zero and working pressure.");
-  if (
-    !Number.isFinite(draft.minimumPressureBar) ||
-    draft.minimumPressureBar < 0 ||
-    draft.minimumPressureBar > draft.currentPressureBar
-  )
-    errors.push("Minimum pressure must be between zero and current pressure.");
-  if (!Number.isFinite(draft.oxygen) || draft.oxygen <= 0 || draft.oxygen > 100)
-    errors.push("O₂ must be greater than 0% and at most 100%.");
-  if (
-    !Number.isFinite(draft.helium) ||
-    draft.helium < 0 ||
-    draft.helium > 100 ||
-    draft.oxygen + draft.helium > 100
-  )
-    errors.push("O₂ and He must be valid fractions totaling at most 100%.");
-  if (!Number.isFinite(draft.maximumPPO2) || draft.maximumPPO2 <= 0)
-    errors.push("Maximum PPO₂ must be greater than zero.");
-  return errors;
-}
 
 export function TankBankPage({
   store,
@@ -195,7 +95,7 @@ export function TankBankPage({
   const [role, setRole] = useState<CylinderRole | "">("");
   const [gas, setGas] = useState("");
   const [records, setRecords] = useState<readonly TankRecord[]>([]);
-  const [editing, setEditing] = useState<{ id?: string; draft: DraftState }>();
+  const [editing, setEditing] = useState<{ id?: string; draft: TankBankDraftState }>();
   const [completion, setCompletion] = useState<{ readonly revision: number; readonly label: string; readonly description: string }>();
   const [errors, setErrors] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<TankRecord>();
@@ -243,18 +143,18 @@ export function TankBankPage({
   };
   const save = () => {
     if (!editing) return;
-    const nextErrors = validateDraft(editing.draft);
+    const nextErrors = validateTankBankDraft(editing.draft);
     setErrors(nextErrors);
     if (nextErrors.length) return;
     const result = editing.id
       ? store.edit(
           editing.id,
-          toDraft(
+          toTankDraft(
             editing.draft,
             records.find((record) => record.id === editing.id),
           ),
         )
-      : store.create(toDraft(editing.draft));
+      : store.create(toTankDraft(editing.draft));
     if (mutate(result)) {
       setCompletion((current) => ({
         revision: (current?.revision ?? 0) + 1,
@@ -271,12 +171,12 @@ export function TankBankPage({
     setErrors([]);
     setEditing({
       ...(record?.id ? { id: record.id } : {}),
-      draft: record ? draftFromRecord(record) : emptyDraft,
+      draft: record ? draftStateFromRecord(record) : { ...EMPTY_TANK_BANK_DRAFT },
     });
   };
   const roleOptions = [
     { value: "", label: "All roles" },
-    ...roles.map((value) => ({
+    ...TANK_BANK_ROLES.map((value) => ({
       value,
       label: value[0].toUpperCase() + value.slice(1),
     })),
@@ -292,6 +192,8 @@ export function TankBankPage({
       : "—";
   };
   const cylinderCapacityLabel = capacityLabel(units.cylinderCapacity);
+  const editingModM = editing ? tankBankDraftModM(editing.draft) : undefined;
+  const switchDepthError = errors.find((item) => item.toLowerCase().includes("switch depth"));
   return (
     <>
       <PageHeader
@@ -426,7 +328,11 @@ export function TankBankPage({
                 <ResultMetric
                   label="MOD"
                   value={mod(record)}
-                  detail={`Max PPO₂ ${record.maximumPPO2.toFixed(2)} bar`}
+                  detail={
+                    record.gas.switchDepthM !== undefined && roleStoresSwitchDepth(record.role ?? record.gas.role)
+                      ? `Switch ${formatDepth(record.gas.switchDepthM, units.depth)} · Max PPO₂ ${record.maximumPPO2.toFixed(2)} bar`
+                      : `Max PPO₂ ${record.maximumPPO2.toFixed(2)} bar`
+                  }
                 />
               </div>
             </Panel>
@@ -590,24 +496,61 @@ export function TankBankPage({
             <FieldGroup label="Role">
               <select
                 aria-label="Cylinder role"
-                onChange={(event) =>
+                onChange={(event) => {
+                  const nextRole = event.target.value as CylinderRole;
                   setEditing({
                     ...editing,
                     draft: {
                       ...editing.draft,
-                      role: event.target.value as CylinderRole,
+                      role: nextRole,
+                      ...(roleStoresSwitchDepth(nextRole)
+                        ? {}
+                        : { switchDepthM: undefined }),
                     },
-                  })
-                }
+                  });
+                }}
                 value={editing.draft.role}
               >
-                {roles.map((item) => (
+                {TANK_BANK_ROLES.map((item) => (
                   <option key={item} value={item}>
                     {item[0].toUpperCase() + item.slice(1)}
                   </option>
                 ))}
               </select>
             </FieldGroup>
+            {roleStoresSwitchDepth(editing.draft.role) && <>
+              <OptionalDepthField
+                bound="max-ppo2"
+                error={switchDepthError}
+                gridM={PLAN_STOP_INCREMENT_M}
+                hint={editingModM === undefined
+                  ? "Optional. Leave blank for no stored switch depth."
+                  : `Optional. MOD at this max PPO₂ is ${formatDepthBound(editingModM, units.depth, "upper")}.`}
+                label={`Switch depth (${depthUnit(units.depth)})`}
+                min={0}
+                onChange={(next) => setEditing({
+                  ...editing,
+                  draft: {
+                    ...editing.draft,
+                    ...(next === undefined ? { switchDepthM: undefined } : { switchDepthM: next }),
+                  },
+                })}
+                units={units.depth}
+                valueM={editing.draft.switchDepthM}
+              />
+              {editingModM !== undefined && <div className="bf-tank-switch-depth-actions">
+                <ActionButton
+                  onClick={() => setEditing({
+                    ...editing,
+                    draft: { ...editing.draft, switchDepthM: editingModM },
+                  })}
+                  quiet
+                  small
+                >
+                  Use MOD
+                </ActionButton>
+              </div>}
+            </>}
           </div>
           {errors.length > 0 && (
             <ul className="bf-field-group__error">

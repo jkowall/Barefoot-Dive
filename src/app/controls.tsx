@@ -117,6 +117,57 @@ export function DepthField({
   </FieldGroup>;
 }
 
+/** Depth field that may be blank; blank reports `undefined` rather than 0. Reuses `resolveDepthEntry`. */
+export function OptionalDepthField({
+  label,
+  valueM,
+  units,
+  onChange,
+  bound = "free",
+  gridM,
+  min,
+  hint,
+  error,
+  disabled,
+}: {
+  readonly label: string;
+  readonly valueM: number | undefined;
+  readonly units: UnitPreferences["depth"];
+  readonly onChange: (value: Meters | undefined) => void;
+  readonly bound?: DepthEntryBound;
+  readonly gridM?: number;
+  readonly min?: number;
+  readonly hint?: string;
+  readonly error?: string;
+  readonly disabled?: boolean;
+}) {
+  const focusM = useRef<number | undefined>(undefined);
+  return <FieldGroup error={error} label={label} hint={hint}>
+    <input
+      aria-label={label}
+      disabled={disabled}
+      min={min}
+      onBlur={() => { focusM.current = undefined; }}
+      onChange={(event) => {
+        const text = event.currentTarget.value.trim();
+        if (text === "") {
+          onChange(undefined);
+          return;
+        }
+        onChange(resolveDepthEntry(Number(event.currentTarget.value), units, {
+          focusM: focusM.current ?? valueM,
+          gridM,
+          bound,
+        }));
+      }}
+      onFocus={() => { focusM.current = valueM; }}
+      step={depthInputStep(units)}
+      type="number"
+      value={valueM !== undefined && Number.isFinite(valueM) ? depthInputValue(valueM, units) : ""}
+    />
+  </FieldGroup>;
+}
+
 /** A number field that stays blank until a value is entered; blank reports undefined, never 0. */
 export function OptionalNumberField({
   label,
