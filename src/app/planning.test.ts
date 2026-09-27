@@ -18,6 +18,7 @@ import {
   tankSourceOptionLabel,
   tankSourceSignature,
   tankSourcesChanged,
+  reviewGasDisplayName,
   reviewStaysOpen,
   withGasIncluded,
   withGasPlanning,
@@ -862,5 +863,34 @@ describe("reviewStaysOpen", () => {
     ["cylinder-shared", false],
   ] as const)("%s → %s", (status, expected) => {
     expect(reviewStaysOpen(status)).toBe(expected);
+  });
+});
+
+describe("reviewGasDisplayName", () => {
+  const tank: TankRecord = {
+    id: "bank-o2",
+    name: "Stage",
+    waterVolumeL: liters(11.1),
+    workingPressureBar: barGauge(207),
+    currentPressureBar: barGauge(200),
+    gas: { id: "analyzed-o2", name: "Analyzed oxygen", oxygen: fraction(1), helium: fraction(0), role: "deco" },
+    maximumPPO2: barAbsolute(1.6),
+    role: "deco",
+    revision: 1,
+    archived: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("uses the Tank Bank gas name when the selected record loads, matching Setup", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, name: "Oxygen", cylinderId: tank.id };
+    expect(reviewGasDisplayName(draft, [tank])).toBe("Analyzed oxygen");
+  });
+
+  it("falls back to the draft name when there is no source, or the record is archived", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, name: "Oxygen" };
+    expect(reviewGasDisplayName(draft, [tank])).toBe("Oxygen");
+    expect(reviewGasDisplayName({ ...draft, cylinderId: tank.id }, [{ ...tank, archived: true }])).toBe("Oxygen");
+    expect(reviewGasDisplayName({ ...draft, name: "   " }, [])).toBe("Plan gas");
   });
 });

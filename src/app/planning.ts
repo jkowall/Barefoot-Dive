@@ -331,6 +331,17 @@ export function withGasIncluded(draft: PlanDraft, key: string, included: boolean
 }
 
 /**
+ * Display name for a Review Include switch, matching Setup's GasEditor: the selected non-archived
+ * Tank Bank gas name when present, otherwise the draft name.
+ */
+export function reviewGasDisplayName(gas: GasDraft, tanks: readonly TankRecord[]): string {
+  const record = gas.cylinderId === undefined
+    ? undefined
+    : tanks.find((tank) => tank.id === gas.cylinderId && !tank.archived);
+  return record?.gas.name.trim() || gas.name.trim() || "Plan gas";
+}
+
+/**
  * Plan Review stays open through include-toggle recalculation and recoverable calculation failures.
  * Source and shared-cylinder states still return to Setup, where their controls live.
  */

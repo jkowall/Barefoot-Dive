@@ -42,6 +42,7 @@ import {
   isGasOnlyPlan,
   PLAN_STOP_INCREMENT_M,
   resolvePlanInput,
+  reviewGasDisplayName,
   reviewStaysOpen,
   selectableTanks,
   selectedTankSources,
@@ -705,10 +706,11 @@ export default function PlanPage({
     onSessionChange((current) => ({ ...current, view }));
   };
 
+  const reviewSourceTanks = selectableTanks(tankBank);
   const reviewGasSwitches: readonly ReviewGasSwitch[] = (draft.mode === "oc" ? draft.decoGases : draft.bailoutGases)
     .map((gas) => ({
       key: gas.key,
-      name: gas.name.trim() || "Plan gas",
+      name: reviewGasDisplayName(gas, reviewSourceTanks),
       included: gas.enabled !== false,
       role: gas.role === "bailout" ? "bailout" as const : "deco" as const,
     }));
