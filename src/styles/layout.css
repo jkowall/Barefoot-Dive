@@ -181,7 +181,7 @@
   padding: 0;
   list-style: none;
 }
-.bf-cave-timeline__marker { position: relative; min-height: var(--bf-control-h); }
+.bf-cave-timeline__marker { position: relative; width: 100%; min-height: var(--bf-control-h); }
 .bf-cave-timeline__marker > * {
   position: absolute;
   left: var(--bf-timeline-position);
@@ -190,6 +190,7 @@
 }
 .bf-cave-timeline__marker--scenario > button {
   display: grid;
+  width: max-content;
   min-height: var(--bf-control-h);
   padding: var(--bf-space-1) var(--bf-space-2);
   border: 1px solid var(--bf-accent);
