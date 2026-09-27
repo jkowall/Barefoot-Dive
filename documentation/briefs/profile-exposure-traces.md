@@ -41,7 +41,7 @@ Normative draft: [`documentation/profile-exposure-traces.md`](../profile-exposur
 
 - Changing ZH-L16C coefficients, GF scheduling, or bailout transfer semantics without a separate protected-area brief.
 - Claiming MultiDeco / Shearwater / dive-computer parity.
-- Cave route timeline (separate brief `cave-timeline-view.md`).
+- Cave route timeline (shipped; `CaveRouteTimeline` / `caveTimeline.ts`).
 - CCR onboard gas modeling.
 
 ## Owned paths (expected once unblocked)
