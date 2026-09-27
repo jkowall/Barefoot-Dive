@@ -1278,18 +1278,18 @@ test("marks a saved cave snapshot unsafe when a nested failure scenario is inval
   await expect(calculatedCave.getByText("Aggregate cave status", { exact: true })).toBeVisible();
   await expect(calculatedCave.getByText("Unsafe or unavailable", { exact: true }).first()).toBeVisible();
   await expect(calculatedCave.getByRole("heading", { name: "Aggregate cave diagnostics" })).toBeVisible();
-  await expect(calculatedCave.getByText(/lost back gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
+  await expect(calculatedCave.getByText(/oc lost gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
   await page.getByRole("button", { name: "Save cave snapshot" }).click();
   await page.getByLabel("Plan name").fill("Unsafe cave scenario regression");
   await page.getByRole("button", { name: "Save plan" }).click();
 
   await page.getByRole("button", { name: /^Saved plans/ }).first().click();
   const record = page.getByRole("heading", { name: "Unsafe cave scenario regression" }).locator("../..");
-  await expect(page.getByText(/lost back gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
+  await expect(page.getByText(/oc lost gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
   await record.getByRole("button", { name: "Open" }).click();
   await expect(page.getByText("SAVED CAVE SNAPSHOT · UNSAFE")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Stored cave calculation diagnostics" })).toBeVisible();
-  await expect(page.getByText(/lost back gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
+  await expect(page.getByText(/oc lost gas: No assigned, accessible, breathable gas remains for exit leg route-1/)).toBeVisible();
 });
 
 test("flags a gas added after a Cave leg was edited until the diver sets it", async ({ page }) => {
