@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Cave offers scooter failure only when the route has a scooter leg, and stage failure only when a leg drops or recovers a stage, so a new Cave plan is no longer marked unsafe for scenarios it cannot run. Each scenario has its own trigger point, and Setup and Review say what it models, including that it turns at its trigger.
+
 ## [0.6.0] - 2026-09-27
 
 Calculation engine `barefoot-dive-engine-0.3.0`, unchanged from 0.5.2: schedules and gas use are identical, and the new CCR warning is a diagnostic only.
