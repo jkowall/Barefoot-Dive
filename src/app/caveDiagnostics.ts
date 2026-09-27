@@ -65,13 +65,21 @@ export function formatCaveCeilingViolation(
   const splitDepths = context.dive.mode === "oc"
     ? context.dive.travelGas ? [ocBottomSwitchDepth(context.dive)] : []
     : [context.dive.setpointActivationDepthM, switchDownDepth(context.dive)];
-  const matchingLegs = context.route.filter((leg) => {
-    const exitEndDepth = leg.endDepthM < leg.startDepthM
-      ? leg.endDepthM
-      : leg.endDepthM > leg.startDepthM
-        ? leg.startDepthM
-        : undefined;
-    return exitEndDepth !== undefined && sameDepth(exitEndDepth, diagnostic.depthM!);
+  type CeilingLegMatch = { readonly leg: RouteDraft; readonly phase: "penetration" | "exit" };
+  const matchingLegs = context.route.flatMap((leg): readonly CeilingLegMatch[] => {
+    if (leg.endDepthM < leg.startDepthM) {
+      // Ascending outbound: the engine can raise the violation at the penetration terminus.
+      return sameDepth(leg.endDepthM, diagnostic.depthM!)
+        ? [{ leg, phase: "penetration" }]
+        : [];
+    }
+    if (leg.endDepthM > leg.startDepthM) {
+      // Descending outbound: reverse exit ends at the outbound start depth.
+      return sameDepth(leg.startDepthM, diagnostic.depthM!)
+        ? [{ leg, phase: "exit" }]
+        : [];
+    }
+    return [];
   });
   const depth = formatDepth(diagnostic.depthM, context.units);
   const runtime = formatDuration(diagnostic.runtimeSeconds);
@@ -80,8 +88,12 @@ export function formatCaveCeilingViolation(
   if (ambiguous) {
     return `An explicit route leg ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`;
   }
-  const label = matchingLegs[0]!.id.trim();
-  return label
-    ? `The exit of leg “${label}” ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`
-    : `An explicit route leg ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`;
+  const match = matchingLegs[0]!;
+  const label = match.leg.id.trim();
+  if (!label) {
+    return `An explicit route leg ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`;
+  }
+  return match.phase === "penetration"
+    ? `The penetration of leg “${label}” ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`
+    : `The exit of leg “${label}” ends at ${depth} at ${runtime}, above the ${ceiling} decompression ceiling there.`;
 }

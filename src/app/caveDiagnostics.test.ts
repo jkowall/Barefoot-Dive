@@ -78,6 +78,14 @@ describe("formatCaveCeilingViolation", () => {
       .toContain("above the 2 m decompression ceiling");
   });
 
+  it("names ascending outbound matches as penetration, not exit", () => {
+    expect(formatCaveCeilingViolation(ceiling(18), {
+      route: route([["up-tunnel", 30, 18]]),
+      dive: basicDive,
+      units: "imperial",
+    })).toBe("The penetration of leg “up-tunnel” ends at 59 ft at 50:00, above the 5 ft decompression ceiling there.");
+  });
+
   it("does not name a leg for duplicate, non-endpoint, or switch-depth matches", () => {
     const duplicated = formatCaveCeilingViolation(ceiling(0), { route: route([["one", 0, 9], ["two", 0, 18]]), dive: basicDive, units: "imperial" });
     const between = formatCaveCeilingViolation(ceiling(5), { route: route([["one", 0, 9]]), dive: basicDive, units: "imperial" });

@@ -37,7 +37,12 @@ export function CaveAccessTable({
   readonly cylinders: readonly RouteCylinder[];
   readonly preferences: UnitPreferences;
 }) {
-  return <div className="bf-scroll-table bf-cave-access-table">
+  return <div
+    aria-label="Cylinder access by leg"
+    className="bf-scroll-table bf-cave-access-table"
+    role="region"
+    tabIndex={0}
+  >
     <table>
       <caption>Cylinder access by leg</caption>
       <thead>
