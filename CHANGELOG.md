@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Moving a deco or bailout gas between Tank Bank cylinders no longer drops a displayed inherited switch depth when the new cylinder has no stored value; the Plan keeps it as the gas's own value. Tank Bank now immediately refreshes a switch-depth error when its mix, maximum PPO₂, role, or switch depth changes.
+
 ## [0.6.0] - 2026-09-27
 
 Calculation engine `barefoot-dive-engine-0.3.0`, unchanged from 0.5.2: schedules and gas use are identical, and the new CCR warning is a diagnostic only.
