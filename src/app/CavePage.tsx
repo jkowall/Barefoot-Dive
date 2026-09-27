@@ -31,7 +31,8 @@ import {
   type WarningItem,
 } from "../ui";
 import { ActionButton, DepthField, NumberField, SelectField } from "./controls";
-import { collectCaveDiagnostics } from "./caveDiagnostics";
+import { CaveAccessTable } from "./CaveAccessTable";
+import { collectCaveDiagnostics, formatCaveCeilingViolation } from "./caveDiagnostics";
 import { formatDiagnostic } from "./diagnosticText";
 import {
   normalizeCaveRoute,
@@ -89,14 +90,29 @@ type CompletionEvent = {
   readonly description: string;
 };
 
-const diagnosticsToItems = (items: readonly Diagnostic[], units: UnitPreferences["depth"]): readonly WarningItem[] => items.map((item, index) => {
-  const message = formatDiagnostic(item, units);
+const diagnosticsToItems = (
+  items: readonly Diagnostic[],
+  units: UnitPreferences["depth"],
+  ceilingContext?: Parameters<typeof formatCaveCeilingViolation>[1],
+): readonly WarningItem[] => items.map((item, index) => {
+  const message = ceilingContext
+    ? formatCaveCeilingViolation(item, ceilingContext) ?? formatDiagnostic(item, units)
+    : formatDiagnostic(item, units);
   return {
     id: `${item.code}-${index}`,
-    message: item.field ? `${message} (${item.field})` : message,
+    message: ceilingContext && item.code === "EXPOSURE_CEILING_VIOLATION"
+      ? message
+      : item.field ? `${message} (${item.field})` : message,
     severity: item.severity,
   };
 });
+
+const enteredLimitLabel = (
+  shown: number | undefined,
+  entered: readonly (number | undefined)[],
+): string => shown !== undefined && entered.some((value) => value !== undefined && Math.abs(value - shown) <= 1e-6)
+  ? "Entered limit"
+  : "Gas-derived: every leg scaled together; failure scenarios not rechecked";
 
 function RouteEditor({
   containerRef,
@@ -584,12 +600,16 @@ export default function CavePage({
     </section>
     {session.view === "setup" ? <div className="bf-plan-setup">
       {caveStatusWarning}
-      {status === "needs-attention" && <WarningList items={diagnosticsToItems(diagnostics, preferences.depth)} title="Cave calculation diagnostics" />}
+      {status === "needs-attention" && <WarningList
+        items={diagnosticsToItems(diagnostics, preferences.depth, dive ? { route, dive, units: preferences.depth } : undefined)}
+        title="Cave calculation diagnostics"
+      />}
       <WarningList items={diagnosticsToItems(resolved.diagnostics, preferences.depth)} title="Tank Bank sources unavailable" />
       <WarningList items={diagnosticsToItems(normalizedRoute.diagnostics, preferences.depth)} title="Shared Tank Bank cylinders" />
       <WarningList items={diagnosticsToItems(routeNotices, preferences.depth)} title="Leg cylinders to confirm" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
+        <CaveAccessTable cylinders={cylinders} preferences={preferences} route={route} />
         {route.map((leg, index) => <RouteEditor
           containerRef={leg.id === pendingRouteId ? pendingRouteRef : undefined}
           cylinders={cylinders}
@@ -611,8 +631,8 @@ export default function CavePage({
             value={limits.turnPressureBar === undefined ? 0 : pressureInputValue(limits.turnPressureBar, preferences.pressure)}
           />
           <NumberField label="Entered turn time (min; 0 = calculated)" min={0} onChange={(value) => changeLimits({ ...limits, turnTimeMinutes: value > 0 ? value : undefined })} value={limits.turnTimeMinutes ?? 0} />
-          <DepthField label={`Maximum penetration distance (${depthUnit(preferences.depth)}; 0 = gas-derived)`} min={0} onChange={(value) => changeLimits({ ...limits, maximumDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.maximumDistanceM ?? 0} />
-          <NumberField label="Maximum penetration time (min; 0 = gas-derived)" min={0} onChange={(value) => changeLimits({ ...limits, maximumTimeMinutes: value > 0 ? value : undefined })} value={limits.maximumTimeMinutes ?? 0} />
+          <DepthField hint="Gas-derived: the whole route is scaled until a cylinder no longer keeps its reserve or the recalculated plan has an error. Failure scenarios are not rechecked at that limit." label={`Maximum penetration distance (${depthUnit(preferences.depth)}; 0 = gas-derived)`} min={0} onChange={(value) => changeLimits({ ...limits, maximumDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.maximumDistanceM ?? 0} />
+          <NumberField hint="Gas-derived: the whole route is scaled until a cylinder no longer keeps its reserve or the recalculated plan has an error. Failure scenarios are not rechecked at that limit." label="Maximum penetration time (min; 0 = gas-derived)" min={0} onChange={(value) => changeLimits({ ...limits, maximumTimeMinutes: value > 0 ? value : undefined })} value={limits.maximumTimeMinutes ?? 0} />
         </div>
         <FieldGroup label="Scenarios to calculate">
           <div className="bf-scenario-editor">
@@ -697,8 +717,16 @@ export default function CavePage({
               ? formatPressure(calculated.result.minimumRequiredAtTurnPressureBar, preferences.pressure)
               : "Unavailable"}
           />}
-          {calculated.result.turnTimeSeconds !== undefined && <ResultMetric label="Maximum turn time" value={formatDuration(calculated.result.turnTimeSeconds)} />}
+          {calculated.result.turnTimeSeconds !== undefined && <ResultMetric
+            detail={enteredLimitLabel(calculated.result.turnTimeSeconds, [
+              limits.turnTimeMinutes === undefined ? undefined : limits.turnTimeMinutes * 60,
+              limits.maximumTimeMinutes === undefined ? undefined : limits.maximumTimeMinutes * 60,
+            ])}
+            label="Maximum turn time"
+            value={formatDuration(calculated.result.turnTimeSeconds)}
+          />}
           {calculated.result.maximumPermittedPenetrationDistanceM !== undefined && <ResultMetric
+            detail={enteredLimitLabel(calculated.result.maximumPermittedPenetrationDistanceM, [limits.maximumDistanceM])}
             label="Maximum penetration distance"
             value={formatDepthBound(calculated.result.maximumPermittedPenetrationDistanceM, preferences.depth, "upper")}
           />}
