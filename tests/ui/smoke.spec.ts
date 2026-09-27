@@ -1271,7 +1271,7 @@ test("retains cave-layer safety errors in an immutable saved snapshot", async ({
 test("marks a saved cave snapshot unsafe when a nested failure scenario is invalid", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
-  await page.locator(".bf-route-editor").first().getByRole("checkbox", { name: "Oxygen cylinder", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: /^Include .* in plan$/ }).uncheck();
   await page.getByRole("button", { name: "Calculate cave plan" }).click();
   const calculatedCave = page.getByRole("region", { name: "Calculated cave plan" });
   await expect(calculatedCave.getByText("Aggregate cave status", { exact: true })).toBeVisible();
