@@ -894,6 +894,12 @@ describe("reviewGasDisplayName", () => {
     expect(reviewGasDisplayName({ ...draft, cylinderId: tank.id }, [{ ...tank, archived: true }])).toBe("Oxygen");
     expect(reviewGasDisplayName({ ...draft, name: "   " }, [])).toBe("Plan gas");
   });
+
+  it("uses the draft name in a gas-only plan, which ignores Tank Bank sources as Setup does", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, name: "EAN80", cylinderId: tank.id };
+    expect(reviewGasDisplayName(draft, [tank], true)).toBe("EAN80");
+    expect(reviewGasDisplayName(draft, [tank], false)).toBe("Analyzed oxygen");
+  });
 });
 
 describe("withTankSourceSelection", () => {
@@ -961,5 +967,63 @@ describe("withTankSourceSelection", () => {
       cylinderId: undefined,
       switchDepthM: 9,
     });
+  });
+
+  it("keeps the record's switch depth on detach when a deco or bailout gas had none of its own", () => {
+    // The record gained its switch depth after selection, so Setup showed and planned the record's value.
+    const bailout = { ...DEFAULT_PLAN_DRAFT.bailoutGases[0]!, cylinderId: "o2-stage" };
+    expect(bailout.switchDepthM).toBeUndefined();
+    expect(withTankSourceSelection(bailout, undefined, [oxygenStage(2, 6)])).toMatchObject({
+      cylinderId: undefined,
+      switchDepthM: 6,
+    });
+    const bottom = { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: "o2-stage", switchDepthM: undefined };
+    expect(withTankSourceSelection(bottom, undefined, [oxygenStage(2, 6)]).switchDepthM).toBeUndefined();
+  });
+});
+
+describe("Tank Bank switch depths reach only deco and bailout gases", () => {
+  const stage: TankRecord = {
+    id: "bo-stage",
+    name: "Bailout stage",
+    waterVolumeL: liters(11.1),
+    workingPressureBar: barGauge(207),
+    currentPressureBar: barGauge(200),
+    gas: { id: "tx1845", name: "Tx18/45", oxygen: fraction(0.18), helium: fraction(0.45), role: "bailout", switchDepthM: meters(30) },
+    maximumPPO2: barAbsolute(1.6),
+    role: "bailout",
+    revision: 1,
+    archived: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("does not give an OC bottom gas the record's switch depth as a hidden travel-to-bottom switch", () => {
+    const draft = {
+      ...DEFAULT_PLAN_DRAFT,
+      travelGasEnabled: true,
+      bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, cylinderId: stage.id, switchDepthM: undefined },
+    };
+    const input = calculable(resolvePlanInput(draft, [stage]));
+    expect(input.mode === "oc" ? input.bottomGas.switchDepthM : "not oc").toBeUndefined();
+    // As with the ad hoc gas, the missing travel-to-bottom switch is reported instead of planned around.
+    const result = calculateDivePlan(input);
+    expect(result.ok ? [] : result.errors.map((item) => item.code)).toContain("TRAVEL_SWITCH_DEPTH_INVALID");
+  });
+
+  it("does not give a CCR diluent the record's switch depth", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT, mode: "ccr" as const, diluent: { ...DEFAULT_PLAN_DRAFT.diluent, cylinderId: stage.id } };
+    const input = calculable(resolvePlanInput(draft, [stage]));
+    expect(input.mode === "ccr" ? input.diluent.switchDepthM : "not ccr").toBeUndefined();
+    expect(input.cylinders.find((cylinder) => cylinder.id === stage.id)?.gas.switchDepthM).toBeUndefined();
+  });
+
+  it("still gives a deco gas without its own switch depth the record's, as its Setup field shows", () => {
+    const draft = {
+      ...DEFAULT_PLAN_DRAFT,
+      decoGases: [{ ...DEFAULT_PLAN_DRAFT.decoGases[0]!, cylinderId: stage.id, switchDepthM: undefined }],
+    };
+    const input = calculable(resolvePlanInput(draft, [stage]));
+    expect(input.mode === "oc" ? input.decoGases[0]?.switchDepthM : "not oc").toBe(30);
   });
 });

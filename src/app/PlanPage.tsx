@@ -595,7 +595,7 @@ const statusDescription: Record<PlanWorkspaceStatus, string> = {
   draft: "No calculation yet. Review the setup, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous results are hidden.",
   current: "The calculated result matches every current input.",
-  "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics, or switch a gas back on in Review.",
+  "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics in Setup.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the plan.",
   "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; nothing is calculated until then.",
   "cylinder-shared": "One Tank Bank cylinder is selected for more than one gas. Give each gas its own cylinder, or switch the extra gases off, in Setup; nothing is calculated until then.",
@@ -713,16 +713,23 @@ export default function PlanPage({
   };
 
   const reviewSourceTanks = selectableTanks(tankBank);
+  const reviewGasOnly = isGasOnlyPlan(draft);
   const reviewGasSwitches: readonly ReviewGasSwitch[] = (draft.mode === "oc" ? draft.decoGases : draft.bailoutGases)
     .map((gas) => ({
       key: gas.key,
-      name: reviewGasDisplayName(gas, reviewSourceTanks),
+      name: reviewGasDisplayName(gas, reviewSourceTanks, reviewGasOnly),
       included: gas.enabled !== false,
       role: gas.role === "bailout" ? "bailout" as const : "deco" as const,
     }));
   const toggleReviewGas = (key: string, included: boolean) => {
+    // A completion or save notice describes the result the switch supersedes.
+    setCompletion(undefined);
     onDraftChange(withGasIncluded(draft, key, included));
   };
+  // Review is disabled in Setup while a plan needs attention; only Review can offer its switches.
+  const description = status === "needs-attention" && session.view === "review"
+    ? "Current inputs could not produce a plan. Switch a gas back on here, or fix the diagnostics in Setup."
+    : statusDescription[status];
 
   const save = (title: string) => {
     if (!plans || !session.calculated || !calculatedIsCurrent) return;
@@ -781,7 +788,7 @@ export default function PlanPage({
       <div className="bf-plan-context__summary">
         <span>Current plan</span>
         <strong>{summary}</strong>
-        <small>{statusDescription[status]}</small>
+        <small>{description}</small>
       </div>
       <div className="bf-plan-context__actions">
         <span aria-atomic="true" aria-live="polite" className="bf-plan-status" data-state={status} role="status">
@@ -810,7 +817,7 @@ export default function PlanPage({
       reviewGasSwitches={reviewGasSwitches}
       statusNotice={status === "updating" ? statusDescription.updating : undefined}
     /> : <Panel eyebrow={statusLabel[status]} title="Plan review unavailable">
-      <p>{statusDescription[status]}</p>
+      <p>{description}</p>
     </Panel>}
     <SavePlanDialog
       defaultName={`${draft.mode.toUpperCase()} · ${formatDepth(draft.depthM, preferences.depth)} · ${draft.bottomTimeMinutes} min`}
