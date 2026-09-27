@@ -174,10 +174,19 @@ describe("modSwitchDepthM (Use MOD)", () => {
     expect(modSwitchDepthM({ oxygen: 32, maximumPPO2: 0 })).toBeUndefined();
   });
 
-  it("fills a value the planner accepts where the raw MOD is rejected (EAN32 at 1.4 bar)", () => {
+  it("fills a planner-accepted depth at or shallower than the MOD", () => {
     const rawM = tankBankDraftModM({ oxygen: 32, maximumPPO2: 1.4 })!;
-    expect(plannerAccepts(32, 1.4, rawM)).toBe(false);
-    expect(plannerAccepts(32, 1.4, modSwitchDepthM({ oxygen: 32, maximumPPO2: 1.4 })!)).toBe(true);
+    const filledM = modSwitchDepthM({ oxygen: 32, maximumPPO2: 1.4 })!;
+    expect(filledM).toBeLessThanOrEqual(rawM + 1e-9);
+    expect(plannerAccepts(32, 1.4, filledM)).toBe(true);
+  });
+
+  it("finishes quickly when the MOD is millions of metres", () => {
+    const started = performance.now();
+    const filledM = modSwitchDepthM({ oxygen: 0.001, maximumPPO2: 1.6 });
+    expect(performance.now() - started).toBeLessThan(50);
+    expect(filledM).toBeDefined();
+    expect(filledM!).toBeLessThanOrEqual(tankBankDraftModM({ oxygen: 0.001, maximumPPO2: 1.6 })! + 1e-9);
   });
 
   it("never exceeds the MOD and is always accepted by the planner", () => {
