@@ -37,7 +37,7 @@ Out of scope in the earlier route-clarity brief (preserve that split): “A rout
 2. **Axis:** primary axis is **distance from the entrance** (metres canonical; display follows depth/distance preference as other Cave distance fields do). Optionally show a secondary time scale derived from each leg’s duration; if both are shown, distance remains the layout axis so unequal swim/scooter speeds do not distort geometry.
 3. **Legs as segments** on the axis: label, depth range (start→end), propulsion, and stage action when not `none`. Segments must be keyboard-focusable and map 1:1 to the existing leg editors (focus/scroll the matching editor on activate).
 4. **Scenario triggers as markers** on the same axis for every **enabled and applicable** scenario (same applicability rules as the scenario-triggers module). Marker label uses the existing scenario display name. Selecting a marker focuses that scenario’s trigger controls in Setup, or selects that scenario in Review.
-5. **Cylinder events on the axis** (drop / recover only), derived only from `routeCylinders`, `routeStageCylinder`, and existing access helpers — no new access rules. Carried vs not-carried for every cylinder on every leg stays in the table; the timeline does not replace the table.
+5. **Cylinder events on the axis** (drop / recover only), derived from each `RouteDraft.stageAction` and, when needed to identify the selected cylinder, `RouteDraft.stageGasKey`; resolve that selection through `routeCylinders`, `routeStageCylinder`, and existing access helpers — no new access rules. `routeStageCylinder` resolves a cylinder but does not determine whether the event is a drop or recover. Carried vs not-carried for every cylinder on every leg stays in the table; the timeline does not replace the table.
 6. **Style** with tokens only (`src/styles/tokens.css`). Flat instrument-dark: no gradients, glows, shadows, or decorative dive imagery. Motion only for focus/selection clarification; honor `prefers-reduced-motion`. Do not animate safety-critical numbers.
 7. **Accessibility:** timeline is a navigable structure (list or graphics with text equivalents). Every marker and segment has an accessible name. Pointer is not required.
 
@@ -61,7 +61,7 @@ Out of scope in the earlier route-clarity brief (preserve that split): “A rout
 
 ## Tests
 
-- Vitest: segment geometry (cumulative distance, depth labels), trigger marker positions match the scenario-trigger module’s distance/depth interpolation, stage drop/recover markers only when `routeStageCylinder` resolves, no markers for inapplicable scenarios.
+- Vitest: segment geometry (cumulative distance, depth labels), trigger marker positions match the scenario-trigger module’s distance/depth interpolation, stage drop/recover markers only when `RouteDraft.stageAction` is drop/recover and `routeStageCylinder` resolves the `stageGasKey` selection, no stage markers when `stageAction` is `none` or its selection is unresolved, and no markers for inapplicable scenarios.
 - Playwright: timeline visible in Setup; markers appear when a scooter leg enables scooter failure; activating a leg segment moves focus to that editor; Review shows the same route geometry for a current calculation.
 - Visual: phone/tablet/desktop Cave Setup and calculated Cave baselines. Follow `AGENTS.md` baseline rules (`mouse.move(0,0)` before capture; inspect all three; restore unchanged PNGs).
 
