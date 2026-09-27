@@ -53,6 +53,17 @@ import {
   type RouteDraft,
 } from "./caveWorkspace";
 import {
+  buildScenarioRequests,
+  initialScenarioTriggers,
+  isScenarioDistanceValid,
+  repairScenarioTriggers,
+  scenarioApplicability,
+  scenarioLabel,
+  scenarioModelLine,
+  scenarioTriggerPoint,
+  type CaveScenarioTrigger,
+} from "./caveScenarios";
+import {
   capacityInputValue,
   capacityUnit,
   depthFromCanonical,
@@ -185,16 +196,6 @@ function RouteEditor({
   </article>;
 }
 
-function scenarioLabel(kind: CaveScenarioKind): string {
-  return {
-    "oc-lost-gas": "Lost back gas",
-    "lost-buddy": "Lost buddy",
-    "scooter-failure": "Scooter failure",
-    "stage-failure": "Stage failure",
-    "ccr-loop-failure": "CCR loop failure",
-  }[kind];
-}
-
 /** Cave adds one blocking state to the shared workspace statuses: a cylinder used by several gases. */
 type CaveWorkspaceStatus = WorkspaceStatus | "cylinder-shared";
 
@@ -242,7 +243,7 @@ export default function CavePage({
     route,
     limits,
     enabledScenarios,
-    targetLegId,
+    scenarioTriggers,
     calculated,
     diagnostics,
     selectedScenario,
@@ -261,11 +262,14 @@ export default function CavePage({
   const normalizedRoute = useMemo(() => normalizeCaveRoute(route, cylinders), [cylinders, route]);
   // Derived from the current route, not the calculation, so setting a gas clears them at once.
   const routeNotices = useMemo(() => unsetGasNotices(route, cylinders), [cylinders, route]);
-  const scenarios = useMemo<readonly CaveScenarioRequest[]>(() => enabledScenarios.map((kind) => ({
-    kind,
-    targetLegId: targetLegId || route.at(-1)?.id,
-    ...(limits.scenarioTargetDistanceM === undefined ? {} : { targetDistanceM: meters(limits.scenarioTargetDistanceM) }),
-  })), [enabledScenarios, limits.scenarioTargetDistanceM, route, targetLegId]);
+  const scenarioApplicabilities = useMemo(
+    () => Object.fromEntries(caveScenarioKinds(draft.mode).map((kind) => [kind, scenarioApplicability(kind, route, cylinders)])) as Record<CaveScenarioKind, ReturnType<typeof scenarioApplicability>>,
+    [cylinders, draft.mode, route],
+  );
+  const scenarios = useMemo<readonly CaveScenarioRequest[]>(
+    () => buildScenarioRequests(enabledScenarios, route, cylinders, scenarioTriggers),
+    [cylinders, enabledScenarios, route, scenarioTriggers],
+  );
   // No dive input exists while a selected Tank Bank source is unavailable, and no route while a
   // cylinder is used by several gases, so there is no cave input to calculate or match.
   const dive = resolved.input;
@@ -390,10 +394,14 @@ export default function CavePage({
       const updated = [...current.route];
       const previousId = updated[index]?.id;
       updated[index] = next;
+      const renamedTriggers = Object.fromEntries(Object.entries(current.scenarioTriggers).map(([kind, trigger]) => [
+        kind,
+        trigger.targetLegId === previousId ? { ...trigger, targetLegId: next.id } : trigger,
+      ])) as Record<CaveScenarioKind, CaveScenarioTrigger>;
       return {
         ...current,
         route: updated,
-        targetLegId: current.targetLegId === previousId ? next.id : current.targetLegId,
+        scenarioTriggers: repairScenarioTriggers(renamedTriggers, updated, cylinders),
         pendingRouteId: current.pendingRouteId === previousId ? next.id : current.pendingRouteId,
       };
     });
@@ -405,7 +413,7 @@ export default function CavePage({
       return {
         ...current,
         route: updated,
-        targetLegId: current.targetLegId === removedId ? updated.at(-1)?.id ?? "" : current.targetLegId,
+        scenarioTriggers: repairScenarioTriggers(current.scenarioTriggers, updated, cylinders),
         pendingRouteId: current.pendingRouteId === removedId ? undefined : current.pendingRouteId,
       };
     });
@@ -428,7 +436,15 @@ export default function CavePage({
           propulsion: "fins",
           stageAction: "none",
         }],
-        targetLegId: id,
+        scenarioTriggers: repairScenarioTriggers(current.scenarioTriggers, [...current.route, {
+          id,
+          startDepthM: previous?.endDepthM ?? 0,
+          endDepthM: previous?.endDepthM ?? current.draft.depthM,
+          durationMinutes: 5,
+          distanceM: 75,
+          propulsion: "fins",
+          stageAction: "none",
+        }], cylinders),
         pendingRouteId: id,
       };
     });
@@ -440,14 +456,19 @@ export default function CavePage({
           ...current,
           draft: next,
           enabledScenarios: caveScenarioKinds(next.mode),
+          // Per-scenario last eligible leg (not always the route's final leg).
+          scenarioTriggers: initialScenarioTriggers(next.mode, current.route, cylinders),
           selectedScenario: 0,
         });
   };
   const changeLimits = (next: CaveLimitsDraft) => {
     onSessionChange((current) => ({ ...current, limits: next }));
   };
-  const changeTargetLeg = (target: string) => {
-    onSessionChange((current) => ({ ...current, targetLegId: target }));
+  const changeScenarioTrigger = (kind: CaveScenarioKind, next: CaveScenarioTrigger) => {
+    onSessionChange((current) => ({
+      ...current,
+      scenarioTriggers: { ...current.scenarioTriggers, [kind]: next },
+    }));
   };
   const changeScenarios = (next: readonly CaveScenarioKind[]) => {
     onSessionChange((current) => ({ ...current, enabledScenarios: next }));
@@ -509,7 +530,7 @@ export default function CavePage({
   const limitingCylinderContext = cylinderContext(limitingCylinder);
   const routeDistance = route.reduce((total, leg) => total + leg.distanceM, 0);
   const routeMinutes = route.reduce((total, leg) => total + leg.durationMinutes, 0);
-  const summary = `${draft.mode.toUpperCase()} · ${route.length} leg${route.length === 1 ? "" : "s"} · ${Math.round(depthFromCanonical(routeDistance, preferences.depth))} ${depthUnit(preferences.depth)} · ${routeMinutes} min · ${enabledScenarios.length} scenario${enabledScenarios.length === 1 ? "" : "s"} · GF ${draft.gfLowPercent}/${draft.gfHighPercent}`;
+  const summary = `${draft.mode.toUpperCase()} · ${route.length} leg${route.length === 1 ? "" : "s"} · ${Math.round(depthFromCanonical(routeDistance, preferences.depth))} ${depthUnit(preferences.depth)} · ${routeMinutes} min · ${scenarios.length} scenario${scenarios.length === 1 ? "" : "s"} · GF ${draft.gfLowPercent}/${draft.gfHighPercent}`;
   const setupAction = status === "draft" || (status === "needs-attention" && !calculated)
     ? <ActionButton onClick={() => run(true, true)}>Calculate cave plan</ActionButton>
     : status === "current"
@@ -592,23 +613,49 @@ export default function CavePage({
           <NumberField label="Entered turn time (min; 0 = calculated)" min={0} onChange={(value) => changeLimits({ ...limits, turnTimeMinutes: value > 0 ? value : undefined })} value={limits.turnTimeMinutes ?? 0} />
           <DepthField label={`Maximum penetration distance (${depthUnit(preferences.depth)}; 0 = gas-derived)`} min={0} onChange={(value) => changeLimits({ ...limits, maximumDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.maximumDistanceM ?? 0} />
           <NumberField label="Maximum penetration time (min; 0 = gas-derived)" min={0} onChange={(value) => changeLimits({ ...limits, maximumTimeMinutes: value > 0 ? value : undefined })} value={limits.maximumTimeMinutes ?? 0} />
-          <FieldGroup label="Scenario trigger leg">
-            <select aria-label="Scenario trigger leg" onChange={(event) => changeTargetLeg(event.currentTarget.value)} value={targetLegId}>
-              {route.map((leg) => <option key={leg.id} value={leg.id}>{leg.id}</option>)}
-            </select>
-          </FieldGroup>
-          <DepthField label={`Scenario trigger distance (${depthUnit(preferences.depth)}; 0 = end of leg)`} min={0} onChange={(value) => changeLimits({ ...limits, scenarioTargetDistanceM: value > 0 ? value : undefined })} units={preferences.depth} valueM={limits.scenarioTargetDistanceM ?? 0} />
         </div>
         <FieldGroup label="Scenarios to calculate">
-          <div className="bf-check-grid">
-            {caveScenarioKinds(draft.mode).map((kind) => <label className="bf-check" key={kind}>
-              <input
-                checked={enabledScenarios.includes(kind)}
-                onChange={(event) => changeScenarios(event.currentTarget.checked ? [...enabledScenarios, kind] : enabledScenarios.filter((candidate) => candidate !== kind))}
-                type="checkbox"
-              />
-              <span>{scenarioLabel(kind)}</span>
-            </label>)}
+          <div className="bf-scenario-editor">
+            {caveScenarioKinds(draft.mode).map((kind) => {
+              const applicability = scenarioApplicabilities[kind];
+              const trigger = scenarioTriggers[kind];
+              const point = scenarioTriggerPoint(trigger, route);
+              return <article className="bf-scenario-editor__item" key={kind}>
+                <label className="bf-check">
+                  <input checked={enabledScenarios.includes(kind)} disabled={!applicability.applicable} onChange={(event) => changeScenarios(event.currentTarget.checked ? [...enabledScenarios, kind] : enabledScenarios.filter((candidate) => candidate !== kind))} type="checkbox" />
+                  <span>{scenarioLabel(kind)}</span>
+                </label>
+                {!applicability.applicable && <p className="bf-scenario-editor__reason">{applicability.reason}</p>}
+                <p className="bf-scenario-editor__model">{scenarioModelLine(kind)}</p>
+                {applicability.applicable && <div className="bf-form-grid">
+                  <FieldGroup label={`${scenarioLabel(kind)} trigger leg`}>
+                    <select aria-label={`${scenarioLabel(kind)} trigger leg`} onChange={(event) => changeScenarioTrigger(kind, { targetLegId: event.currentTarget.value })} value={trigger.targetLegId}>
+                      {route.filter((leg) => applicability.eligibleLegIds.includes(leg.id)).map((leg) => <option key={leg.id} value={leg.id}>{leg.id}</option>)}
+                    </select>
+                  </FieldGroup>
+                  <DepthField
+                    label={`${scenarioLabel(kind)} trigger distance (${depthUnit(preferences.depth)}; 0 = end of leg)`}
+                    min={0}
+                    onChange={(value) => {
+                      // Keep the typed distance in state so intermediate values (e.g. `4` while
+                      // entering `410`) are not snapped back to the previous valid trigger.
+                      const next: CaveScenarioTrigger = {
+                        targetLegId: trigger.targetLegId,
+                        ...(value > 0 ? { targetDistanceM: value } : {}),
+                        ...(value > 0 && !isScenarioDistanceValid({ targetLegId: trigger.targetLegId, targetDistanceM: value }, route)
+                          ? { repairNote: "Enter a distance inside this leg that leaves at least 1 s after rounding." }
+                          : {}),
+                      };
+                      changeScenarioTrigger(kind, next);
+                    }}
+                    units={preferences.depth}
+                    valueM={trigger.targetDistanceM ?? 0}
+                  />
+                </div>}
+                {point && <p className="bf-scenario-editor__point">Trigger: {point.leg.id} · {depthFromCanonical(point.distanceM, preferences.depth).toFixed(0)} {depthUnit(preferences.depth)} from entrance · {depthFromCanonical(point.depthM, preferences.depth).toFixed(0)} {depthUnit(preferences.depth)} depth</p>}
+                {trigger.repairNote && <p className="bf-scenario-editor__reason" role="status">{trigger.repairNote}</p>}
+              </article>;
+            })}
           </div>
         </FieldGroup>
       </Panel>
@@ -667,8 +714,11 @@ export default function CavePage({
         />
         {scenarioResult ? <div className="bf-scenario-summary">
           <ResultMetric kind="text" label="Scenario status" tone={scenarioResult.safe ? "safe" : "danger"} value={scenarioResult.safe ? "Calculated sufficient" : "Unsafe or unavailable"} />
+          <p className="bf-scenario-editor__model">{scenarioModelLine(scenarioResult.kind)}</p>
+          {scenarioTriggerPoint(scenarioTriggers[scenarioResult.kind], route) && <p className="bf-scenario-editor__point">Trigger: {scenarioTriggerPoint(scenarioTriggers[scenarioResult.kind], route)!.leg.id} · {depthFromCanonical(scenarioTriggerPoint(scenarioTriggers[scenarioResult.kind], route)!.distanceM, preferences.depth).toFixed(0)} {depthUnit(preferences.depth)} from entrance · {depthFromCanonical(scenarioTriggerPoint(scenarioTriggers[scenarioResult.kind], route)!.depthM, preferences.depth).toFixed(0)} {depthUnit(preferences.depth)} depth</p>}
           <WarningList items={diagnosticsToItems(scenarioResult.diagnostics, preferences.depth)} title={`${scenarioLabel(scenarioResult.kind)} diagnostics`} />
         </div> : <p>No failure scenarios selected.</p>}
+        {caveScenarioKinds(draft.mode).filter((kind) => enabledScenarios.includes(kind) && !scenarioApplicabilities[kind].applicable).map((kind) => <p className="bf-scenario-editor__reason" key={kind}>{scenarioLabel(kind)} is not calculated: the route has {kind === "scooter-failure" ? "no scooter leg" : "no leg that drops or recovers a stage"}.</p>)}
       </Panel>
       <PlanResultView compact plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
       {scenarioResult?.plan && <PlanResultView compact plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}

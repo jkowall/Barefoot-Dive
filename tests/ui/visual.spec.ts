@@ -89,6 +89,7 @@ test("cave workspace visual baseline", async ({ page }, testInfo) => {
   await page.getByRole("button", { name: "Cave", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
   await prepareLongCapture(page);
+  await page.mouse.move(0, 0);
   await expect(page).toHaveScreenshot(`cave-${testInfo.project.name}.png`, { fullPage: true });
 });
 
@@ -124,6 +125,7 @@ test("calculated cave output visual baseline", async ({ page }, testInfo) => {
   const results = page.getByRole("region", { name: "Calculated cave plan" });
   await expect(results).toBeVisible();
   await prepareLongCapture(page);
+  await page.mouse.move(0, 0);
   await expect(results).toHaveScreenshot(`cave-results-${testInfo.project.name}.png`);
 });
 

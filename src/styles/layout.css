@@ -112,6 +112,12 @@
 .bf-plan-setup > .bf-panel + .bf-panel { margin-top: 0; }
 .bf-plan-context + .bf-results { margin-top: 0; }
 .bf-scenario-summary { display: grid; gap: var(--bf-space-3); margin-top: var(--bf-space-3); }
+.bf-scenario-editor { display: grid; gap: var(--bf-space-3); }
+.bf-scenario-editor__item { display: grid; gap: var(--bf-space-2); padding: var(--bf-space-3) 0; border-bottom: 1px solid var(--bf-line); }
+.bf-scenario-editor__item:last-child { padding-bottom: 0; border-bottom: 0; }
+.bf-scenario-editor__model, .bf-scenario-editor__reason, .bf-scenario-editor__point { margin: 0; font-size: var(--bf-text-sm); line-height: 1.45; }
+.bf-scenario-editor__model, .bf-scenario-editor__reason { color: var(--bf-text-muted); }
+.bf-scenario-editor__point { color: var(--bf-text); font-family: var(--bf-font-mono); }
 
 /* Sticky Plan/Cave context strip: workspace switch, current-plan summary, status, action. */
 .bf-plan-context {

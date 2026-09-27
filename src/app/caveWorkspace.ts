@@ -6,6 +6,7 @@ import type {
   StageAction,
 } from "../cave";
 import type { Diagnostic } from "../domain/types";
+import { initialScenarioTriggers, type CaveScenarioTrigger } from "./caveScenarios";
 import { DEFAULT_PLAN_DRAFT, type PlanDraft } from "./planning";
 
 export type CaveWorkspaceView = "setup" | "review";
@@ -42,7 +43,6 @@ export type CaveLimitsDraft = {
   readonly turnTimeMinutes?: number;
   readonly maximumDistanceM?: number;
   readonly maximumTimeMinutes?: number;
-  readonly scenarioTargetDistanceM?: number;
 };
 
 export type CalculatedCaveSession = {
@@ -62,7 +62,7 @@ export type CaveWorkspaceSession = {
   readonly route: readonly RouteDraft[];
   readonly limits: CaveLimitsDraft;
   readonly enabledScenarios: readonly CaveScenarioKind[];
-  readonly targetLegId: string;
+  readonly scenarioTriggers: Record<CaveScenarioKind, CaveScenarioTrigger>;
   readonly selectedScenario: number;
   readonly pendingRouteId?: string;
   readonly calculated?: CalculatedCaveSession;
@@ -87,10 +87,8 @@ const createInitialCaveDraft = (): PlanDraft => {
   };
 };
 
-export const createInitialCaveWorkspaceSession = (): CaveWorkspaceSession => ({
-  view: "setup",
-  draft: createInitialCaveDraft(),
-  route: [{
+export const createInitialCaveWorkspaceSession = (): CaveWorkspaceSession => {
+  const route: readonly RouteDraft[] = [{
     id: "route-1",
     startDepthM: 0,
     endDepthM: 18,
@@ -98,10 +96,15 @@ export const createInitialCaveWorkspaceSession = (): CaveWorkspaceSession => ({
     distanceM: 60,
     propulsion: "fins",
     stageAction: "none",
-  }],
-  limits: {},
-  enabledScenarios: caveScenarioKinds("oc"),
-  targetLegId: "route-1",
-  selectedScenario: 0,
-  diagnostics: [],
-});
+  }];
+  return {
+    view: "setup",
+    draft: createInitialCaveDraft(),
+    route,
+    limits: {},
+    enabledScenarios: caveScenarioKinds("oc"),
+    scenarioTriggers: initialScenarioTriggers("oc", route),
+    selectedScenario: 0,
+    diagnostics: [],
+  };
+};
