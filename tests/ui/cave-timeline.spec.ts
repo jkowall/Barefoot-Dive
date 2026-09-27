@@ -17,7 +17,7 @@ test("Cave Setup timeline exposes route segments and links them to editors and t
 
   await page.getByRole("button", { name: "Add route leg" }).click();
   const second = page.locator(".bf-route-editor").last();
-  await second.getByLabel("Propulsion").selectOption("scooter");
+  await second.locator('select[aria-label="Propulsion"]').selectOption("scooter");
   const scooterMarker = timeline.getByRole("button", { name: /Scooter failure trigger/i });
   await expect(scooterMarker).toBeVisible();
   await scooterMarker.click();
