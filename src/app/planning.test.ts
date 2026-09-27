@@ -951,6 +951,32 @@ describe("withTankSourceSelection", () => {
     });
   });
 
+  it("materializes an inherited switch depth before moving to a record without one or detaching", () => {
+    const previous = oxygenStage(1, 6);
+    const next = { ...oxygenStage(1, null), id: "spare-stage", name: "Spare stage" };
+    const inherited = { ...DEFAULT_PLAN_DRAFT.bailoutGases[0]!, cylinderId: previous.id, switchDepthM: undefined };
+
+    expect(withTankSourceSelection(inherited, next.id, [previous, next])).toMatchObject({
+      cylinderId: next.id,
+      switchDepthM: 6,
+    });
+    expect(withTankSourceSelection(inherited, undefined, [previous, next])).toMatchObject({
+      cylinderId: undefined,
+      switchDepthM: 6,
+    });
+  });
+
+  it("uses the newly selected record's switch depth after materializing the previous one", () => {
+    const previous = oxygenStage(1, 6);
+    const next = { ...oxygenStage(1, 9), id: "spare-stage", name: "Spare stage" };
+    const inherited = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, cylinderId: previous.id, switchDepthM: undefined };
+
+    expect(withTankSourceSelection(inherited, next.id, [previous, next])).toMatchObject({
+      cylinderId: next.id,
+      switchDepthM: 9,
+    });
+  });
+
   it("does not change switch depth for bottom gas; after selection the plan owns the value", () => {
     const bottom = DEFAULT_PLAN_DRAFT.bottomGas;
     expect(withTankSourceSelection(bottom, "o2-stage", [oxygenStage(1, 6)]).switchDepthM).toBe(bottom.switchDepthM);

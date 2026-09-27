@@ -352,29 +352,29 @@ export function reviewStaysOpen(status: string): boolean {
 
 /**
  * Apply a cylinder-source selection to a gas draft. Deco and bailout gases copy a Tank Bank
- * record's `switchDepthM` when the record has one; a record without one leaves the draft's value;
- * detaching to an ad hoc cylinder keeps the draft's switch depth. Other roles only change
- * `cylinderId`. The plan owns the value after selection — later Tank Bank edits do not call this.
+ * record's `switchDepthM` when the record has one. Before moving or detaching, a record-derived
+ * depth that the draft still inherits is materialized, so a new record without one cannot make it
+ * disappear. Other roles only change `cylinderId`. The plan owns the value after selection —
+ * later Tank Bank edits do not call this.
  */
 export function withTankSourceSelection(
   gas: GasDraft,
   cylinderId: string | undefined,
   tanks: readonly TankRecord[],
 ): GasDraft {
+  const inherited = usesRecordSwitchDepth(gas) && gas.switchDepthM === undefined
+    ? tanks.find((tank) => tank.id === gas.cylinderId)?.gas.switchDepthM
+    : undefined;
+  const materialized = inherited === undefined ? gas : { ...gas, switchDepthM: inherited };
   if (cylinderId === undefined) {
-    // A deco or bailout gas without its own switch depth shows and plans with its record's; detaching
-    // keeps that value instead of dropping to none.
-    const inherited = usesRecordSwitchDepth(gas) && gas.switchDepthM === undefined
-      ? tanks.find((tank) => tank.id === gas.cylinderId)?.gas.switchDepthM
-      : undefined;
-    return { ...gas, cylinderId: undefined, ...(inherited === undefined ? {} : { switchDepthM: inherited }) };
+    return { ...materialized, cylinderId: undefined };
   }
   const record = tanks.find((tank) => tank.id === cylinderId);
-  if (!record) return { ...gas, cylinderId };
-  if ((gas.role !== "deco" && gas.role !== "bailout") || record.gas.switchDepthM === undefined) {
-    return { ...gas, cylinderId };
+  if (!record) return { ...materialized, cylinderId };
+  if (!usesRecordSwitchDepth(gas) || record.gas.switchDepthM === undefined) {
+    return { ...materialized, cylinderId };
   }
-  return { ...gas, cylinderId, switchDepthM: record.gas.switchDepthM };
+  return { ...materialized, cylinderId, switchDepthM: record.gas.switchDepthM };
 }
 
 /** Gas-only: the draft's own mix and PPO₂ ceiling, with no cylinder or Tank Bank source. */
