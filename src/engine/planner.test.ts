@@ -347,6 +347,49 @@ describe("deterministic decompression scheduling", () => {
     expect(result.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
   });
 
+  it("accepts EAN28 at its printed 40 m MOD on event endpoints and rejects 40.1 m", () => {
+    // FO₂ 0.28 at 1.4 bar prints 40 m; endpoint PPO₂ at 40 m is 1.4000000000000001 bar.
+    // No switchDepthM: this exercises the event endpoint check, not the switch-depth path.
+    const ean28: Gas = {
+      id: "event-ean28",
+      name: "Event EAN28",
+      oxygen: fraction(0.28),
+      helium: fraction(0),
+      role: "deco",
+    };
+    const cylinder = {
+      id: "event-ean28-cylinder",
+      name: "EAN28 stage",
+      waterVolumeL: liters(11),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: ean28,
+      maximumPPO2: barAbsolute(1.4),
+      revision: 1,
+    };
+    const eventAt = (endDepthM: number) => calculateEventDivePlan(ocInput({
+      depthM: meters(endDepthM),
+      decoGases: [ean28],
+      cylinders: [cylinder],
+    }), [{
+      id: "leg",
+      kind: "descent",
+      startDepthM: meters(0),
+      endDepthM: meters(endDepthM),
+      durationSeconds: seconds(Math.max(60, endDepthM * 5)),
+      gas: ean28,
+      strategy: { kind: "open-circuit", gas: ean28 },
+    }]);
+
+    const atMod = eventAt(40);
+    expect(atMod.ok ? [] : atMod.errors.map((item) => item.code)).not.toContain("EXPOSURE_GAS_UNBREATHABLE");
+
+    const overMod = eventAt(40.1);
+    expect(overMod.ok).toBe(false);
+    if (overMod.ok) return;
+    expect(overMod.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
+  });
+
   it("honors the assigned cylinder's lower PPO2 limit for automatic switches", () => {
     const decoGas: Gas = {
       id: "auto-50",

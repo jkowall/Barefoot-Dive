@@ -272,8 +272,12 @@ describe("limit diagnostics state the value and the limit", () => {
     const gasOnly = validateDiveInput({
       ...input(),
       depthM: meters(45),
+      gasOnly: true,
+      reservePolicy: { kind: "thirds" },
       decoGases: [{ ...ean28, maximumPPO2: barAbsolute(1.4) }],
     });
+    expect(gasOnly.ok).toBe(true);
+    expect(codes(gasOnly)).not.toContain("GAS_MAXIMUM_PPO2_REQUIRES_GAS_ONLY");
     expect(codes(gasOnly)).not.toContain("GAS_PPO2_LIMIT_EXCEEDED");
   });
 
