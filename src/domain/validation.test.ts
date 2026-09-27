@@ -232,6 +232,80 @@ describe("limit diagnostics state the value and the limit", () => {
     expect(diagnostic).toMatchObject({ limit: 1.6, cylinderId: "o2", gasId: OXYGEN.id, depthM: 6.096 });
   });
 
+  it("accepts EAN28 at its printed 40 m MOD for 1.4 bar on cylinder, deco, and gas-only paths", () => {
+    // Typed MOD: FO₂ 0.28 at 1.4 bar prints 40 m; PPO₂ at 40 m is 1.4000000000000001 bar.
+    const ean28 = {
+      id: "ean28",
+      name: "EAN28",
+      oxygen: fraction(0.28),
+      helium: fraction(0),
+      role: "deco" as const,
+      switchDepthM: meters(40),
+    };
+    const cylinder: Cylinder = {
+      id: "ean28-stage",
+      name: "EAN28 stage",
+      waterVolumeL: liters(11),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: { ...ean28, cylinderId: "ean28-stage" },
+      maximumPPO2: barAbsolute(1.4),
+      revision: 1,
+    };
+    const assigned = validateDiveInput({
+      ...input(),
+      depthM: meters(45),
+      decoGases: [{ ...ean28, cylinderId: "ean28-stage" }],
+      cylinders: [cylinder],
+    });
+    expect(codes(assigned)).not.toContain("CYLINDER_PPO2_LIMIT_EXCEEDED");
+    expect(codes(assigned)).not.toContain("DECO_SWITCH_UNBREATHABLE");
+
+    const decoLimited = validateDiveInput({
+      ...input(),
+      depthM: meters(45),
+      settings: { ...DEFAULT_PLANNER_SETTINGS, maximumDecoPPO2: barAbsolute(1.4) },
+      decoGases: [ean28],
+    });
+    expect(codes(decoLimited)).not.toContain("DECO_SWITCH_UNBREATHABLE");
+
+    const gasOnly = validateDiveInput({
+      ...input(),
+      depthM: meters(45),
+      gasOnly: true,
+      reservePolicy: { kind: "thirds" },
+      decoGases: [{ ...ean28, maximumPPO2: barAbsolute(1.4) }],
+    });
+    expect(gasOnly.ok).toBe(true);
+    expect(codes(gasOnly)).not.toContain("GAS_MAXIMUM_PPO2_REQUIRES_GAS_ONLY");
+    expect(codes(gasOnly)).not.toContain("GAS_PPO2_LIMIT_EXCEEDED");
+  });
+
+  it("rejects EAN28 deeper than its 1.4 bar MOD by a diving-meaningful amount", () => {
+    const ean28 = {
+      id: "ean28",
+      name: "EAN28",
+      oxygen: fraction(0.28),
+      helium: fraction(0),
+      role: "deco" as const,
+      switchDepthM: meters(40.1),
+      cylinderId: "ean28-stage",
+    };
+    const cylinder: Cylinder = {
+      id: "ean28-stage",
+      name: "EAN28 stage",
+      waterVolumeL: liters(11),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: ean28,
+      maximumPPO2: barAbsolute(1.4),
+      revision: 1,
+    };
+    const result = validateDiveInput({ ...input(), depthM: meters(45), decoGases: [ean28], cylinders: [cylinder] });
+    expect(codes(result)).toContain("CYLINDER_PPO2_LIMIT_EXCEEDED");
+    expect(find(result, "CYLINDER_PPO2_LIMIT_EXCEEDED")?.actual).toBeCloseTo(1.4028, 4);
+  });
+
   it("states the travel gas PPO₂, the limit, and the travel-to-bottom switch depth", () => {
     const tx1070 = { id: "tx10-70", name: "Tx10/70", oxygen: fraction(0.1), helium: fraction(0.7), role: "bottom" as const };
     const withTravel = (travel: OcDiveInput["travelGas"], switchDepthM: number): OcDiveInput =>

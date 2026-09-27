@@ -30,6 +30,7 @@ import {
   effectiveSwitchDownDepth,
   setpointAchievableDepth,
   gasPPO2,
+  isAboveMaximumPPO2,
   isBelowMinimumPPO2,
   isSwitchEligible,
   maximumPPO2ForGas,
@@ -1318,7 +1319,7 @@ export function calculateEventDivePlan(
         : input.settings.maximumBottomPPO2;
       const maximumPPO2 = maximumPPO2ForGas(event.gas, input, planMaximumPPO2);
       if (endpointPPO2.some((ppo2) =>
-        ppo2 < input.settings.minimumPPO2 || ppo2 > maximumPPO2
+        isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) || isAboveMaximumPPO2(ppo2, maximumPPO2)
       )) {
         eventErrors.push(diagnostic(
           "EXPOSURE_GAS_UNBREATHABLE",
