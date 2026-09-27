@@ -27,6 +27,14 @@ import {
   type UnitPreferences,
 } from "./helpers";
 
+/** One deco or bailout gas listed in Plan Review with an Include-in-plan switch. */
+export type ReviewGasSwitch = {
+  readonly key: string;
+  readonly name: string;
+  readonly included: boolean;
+  readonly role: "deco" | "bailout";
+};
+
 function warningsFor(plan: DivePlan, preferences: UnitPreferences): readonly WarningItem[] {
   return plan.diagnostics.map((diagnostic, index) => ({
     id: `${diagnostic.code}-${index}`,
@@ -126,6 +134,31 @@ function ledgerRow(entry: GasLedgerEntry, preferences: UnitPreferences): GasLedg
   };
 }
 
+function ReviewGasIncludes({
+  gases,
+  onToggle,
+}: {
+  readonly gases: readonly ReviewGasSwitch[];
+  readonly onToggle: (key: string, included: boolean) => void;
+}) {
+  if (gases.length === 0) return null;
+  return <ul className="bf-review-gas-includes">
+    {gases.map((gas) => <li key={gas.key}>
+      <label className="bf-check bf-gas-editor__switch">
+        <input
+          aria-label={`Include ${gas.name} in plan`}
+          checked={gas.included}
+          onChange={(event) => onToggle(gas.key, event.currentTarget.checked)}
+          type="checkbox"
+        />
+        <span>Include in plan</span>
+      </label>
+      <span className="bf-review-gas-includes__name">{gas.name}</span>
+      {!gas.included && <span className="bf-review-gas-includes__excluded">Not in plan</span>}
+    </li>)}
+  </ul>;
+}
+
 function ScheduleAndLedger({ plan, preferences, title, compact = false }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
@@ -184,8 +217,12 @@ export function PlanResultView({
   title = "Calculated plan",
   completion,
   compact = false,
+  reviewGasSwitches,
+  onToggleReviewGas,
+  statusNotice,
+  attentionDiagnostics,
 }: {
-  readonly plan: DivePlan;
+  readonly plan?: DivePlan;
   readonly preferences: UnitPreferences;
   readonly stale?: boolean;
   readonly onSave?: () => void;
@@ -193,45 +230,74 @@ export function PlanResultView({
   readonly completion?: ReactNode;
   /** Fold the runtime and ledger tables behind disclosures; used for nested cave scenario output. */
   readonly compact?: boolean;
+  /**
+   * Plan Review only: deco (OC) or bailout (CCR) gases with Include-in-plan switches. Cave Review,
+   * Saved Plan reopen, and compact nested output omit this prop.
+   */
+  readonly reviewGasSwitches?: readonly ReviewGasSwitch[];
+  readonly onToggleReviewGas?: (key: string, included: boolean) => void;
+  /** Shown instead of the previous result while Review recalculates after an include toggle. */
+  readonly statusNotice?: string;
+  /** Calculation diagnostics while Review is open in needs-attention. */
+  readonly attentionDiagnostics?: readonly WarningItem[];
 }) {
+  const showResult = plan !== undefined && !stale && statusNotice === undefined && attentionDiagnostics === undefined;
+  // One stable "Gases in this plan" panel keeps the same checkbox DOM across updating / current /
+  // needs-attention so keyboard focus survives recalculation (ledger placement remounted them).
+  const reviewIncludes = reviewGasSwitches && onToggleReviewGas && reviewGasSwitches.length > 0
+    ? <Panel title="Gases in this plan">
+      <ReviewGasIncludes gases={reviewGasSwitches} onToggle={onToggleReviewGas} />
+    </Panel>
+    : null;
+
   return <section className="bf-results" aria-label={title}>
     {completion}
-    <Panel
-      actions={onSave ? <ActionButton disabled={stale} onClick={onSave}>Save snapshot</ActionButton> : undefined}
-      eyebrow={stale ? "Inputs changed · recalculate before saving" : plan.metadata.validationStatus}
-      title={title}
-    >
-      <div className="bf-metric-grid">
-        <ResultMetric label="Runtime" value={formatDuration(plan.summary.runtimeSeconds)} />
-        <ResultMetric label="TTS" value={formatDuration(plan.summary.ttsSeconds)} />
-        <ResultMetric detail="Time at stops" label="Deco" value={formatDuration(plan.summary.decompressionSeconds)} />
-        <ResultMetric label="Maximum depth" value={formatDepth(plan.summary.maximumDepthM, preferences.depth)} />
-        <ResultMetric
-          detail={`${plan.metadata.conventionId} · ${plan.metadata.engineVersion}`}
-          kind="text"
-          label="Safety status"
-          tone={plan.safetyStatus === "unsafe" ? "danger" : "safe"}
-          value={plan.safetyStatus === "unsafe" ? "Unsafe" : "Calculated"}
-        />
-      </div>
-    </Panel>
-    <WarningList items={warningsFor(plan, preferences)} title="Plan diagnostics" />
-    <ScheduleAndLedger compact={compact} plan={plan} preferences={preferences} title="Primary" />
-    {plan.bailoutPlan && <>
-      <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
+    {/* Fixed slot so include checkboxes are not remounted when status/result siblings appear or leave. */}
+    {reviewIncludes}
+    {statusNotice && <Panel eyebrow="Updating" title={title}>
+      <p>{statusNotice}</p>
+    </Panel>}
+    {attentionDiagnostics && <Panel eyebrow="Needs attention" title={title}>
+      <WarningList items={attentionDiagnostics} title="Calculation diagnostics" />
+    </Panel>}
+    {showResult && plan && <>
+      <Panel
+        actions={onSave ? <ActionButton disabled={stale} onClick={onSave}>Save snapshot</ActionButton> : undefined}
+        eyebrow={stale ? "Inputs changed · recalculate before saving" : plan.metadata.validationStatus}
+        title={title}
+      >
         <div className="bf-metric-grid">
-          <ResultMetric label="Bailout runtime" value={formatDuration(plan.bailoutPlan.summary.runtimeSeconds)} />
-          <ResultMetric label="Bailout TTS" value={formatDuration(plan.bailoutPlan.summary.ttsSeconds)} />
+          <ResultMetric label="Runtime" value={formatDuration(plan.summary.runtimeSeconds)} />
+          <ResultMetric label="TTS" value={formatDuration(plan.summary.ttsSeconds)} />
+          <ResultMetric detail="Time at stops" label="Deco" value={formatDuration(plan.summary.decompressionSeconds)} />
+          <ResultMetric label="Maximum depth" value={formatDepth(plan.summary.maximumDepthM, preferences.depth)} />
           <ResultMetric
+            detail={`${plan.metadata.conventionId} · ${plan.metadata.engineVersion}`}
             kind="text"
-            label="Bailout status"
-            tone={plan.bailoutPlan.safetyStatus === "unsafe" ? "danger" : "safe"}
-            value={plan.bailoutPlan.safetyStatus}
+            label="Safety status"
+            tone={plan.safetyStatus === "unsafe" ? "danger" : "safe"}
+            value={plan.safetyStatus === "unsafe" ? "Unsafe" : "Calculated"}
           />
         </div>
       </Panel>
-      <WarningList items={warningsFor(plan.bailoutPlan, preferences)} title="Bailout diagnostics" />
-      <ScheduleAndLedger compact={compact} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
+      <WarningList items={warningsFor(plan, preferences)} title="Plan diagnostics" />
+      <ScheduleAndLedger compact={compact} plan={plan} preferences={preferences} title="Primary" />
+      {plan.bailoutPlan && <>
+        <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
+          <div className="bf-metric-grid">
+            <ResultMetric label="Bailout runtime" value={formatDuration(plan.bailoutPlan.summary.runtimeSeconds)} />
+            <ResultMetric label="Bailout TTS" value={formatDuration(plan.bailoutPlan.summary.ttsSeconds)} />
+            <ResultMetric
+              kind="text"
+              label="Bailout status"
+              tone={plan.bailoutPlan.safetyStatus === "unsafe" ? "danger" : "safe"}
+              value={plan.bailoutPlan.safetyStatus}
+            />
+          </div>
+        </Panel>
+        <WarningList items={warningsFor(plan.bailoutPlan, preferences)} title="Bailout diagnostics" />
+        <ScheduleAndLedger compact={compact} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
+      </>}
     </>}
   </section>;
 }

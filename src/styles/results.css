@@ -132,6 +132,36 @@
 .bf-ledger tr[data-status="unchecked"] td:last-child { color: var(--bf-text-muted); }
 .bf-scroll-table + .bf-panel__note { margin-top: var(--bf-space-2); }
 
+/* Plan Review deco/bailout include switches, listed with the matching gas ledger. */
+.bf-review-gas-includes {
+  display: grid;
+  gap: var(--bf-space-2);
+  margin: var(--bf-space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bf-review-gas-includes li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bf-space-2) var(--bf-space-3);
+  align-items: center;
+  min-height: 32px;
+  padding: var(--bf-space-2) 0;
+  border-top: 1px solid var(--bf-line);
+}
+.bf-review-gas-includes__name {
+  color: var(--bf-text);
+  font-size: var(--bf-text-sm);
+  font-weight: 600;
+}
+.bf-review-gas-includes__excluded {
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-sm);
+}
+.bf-scroll-table + .bf-review-gas-includes { margin-top: var(--bf-space-3); }
+.bf-panel__note + .bf-review-gas-includes { margin-top: var(--bf-space-3); }
+.bf-warnings + .bf-review-gas-includes { margin-top: var(--bf-space-3); }
+
 @media (max-width: 480px) {
   .bf-cylinder dl { width: 100%; justify-content: space-between; }
   .bf-completion-notice { grid-template-columns: minmax(0, 1fr); }

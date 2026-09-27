@@ -18,6 +18,9 @@ import {
   tankSourceOptionLabel,
   tankSourceSignature,
   tankSourcesChanged,
+  reviewGasDisplayName,
+  reviewStaysOpen,
+  withGasIncluded,
   withGasPlanning,
   type GasDraft,
   type PlanDraft,
@@ -814,5 +817,80 @@ describe("hidden inputs and Tank Bank source tracking", () => {
     // Values that are not source signatures compare as strings.
     expect(tankSourcesChanged("source-a", "source-a")).toBe(false);
     expect(tankSourcesChanged("source-a", "source-b")).toBe(true);
+  });
+});
+
+describe("withGasIncluded", () => {
+  it("switches a deco gas and a bailout gas off and on without touching other fields", () => {
+    const offDeco = withGasIncluded(DEFAULT_PLAN_DRAFT, "deco-o2", false);
+    expect(offDeco.decoGases.map((gas) => ({ key: gas.key, enabled: gas.enabled }))).toEqual([
+      { key: "deco-50", enabled: undefined },
+      { key: "deco-o2", enabled: false },
+    ]);
+    expect(offDeco.bailoutGases).toEqual(DEFAULT_PLAN_DRAFT.bailoutGases);
+    expect(offDeco.bottomGas).toEqual(DEFAULT_PLAN_DRAFT.bottomGas);
+    expect(offDeco.depthM).toBe(DEFAULT_PLAN_DRAFT.depthM);
+
+    const onDeco = withGasIncluded(offDeco, "deco-o2", true);
+    expect(onDeco.decoGases[1]).toMatchObject({ key: "deco-o2", enabled: true });
+
+    const ccr = { ...DEFAULT_PLAN_DRAFT, mode: "ccr" as const };
+    const offBailout = withGasIncluded(ccr, "bailout-50", false);
+    expect(offBailout.bailoutGases.map((gas) => ({ key: gas.key, enabled: gas.enabled }))).toEqual([
+      { key: "bailout-bottom", enabled: undefined },
+      { key: "bailout-50", enabled: false },
+    ]);
+    expect(offBailout.decoGases).toEqual(ccr.decoGases);
+    expect(withGasIncluded(offBailout, "bailout-50", true).bailoutGases[1]).toMatchObject({
+      key: "bailout-50",
+      enabled: true,
+    });
+  });
+
+  it("treats an unknown key as a no-op", () => {
+    expect(withGasIncluded(DEFAULT_PLAN_DRAFT, "missing-gas", false)).toBe(DEFAULT_PLAN_DRAFT);
+  });
+});
+
+describe("reviewStaysOpen", () => {
+  it.each([
+    ["current", true],
+    ["updating", true],
+    ["needs-attention", true],
+    ["draft", false],
+    ["source-changed", false],
+    ["source-unavailable", false],
+    ["cylinder-shared", false],
+  ] as const)("%s → %s", (status, expected) => {
+    expect(reviewStaysOpen(status)).toBe(expected);
+  });
+});
+
+describe("reviewGasDisplayName", () => {
+  const tank: TankRecord = {
+    id: "bank-o2",
+    name: "Stage",
+    waterVolumeL: liters(11.1),
+    workingPressureBar: barGauge(207),
+    currentPressureBar: barGauge(200),
+    gas: { id: "analyzed-o2", name: "Analyzed oxygen", oxygen: fraction(1), helium: fraction(0), role: "deco" },
+    maximumPPO2: barAbsolute(1.6),
+    role: "deco",
+    revision: 1,
+    archived: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("uses the Tank Bank gas name when the selected record loads, matching Setup", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, name: "Oxygen", cylinderId: tank.id };
+    expect(reviewGasDisplayName(draft, [tank])).toBe("Analyzed oxygen");
+  });
+
+  it("falls back to the draft name when there is no source, or the record is archived", () => {
+    const draft = { ...DEFAULT_PLAN_DRAFT.decoGases[1]!, name: "Oxygen" };
+    expect(reviewGasDisplayName(draft, [tank])).toBe("Oxygen");
+    expect(reviewGasDisplayName({ ...draft, cylinderId: tank.id }, [{ ...tank, archived: true }])).toBe("Oxygen");
+    expect(reviewGasDisplayName({ ...draft, name: "   " }, [])).toBe("Plan gas");
   });
 });

@@ -42,6 +42,8 @@ import {
   isGasOnlyPlan,
   PLAN_STOP_INCREMENT_M,
   resolvePlanInput,
+  reviewGasDisplayName,
+  reviewStaysOpen,
   selectableTanks,
   selectedTankSources,
   sharedTankSourceDiagnostics,
@@ -50,6 +52,7 @@ import {
   tankSourceOptionLabel,
   tankSourceSignature,
   tankSourceUnavailableText,
+  withGasIncluded,
   withGasPlanning,
   type GasDraft,
   type PlanDraft,
@@ -57,7 +60,7 @@ import {
   type TankBankSnapshot,
   type UnavailableTankSource,
 } from "./planning";
-import { PlanResultView } from "./PlanResultView";
+import { PlanResultView, type ReviewGasSwitch } from "./PlanResultView";
 import type { PlanWorkspaceSession, PlanWorkspaceView } from "./planWorkspace";
 import { invalidateForUnavailableSource, workspaceStatus, type WorkspaceStatus } from "./workspaceStatus";
 
@@ -586,7 +589,7 @@ const statusDescription: Record<PlanWorkspaceStatus, string> = {
   draft: "No calculation yet. Review the setup, then calculate once.",
   updating: "Inputs changed. Recalculating automatically; previous results are hidden.",
   current: "The calculated result matches every current input.",
-  "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics in Setup.",
+  "needs-attention": "Current inputs could not produce a plan. Fix the diagnostics, or switch a gas back on in Review.",
   "source-changed": "A Tank Bank source or revision changed. Update explicitly before reviewing the plan.",
   "source-unavailable": "A selected Tank Bank cylinder cannot be used. Choose another cylinder or detach the gas in Setup; nothing is calculated until then.",
   "cylinder-shared": "One Tank Bank cylinder is selected for more than one gas. Give each gas its own cylinder, or switch the extra gases off, in Setup; nothing is calculated until then.",
@@ -638,7 +641,9 @@ export default function PlanPage({
         attemptedInputSignature: session.attemptedInputSignature,
       });
   const calculatedIsCurrent = status === "current";
-  const reviewAvailable = status === "current";
+  /** Opening Review from Setup still requires a current result; include toggles keep Review open while updating. */
+  const canOpenReview = status === "current";
+  const stayInReview = reviewStaysOpen(status);
   const showCompletion = useCallback((label: string, description: string) => setCompletion((current) => ({
     revision: (current?.revision ?? 0) + 1,
     label,
@@ -691,14 +696,26 @@ export default function PlanPage({
   }, [run, status]);
 
   useEffect(() => {
-    if (session.view !== "review" || reviewAvailable) return;
+    if (session.view !== "review" || stayInReview) return;
     onSessionChange((current) => current.view === "review" ? { ...current, view: "setup" } : current);
-  }, [onSessionChange, reviewAvailable, session.view]);
+  }, [onSessionChange, stayInReview, session.view]);
 
   const selectView = (view: PlanWorkspaceView) => {
-    if (view === "review" && !reviewAvailable) return;
+    if (view === "review" && !canOpenReview) return;
     if (view === "setup") setCompletion(undefined);
     onSessionChange((current) => ({ ...current, view }));
+  };
+
+  const reviewSourceTanks = selectableTanks(tankBank);
+  const reviewGasSwitches: readonly ReviewGasSwitch[] = (draft.mode === "oc" ? draft.decoGases : draft.bailoutGases)
+    .map((gas) => ({
+      key: gas.key,
+      name: reviewGasDisplayName(gas, reviewSourceTanks),
+      included: gas.enabled !== false,
+      role: gas.role === "bailout" ? "bailout" as const : "deco" as const,
+    }));
+  const toggleReviewGas = (key: string, included: boolean) => {
+    onDraftChange(withGasIncluded(draft, key, included));
   };
 
   const save = (title: string) => {
@@ -733,11 +750,12 @@ export default function PlanPage({
             : status === "cylinder-shared"
               ? <ActionButton disabled>Resolve shared cylinder</ActionButton>
               : <ActionButton disabled>Fix inputs</ActionButton>;
-  const action = session.view === "review" && reviewAvailable
+  const action = session.view === "review" && stayInReview
     ? <ActionButton onClick={() => selectView("setup")} quiet>Edit inputs</ActionButton>
     : setupAction;
   const summaryGas = resolved.gases[0]?.name ?? (draft.mode === "oc" ? draft.bottomGas.name : draft.diluent.name);
   const summary = `${draft.mode.toUpperCase()} · ${formatDepth(draft.depthM, preferences.depth)} · ${draft.bottomTimeMinutes} min · ${summaryGas} · GF ${draft.gfLowPercent}/${draft.gfHighPercent}`;
+  const reviewDisabled = session.view === "review" ? !stayInReview : !canOpenReview;
 
   return <>
     <PageHeader
@@ -750,7 +768,7 @@ export default function PlanPage({
         onChange={selectView}
         options={[
           { value: "setup", label: "Setup" },
-          { value: "review", label: "Review", disabled: !reviewAvailable },
+          { value: "review", label: "Review", disabled: reviewDisabled },
         ]}
         value={session.view}
       />
@@ -772,11 +790,19 @@ export default function PlanPage({
       <WarningList items={diagnosticItems(resolved.diagnostics, preferences.depth)} title="Tank Bank sources unavailable" />
       <WarningList items={diagnosticItems(sharedSources, preferences.depth)} title="Shared Tank Bank cylinders" />
       <PlannerEditor draft={draft} onChange={onDraftChange} preferences={preferences} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
-    </div> : calculatedIsCurrent && session.calculated ? <PlanResultView
-      completion={completion ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} /> : undefined}
-      onSave={() => setSaveOpen(true)}
-      plan={session.calculated.plan}
+    </div> : stayInReview ? <PlanResultView
+      attentionDiagnostics={status === "needs-attention"
+        ? diagnosticItems(session.diagnostics, preferences.depth)
+        : undefined}
+      completion={calculatedIsCurrent && completion
+        ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} />
+        : undefined}
+      onSave={calculatedIsCurrent ? () => setSaveOpen(true) : undefined}
+      onToggleReviewGas={toggleReviewGas}
+      plan={calculatedIsCurrent ? session.calculated?.plan : undefined}
       preferences={preferences}
+      reviewGasSwitches={reviewGasSwitches}
+      statusNotice={status === "updating" ? statusDescription.updating : undefined}
     /> : <Panel eyebrow={statusLabel[status]} title="Plan review unavailable">
       <p>{statusDescription[status]}</p>
     </Panel>}
