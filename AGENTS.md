@@ -255,6 +255,7 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 - `CHANGELOG.md`: user-visible changes
 - `documentation/architecture.md`: runtime and module boundaries
 - `documentation/calculation-model.md`: scientific contracts and limitations
+- `documentation/profile-exposure-traces.md`: draft contracts for continuous profile-scrubber exposure traces (pending scientific review; not implemented)
 - `documentation/flows.md`: planning, snapshot, Tools, and offline flows
 - `documentation/reference-validation.md`: source and parity evidence
 - `documentation/tests.md`: verification commands, current coverage, and known gaps
