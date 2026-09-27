@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The Cave penetration timeline now reads as a distance strip with ruled totals, numbered pins, and a route-events list instead of a nested slab of floating scenario badges. Setup and Review behavior is unchanged: segments still focus leg editors, and scenario markers still select triggers or Review results.
+
 ## [0.7.0] - 2026-09-27
 
 Calculation engine `barefoot-dive-engine-0.3.0`, unchanged from 0.6.0: schedules and gas use are identical; these changes are Cave presentation, scenario gating, and Tank Bank switch-depth editing.
