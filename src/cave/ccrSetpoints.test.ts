@@ -112,6 +112,43 @@ describe("cave CCR low setpoint and switch-down", () => {
     expect(result.errors.find((item) => item.code === "CAVE_CCR_SWITCH_DOWN_TOO_SHALLOW")?.field)
       .toBe("dive.setpointDeactivationDepthM");
   });
+
+  describe("decompression at the entrance on the low setpoint", () => {
+    // Ten minutes at 30 m leaves decompression at the entrance once the exit legs switch down.
+    const route = (entrance: number) => [
+      leg("entry", entrance, 9, ids),
+      leg("down", 9, 30, ids),
+      { ...leg("far", 30, 30, ids), durationSeconds: seconds(10 * 60) },
+    ];
+    const lowStopWarnings = (dive: Partial<CcrDiveInput>, entrance: number) => {
+      const result = calculateCavePlan(caveInput(dive, route(entrance), hypoxicDiluent, [bailout], cylinders));
+      expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
+      if (!result.ok) return { warnings: [], stops: [] };
+      return {
+        warnings: result.value.base.diagnostics.filter((item) => item.code === "CCR_STOP_ON_LOW_SETPOINT"),
+        stops: result.value.base.segments.filter((segment) => segment.kind === "stop"),
+      };
+    };
+
+    it("warns with the default switch-down when the route ends shallower, without suggesting an off-grid depth", () => {
+      const { warnings, stops } = lowStopWarnings({}, 5);
+      expect(stops.every((segment) => segment.endDepthM === 5 && segment.setpointBar === 0.7)).toBe(true);
+      expect(warnings.map((item) => item.message)).toEqual([
+        "The 5.0 m stop runs on the 0.70 bar low setpoint for 4 min, because the loop switches down when leaving 6.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint.",
+      ]);
+    });
+
+    it("suggests a switch-down depth that Cave accepts and that holds the high setpoint at the stop", () => {
+      const deep = lowStopWarnings({ setpointDeactivationDepthM: meters(9) }, 6);
+      expect(deep.warnings.map((item) => item.message)).toEqual([
+        "The 6.0 m stop runs on the 0.70 bar low setpoint for 7 min, because the loop switches down when leaving 9.0 m. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1.30 bar high setpoint. Set the switch-down depth to 6.0 m to hold the high setpoint at that stop.",
+      ]);
+      const suggested = lowStopWarnings({ setpointDeactivationDepthM: meters(6) }, 6);
+      expect(suggested.warnings).toEqual([]);
+      expect(suggested.stops.length).toBeGreaterThan(0);
+      expect(suggested.stops.every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    });
+  });
 });
 
 describe("cave CCR dil-out", () => {
