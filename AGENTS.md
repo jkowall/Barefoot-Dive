@@ -205,6 +205,7 @@ Use the branded types and constructors in `src/domain/types.ts` and `src/domain/
 - `npm run check`
 - `npm run test:ui`
 - `npm run test:visual` when rendered output changes
+- For every UI-affecting pull request, attach **before and after** screenshots of the changed surface (base branch vs this branch) in the PR description and agent walkthrough
 - Regenerate visual snapshots only after inspecting the new phone, tablet, and desktop images
 - Move the pointer to (0, 0) with `page.mouse.move(0, 0)` before `toHaveScreenshot`, so no stray hover state is captured, unless the case captures a pointer state on purpose, as the selected profile scrubber case does
 - Write a new case's baselines with `npm run test:visual -- --update-snapshots=missing`, then inspect them. `--update-snapshots=changed` leaves a diff under the 1% `maxDiffPixelRatio` tolerance in place; rewrite one case with `npm run test:visual -- --update-snapshots=all --grep "<case name>"`

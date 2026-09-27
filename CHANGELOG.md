@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cave Setup and current Review now show the penetration route on a distance timeline with leg segments, applicable failure-scenario trigger markers, and resolved stage drop/recovery marks. The timeline retains entered time labels; it focuses the authoritative Setup editors or selects the matching Review scenario without changing the cave calculation.
 - Cave Setup shows which cylinders you carry on each leg, a route that rises above its decompression ceiling names the leg, its end depth, and the ceiling when unambiguous, and maximum penetration distance and time say whether they come from your entry or from scaling every leg.
 - Cave offers scooter failure only when the route has a scooter leg, and stage failure only when a leg drops or recovers a stage, so a new Cave plan is no longer marked unsafe for scenarios it cannot run. Each scenario has its own trigger point, and Setup and Review say what it models, including that it turns at its trigger.
 - Moving a deco or bailout gas between Tank Bank cylinders no longer drops a displayed inherited switch depth when the new cylinder has no stored value; the Plan keeps it as the gas's own value. Tank Bank now immediately refreshes a switch-depth error when its mix, maximum PPO₂, role, or switch depth changes.

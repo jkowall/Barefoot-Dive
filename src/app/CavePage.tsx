@@ -32,7 +32,9 @@ import {
 } from "../ui";
 import { ActionButton, DepthField, NumberField, SelectField } from "./controls";
 import { CaveAccessTable } from "./CaveAccessTable";
+import { CaveRouteTimeline } from "./CaveRouteTimeline";
 import { collectCaveDiagnostics, formatCaveCeilingViolation } from "./caveDiagnostics";
+import { buildCaveTimeline } from "./caveTimeline";
 import { formatDiagnostic } from "./diagnosticText";
 import {
   normalizeCaveRoute,
@@ -146,7 +148,7 @@ function RouteEditor({
     // The button leaves with the notice; keep keyboard focus on the first gas it was about.
     checksRef.current?.querySelector<HTMLInputElement>(`input[data-cylinder-id="${CSS.escape(unset[0].id)}"]`)?.focus();
   };
-  return <article className="bf-route-editor" ref={containerRef}>
+  return <article className="bf-route-editor" id={`cave-route-${route.id}`} ref={containerRef} tabIndex={-1}>
     <header className="bf-row-header">
       <div><p className="bf-eyebrow">PENETRATION LEG</p><h3>{route.id}</h3></div>
       {onRemove && <ActionButton danger onClick={onRemove} quiet small>Remove</ActionButton>}
@@ -284,6 +286,10 @@ export default function CavePage({
   );
   const scenarios = useMemo<readonly CaveScenarioRequest[]>(
     () => buildScenarioRequests(enabledScenarios, route, cylinders, scenarioTriggers),
+    [cylinders, enabledScenarios, route, scenarioTriggers],
+  );
+  const timeline = useMemo(
+    () => buildCaveTimeline(route, cylinders, enabledScenarios, scenarioTriggers),
     [cylinders, enabledScenarios, route, scenarioTriggers],
   );
   // No dive input exists while a selected Tank Bank source is unavailable, and no route while a
@@ -492,6 +498,26 @@ export default function CavePage({
   const selectScenario = (index: number) => {
     onSessionChange((current) => ({ ...current, selectedScenario: index }));
   };
+  const focusSetupRoute = (routeId: string) => {
+    const target = document.getElementById(`cave-route-${routeId}`);
+    target?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    target?.focus({ preventScroll: true });
+  };
+  const focusSetupScenario = (kind: CaveScenarioKind) => {
+    const target = document.getElementById(`cave-scenario-${kind}`);
+    target?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    target?.focus({ preventScroll: true });
+  };
+  const selectTimelineScenario = (kind: CaveScenarioKind) => {
+    const index = calculated?.result.scenarios.findIndex((scenario) => scenario.kind === kind) ?? -1;
+    if (index >= 0) selectScenario(index);
+  };
   const selectView = (view: CaveWorkspaceView) => {
     if (view === "review" && !reviewAvailable) return;
     if (view === "setup") setCompletion(undefined);
@@ -609,6 +635,7 @@ export default function CavePage({
       <WarningList items={diagnosticsToItems(routeNotices, preferences.depth)} title="Leg cylinders to confirm" />
       <PlannerEditor draft={draft} environment="cave" onChange={changeMode} preferences={preferences} showBottomTime={false} tankBank={tankBank} unavailableSources={resolved.unavailableSources} />
       <Panel actions={<ActionButton onClick={addLeg} quiet>Add route leg</ActionButton>} title="Penetration route">
+        <CaveRouteTimeline model={timeline} onScenarioActivate={focusSetupScenario} onSegmentActivate={focusSetupRoute} preferences={preferences} />
         <CaveAccessTable cylinders={cylinders} preferences={preferences} route={route} />
         {route.map((leg, index) => <RouteEditor
           containerRef={leg.id === pendingRouteId ? pendingRouteRef : undefined}
@@ -640,7 +667,7 @@ export default function CavePage({
               const applicability = scenarioApplicabilities[kind];
               const trigger = scenarioTriggers[kind];
               const point = scenarioTriggerPoint(trigger, route);
-              return <article className="bf-scenario-editor__item" key={kind}>
+              return <article className="bf-scenario-editor__item" id={`cave-scenario-${kind}`} key={kind} tabIndex={-1}>
                 <label className="bf-check">
                   <input checked={enabledScenarios.includes(kind)} disabled={!applicability.applicable} onChange={(event) => changeScenarios(event.currentTarget.checked ? [...enabledScenarios, kind] : enabledScenarios.filter((candidate) => candidate !== kind))} type="checkbox" />
                   <span>{scenarioLabel(kind)}</span>
@@ -733,6 +760,9 @@ export default function CavePage({
         </div>
       </Panel>
       <WarningList items={diagnosticsToItems([...aggregateCaveDiagnostics, ...routeNotices], preferences.depth)} title="Aggregate cave diagnostics" />
+      <Panel title="Penetration route">
+        <CaveRouteTimeline model={timeline} onScenarioActivate={selectTimelineScenario} preferences={preferences} readOnly />
+      </Panel>
       <Panel title="Failure scenarios">
         <SegmentedControl
           label="Scenario result"
