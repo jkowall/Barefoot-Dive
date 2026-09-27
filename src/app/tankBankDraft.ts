@@ -149,7 +149,10 @@ export function validateTankBankDraft(draft: TankBankDraftState): string[] {
       errors.push("Switch depth must be zero or deeper.");
     } else {
       const modM = tankBankDraftModM(draft);
-      if (modM !== undefined && draft.switchDepthM > modM + 1e-9) {
+      // A stored switch depth must be checkable against MOD; never keep one when MOD cannot be calculated.
+      if (modM === undefined) {
+        errors.push("Switch depth cannot be validated without a calculable MOD at this maximum PPO₂.");
+      } else if (draft.switchDepthM > modM + 1e-9) {
         errors.push("Switch depth must not be deeper than the MOD at this maximum PPO₂.");
       }
     }

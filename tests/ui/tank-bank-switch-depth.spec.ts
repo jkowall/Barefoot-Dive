@@ -116,3 +116,56 @@ test("a switch depth deeper than the MOD shows a form error", async ({ page }) =
   })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Oxygen stage" })).toHaveCount(0);
 });
+
+test("choosing an EAN50 bailout Tank Bank cylinder fills the CCR bailout switch depth", async ({ page }) => {
+  await page.goto("/");
+  await acceptSafety(page);
+  await useFeet(page);
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("textbox", { name: "Cylinder name" }).fill("Bailout 50 stage");
+  await page.getByRole("textbox", { name: "Gas name" }).fill("EAN50 bailout");
+  await page.getByRole("spinbutton", { name: "O₂ (%)" }).fill("50");
+  await page.getByRole("spinbutton", { name: "He (%)" }).fill("0");
+  await page.getByRole("spinbutton", { name: "Maximum PPO₂ (bar)" }).fill("1.6");
+  await page.getByLabel("Cylinder role").selectOption("bailout");
+  await page.getByRole("spinbutton", { name: /Switch depth/ }).fill("40");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await expect(page.getByRole("heading", { name: "Bailout 50 stage" })).toBeVisible();
+  await expect(page.getByText(/Switch 40 ft/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Plan", exact: true }).first().click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+
+  const switchDepth = page
+    .locator(".bf-gas-editor")
+    .filter({ has: page.getByLabel("EAN50 bailout cylinder source", { exact: true }) })
+    .getByRole("spinbutton", { name: /Switch depth/ });
+  // Default EAN50 bailout switch is 70 ft; move it so the Tank Bank copy is observable.
+  await switchDepth.fill("70");
+  await expect(switchDepth).toHaveValue("70");
+  await page.getByLabel("EAN50 bailout cylinder source", { exact: true }).selectOption({
+    label: "Bailout 50 stage · EAN50 bailout",
+  });
+  await expect(switchDepth).toHaveValue("40");
+});
+
+test("a switch depth with an uncalculable MOD shows a form error", async ({ page }) => {
+  await page.goto("/");
+  await acceptSafety(page);
+  await useFeet(page);
+
+  await page.getByRole("button", { name: "Tank bank", exact: true }).first().click();
+  await page.getByRole("button", { name: "Add cylinder" }).click();
+  await page.getByRole("textbox", { name: "Gas name" }).fill("Air bailout");
+  await page.getByRole("spinbutton", { name: "O₂ (%)" }).fill("21");
+  await page.getByRole("spinbutton", { name: "Maximum PPO₂ (bar)" }).fill("0.1");
+  await page.getByLabel("Cylinder role").selectOption("bailout");
+  await page.getByRole("spinbutton", { name: /Switch depth/ }).fill("20");
+  await page.getByRole("button", { name: "Save cylinder" }).click();
+  await expect(page.getByRole("listitem").filter({
+    hasText: "Switch depth cannot be validated without a calculable MOD at this maximum PPO₂.",
+  })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /bailout/i })).toHaveCount(0);
+});

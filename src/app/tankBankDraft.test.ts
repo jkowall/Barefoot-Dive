@@ -92,4 +92,33 @@ describe("tank bank switch-depth form mapping", () => {
       "Switch depth must not be deeper than the MOD at this maximum PPO₂.",
     );
   });
+
+  it("rejects a switch depth when MOD cannot be calculated", () => {
+    const draft: TankBankDraftState = {
+      ...EMPTY_TANK_BANK_DRAFT,
+      role: "bailout",
+      oxygen: 21,
+      // Below surface PPO₂ for air, so calculateMOD fails with MOD_BELOW_SURFACE.
+      maximumPPO2: 0.1,
+      gasName: "Air bailout",
+      switchDepthM: 6,
+    };
+    expect(validateTankBankDraft(draft)).toContain(
+      "Switch depth cannot be validated without a calculable MOD at this maximum PPO₂.",
+    );
+  });
+
+  it("round-trips a bailout record's switch depth and strips it when the role changes", () => {
+    const source = record({
+      name: "Bailout 50",
+      role: "bailout",
+      gas: { id: "ean50", name: "EAN50", oxygen: fraction(0.5), helium: fraction(0), role: "bailout", switchDepthM: meters(21) },
+    });
+    const draft = draftStateFromRecord(source);
+    expect(draft.role).toBe("bailout");
+    expect(draft.switchDepthM).toBe(21);
+    expect(toTankDraft(draft, source).gas.switchDepthM).toBe(21);
+    expect(validateTankBankDraft(draft)).toEqual([]);
+    expect(toTankDraft({ ...draft, role: "diluent" }).gas.switchDepthM).toBeUndefined();
+  });
 });
