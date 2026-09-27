@@ -193,6 +193,11 @@ export function isBelowMinimumPPO2(ppo2: number, minimumPPO2: number): boolean {
   return ppo2 + PPO2_EPSILON < minimumPPO2;
 }
 
+/** True when PPO₂ exceeds a ceiling by more than the shared comparison tolerance. */
+export function isAboveMaximumPPO2(ppo2: number, maximumPPO2: number): boolean {
+  return ppo2 > maximumPPO2 + PPO2_EPSILON;
+}
+
 /** The lowest of the plan limit, the assigned cylinder limit, and a gas-only per-gas limit. */
 export function maximumPPO2ForGas(gas: Gas, input: DivePlanInput, planLimit: number): number {
   return Math.min(
@@ -205,7 +210,7 @@ export function maximumPPO2ForGas(gas: Gas, input: DivePlanInput, planLimit: num
 export function isGasBreathable(gas: Gas, depthM: number, input: DivePlanInput): boolean {
   const ppo2 = gasPPO2(gas, depthM, input);
   const maximum = maximumPPO2ForGas(gas, input, input.settings.maximumDecoPPO2);
-  return !isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) && ppo2 <= maximum + PPO2_EPSILON;
+  return !isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) && !isAboveMaximumPPO2(ppo2, maximum);
 }
 
 /** The planner's open-circuit switch rule: breathable, and no deeper than the gas switch depth. */
@@ -451,7 +456,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
         environment.metersPerBar > 0
       ) {
         const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-        if (ppo2 > gas.maximumPPO2 + 1e-9) {
+        if (isAboveMaximumPPO2(ppo2, gas.maximumPPO2)) {
           errors.push({
             ...error(
               "GAS_PPO2_LIMIT_EXCEEDED",
@@ -469,7 +474,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       errors.push(error("CYLINDER_GAS_MISMATCH", `${gas.name} does not match the assigned cylinder gas snapshot.`, `gases.${index}.cylinderId`));
     } else if (gas.switchDepthM !== undefined && environment.surfacePressureBar > 0 && environment.metersPerBar > 0) {
       const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-      if (ppo2 > cylinder.maximumPPO2) {
+      if (isAboveMaximumPPO2(ppo2, cylinder.maximumPPO2)) {
         errors.push({
           ...error(
             "CYLINDER_PPO2_LIMIT_EXCEEDED",
@@ -490,10 +495,10 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
   if (input.mode === "oc" && environmentValid) {
     const bottomPPO2 = gasPPO2AtDepth(input.bottomGas, input.depthM, input);
     const bottomCylinder = resolveAssignedCylinder(input.bottomGas, input.cylinders);
-    if (bottomPPO2 < input.settings.minimumPPO2) {
+    if (isBelowMinimumPPO2(bottomPPO2, input.settings.minimumPPO2)) {
       errors.push(error("BOTTOM_GAS_HYPOXIC_AT_DEPTH", "Bottom gas is below the minimum PPO₂ at target depth.", "bottomGas"));
     }
-    if (bottomPPO2 > input.settings.maximumBottomPPO2 + 1e-9) {
+    if (isAboveMaximumPPO2(bottomPPO2, input.settings.maximumBottomPPO2)) {
       errors.push({
         code: "BOTTOM_PPO2_LIMIT_EXCEEDED",
         severity: "error",
@@ -505,7 +510,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
         gasId: input.bottomGas.id,
       });
     }
-    if (!bottomCylinder && input.bottomGas.maximumPPO2 !== undefined && bottomPPO2 > input.bottomGas.maximumPPO2 + 1e-9) {
+    if (!bottomCylinder && input.bottomGas.maximumPPO2 !== undefined && isAboveMaximumPPO2(bottomPPO2, input.bottomGas.maximumPPO2)) {
       errors.push({
         code: "GAS_PPO2_LIMIT_EXCEEDED",
         severity: "error",
@@ -517,7 +522,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
         gasId: input.bottomGas.id,
       });
     }
-    if (bottomCylinder && bottomPPO2 > bottomCylinder.maximumPPO2 + 1e-9) {
+    if (bottomCylinder && isAboveMaximumPPO2(bottomPPO2, bottomCylinder.maximumPPO2)) {
       errors.push({
         code: "CYLINDER_PPO2_LIMIT_EXCEEDED",
         severity: "error",
@@ -531,7 +536,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       });
     }
     const bottomSurfacePPO2 = gasPPO2AtDepth(input.bottomGas, 0, input);
-    if (bottomSurfacePPO2 < input.settings.minimumPPO2 && !input.travelGas) {
+    if (isBelowMinimumPPO2(bottomSurfacePPO2, input.settings.minimumPPO2) && !input.travelGas) {
       errors.push(error("TRAVEL_GAS_REQUIRED", "Hypoxic bottom gas requires a breathable travel gas.", "travelGas"));
     }
     if (input.travelGas) {
@@ -547,8 +552,8 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       if (switchDepth <= 0 || switchDepth > input.depthM) {
         errors.push(error("TRAVEL_SWITCH_DEPTH_INVALID", "Travel-to-bottom switch must be within the planned descent.", "bottomGas.switchDepthM"));
       }
-      const travelHypoxicAtSurface = travelSurfacePPO2 < input.settings.minimumPPO2;
-      const travelAboveMaximum = travelSwitchPPO2 > travelMaximum + 1e-9;
+      const travelHypoxicAtSurface = isBelowMinimumPPO2(travelSurfacePPO2, input.settings.minimumPPO2);
+      const travelAboveMaximum = isAboveMaximumPPO2(travelSwitchPPO2, travelMaximum);
       if (travelHypoxicAtSurface || travelAboveMaximum) {
         const atSwitch = `the ${formatMessageDepth(switchDepth)} travel-to-bottom switch`;
         const surface = `is only PPO₂ ${travelSurfacePPO2.toFixed(3)} bar at the surface, below the ${input.settings.minimumPPO2.toFixed(2)} bar minimum`;
@@ -569,7 +574,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
           gasId: input.travelGas.id,
         });
       }
-      if (travelCylinder && travelSwitchPPO2 > travelCylinder.maximumPPO2 + 1e-9) {
+      if (travelCylinder && isAboveMaximumPPO2(travelSwitchPPO2, travelCylinder.maximumPPO2)) {
         errors.push({
           code: "CYLINDER_PPO2_LIMIT_EXCEEDED",
           severity: "error",
@@ -582,8 +587,8 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
           cylinderId: travelCylinder.id,
         });
       }
-      const bottomAboveMaximum = bottomSwitchPPO2 > input.settings.maximumBottomPPO2 + 1e-9;
-      if (bottomSwitchPPO2 < input.settings.minimumPPO2 || bottomAboveMaximum) {
+      const bottomAboveMaximum = isAboveMaximumPPO2(bottomSwitchPPO2, input.settings.maximumBottomPPO2);
+      if (isBelowMinimumPPO2(bottomSwitchPPO2, input.settings.minimumPPO2) || bottomAboveMaximum) {
         const at = `at its ${formatMessageDepth(switchDepth)} switch depth`;
         errors.push({
           ...error(
@@ -603,8 +608,8 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
     input.decoGases.forEach((gas, index) => {
       if (gas.switchDepthM === undefined) return;
       const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-      const aboveMaximum = ppo2 > input.settings.maximumDecoPPO2;
-      if (ppo2 < input.settings.minimumPPO2 || aboveMaximum) {
+      const aboveMaximum = isAboveMaximumPPO2(ppo2, input.settings.maximumDecoPPO2);
+      if (isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) || aboveMaximum) {
         const at = `at its ${formatMessageDepth(gas.switchDepthM)} switch depth`;
         errors.push({
           ...error(
@@ -634,7 +639,7 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
   if (!highValid) {
     errors.push(error("CCR_SETPOINT_INVALID", "CCR setpoint must be between 0.5 and 1.6 bar.", "setpointBar"));
   }
-  if (Number.isFinite(input.setpointBar) && input.setpointBar > input.settings.maximumBottomPPO2 + 1e-9) {
+  if (Number.isFinite(input.setpointBar) && isAboveMaximumPPO2(input.setpointBar, input.settings.maximumBottomPPO2)) {
     errors.push(error("CCR_SETPOINT_LIMIT_EXCEEDED", "CCR setpoint cannot exceed the configured maximum bottom PPO₂.", "setpointBar"));
   }
   const activationValid = Number.isFinite(input.setpointActivationDepthM) &&
@@ -649,7 +654,7 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
       environment.metersPerBar,
     );
     const reachable = activationAmbient - environment.waterVaporPressureBar;
-    if (input.setpointBar > reachable) {
+    if (isAboveMaximumPPO2(input.setpointBar, reachable)) {
       errors.push({
         ...error(
           "CCR_SETPOINT_NOT_ACHIEVABLE",
@@ -669,7 +674,10 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
         input.settings.maximumBottomPPO2,
         diluentCylinder?.maximumPPO2 ?? input.diluent.maximumPPO2 ?? input.settings.maximumBottomPPO2,
       );
-      if (diluentSurfacePPO2 < input.settings.minimumPPO2 || diluentActivationPPO2 > diluentMaximum) {
+      if (
+        isBelowMinimumPPO2(diluentSurfacePPO2, input.settings.minimumPPO2) ||
+        isAboveMaximumPPO2(diluentActivationPPO2, diluentMaximum)
+      ) {
         errors.push(error("CCR_DILUENT_OC_RANGE", "Diluent must be breathable on open circuit from the surface through setpoint activation.", "diluent"));
       }
     }
@@ -689,7 +697,7 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
     depthToAmbientPressure(input.depthM, environment.surfacePressureBar, environment.metersPerBar) -
     environment.waterVaporPressureBar
   );
-  if (highValid && highDiluentPPO2 > input.setpointBar + 1e-9) {
+  if (highValid && isAboveMaximumPPO2(highDiluentPPO2, input.setpointBar)) {
     warnings.push({
       ...warning(
         "CCR_DILUENT_PPO2_ABOVE_SETPOINT",
@@ -730,11 +738,11 @@ function validateLowSetpoint(
     if (Number.isFinite(input.setpointBar) && low > input.setpointBar + 1e-9) {
       errors.push(error("CCR_LOW_SETPOINT_ABOVE_HIGH", "Low setpoint cannot be above the high setpoint.", "lowSetpointBar"));
     }
-    if (low > input.settings.maximumBottomPPO2 + 1e-9) {
+    if (isAboveMaximumPPO2(low, input.settings.maximumBottomPPO2)) {
       errors.push(error("CCR_LOW_SETPOINT_LIMIT_EXCEEDED", "Low setpoint cannot exceed the configured maximum bottom PPO₂.", "lowSetpointBar"));
     }
     const surfaceReachable = environment.surfacePressureBar - environment.waterVaporPressureBar;
-    if (low > surfaceReachable + 1e-9) {
+    if (isAboveMaximumPPO2(low, surfaceReachable)) {
       // The limit is printed rounded down, so entering the printed value is always accepted.
       errors.push({
         ...error(
@@ -786,7 +794,7 @@ function validateLowSetpoint(
     depthToAmbientPressure(meters(lowCheckDepth), environment.surfacePressureBar, environment.metersPerBar) -
     environment.waterVaporPressureBar
   );
-  if (lowDiluentPPO2 > low + 1e-9) {
+  if (isAboveMaximumPPO2(lowDiluentPPO2, low)) {
     warnings.push({
       ...warning(
         "CCR_DILUENT_PPO2_ABOVE_SETPOINT",
