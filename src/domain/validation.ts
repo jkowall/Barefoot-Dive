@@ -1058,7 +1058,12 @@ function validateLowSetpoint(
   if (!lowValid || !deactivationValid || !highUsable) return;
 
   const switchDown = switchDownDepth(input);
-  const lowCheckDepth = Math.max(input.setpointActivationDepthM, switchDown);
+  // Leave-to-low breathes the low setpoint from the surface through switch-up and again after
+  // leaving switch-down, so the richer of those depths is checked. Ambient-limited ascent keeps
+  // the low setpoint only on the descent to switch-up.
+  const lowCheckDepth = usesAmbientLimitedAscentSetpoint(input)
+    ? input.setpointActivationDepthM
+    : Math.max(input.setpointActivationDepthM, switchDown);
   const lowDiluentPPO2 = input.diluent.oxygen * (
     depthToAmbientPressure(meters(lowCheckDepth), environment.surfacePressureBar, environment.metersPerBar) -
     environment.waterVaporPressureBar

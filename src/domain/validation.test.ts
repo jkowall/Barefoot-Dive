@@ -472,4 +472,30 @@ describe("limit diagnostics state the value and the limit", () => {
     }));
     expect(result.warnings.map((item) => item.code)).not.toContain("CCR_SWITCH_DOWN_DEEPENED");
   });
+
+  it("checks low-setpoint diluent PPO₂ only at switch-up under ambient-limited ascent", () => {
+    const airDiluent = { ...AIR, id: "dil", role: "diluent" as const };
+    // Air at 30 m exceeds a 0.70 low setpoint; leave-to-low breathes low there after switch-down.
+    const leaveToLow = validateDiveInput(ccrInput({
+      lowSetpointBar: barAbsolute(0.7),
+      setpointActivationDepthM: meters(6),
+      setpointDeactivationDepthM: meters(30),
+      diluent: airDiluent,
+    }));
+    const leaveWarning = find(leaveToLow, "CCR_DILUENT_PPO2_ABOVE_SETPOINT");
+    expect(leaveWarning?.field).toBe("lowSetpointBar");
+    expect(leaveWarning?.depthM).toBe(30);
+
+    // Ambient-limited ascent never breathes the low setpoint at switch-down, so the check is
+    // only at the switch-up depth (air at 6 m is below 0.70).
+    const ambient = validateDiveInput(ccrInput({
+      lowSetpointBar: barAbsolute(0.7),
+      setpointActivationDepthM: meters(6),
+      setpointDeactivationDepthM: meters(30),
+      diluent: airDiluent,
+      ascentSetpointMode: "ambient-limited-high",
+    }));
+    expect(ambient.warnings.filter((item) => item.code === "CCR_DILUENT_PPO2_ABOVE_SETPOINT" && item.field === "lowSetpointBar"))
+      .toEqual([]);
+  });
 });

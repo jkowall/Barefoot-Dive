@@ -704,6 +704,42 @@ describe("CCR ambient-limited ascent setpoint (engine 0.4.0)", () => {
     expect(shallowStops.every((segment) => segment.setpointBar !== undefined && segment.setpointBar <= maxAt3 + 1e-9)).toBe(true);
     expect(shallowStops.every((segment) => segment.setpointBar !== 0.7)).toBe(true);
   });
+
+  it("rejects a non-exit event that claims an unachievable high setpoint even in ambient-limited mode", () => {
+    const high = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(1.3) };
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(45), durationSeconds: seconds(150), gas: airDiluent, strategy: high },
+      { id: "bottom", kind: "bottom", startDepthM: meters(45), endDepthM: meters(45), durationSeconds: seconds(10 * 60), gas: airDiluent, strategy: high },
+    ];
+    const result = calculateEventDivePlan(ambient(), events);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.map((item) => item.code)).toContain("EXPOSURE_SETPOINT_NOT_ACHIEVABLE");
+  });
+
+  it("records the ambient-limited endpoint setpoint on a shallow-ending high exit while tissues use the held high", () => {
+    const high = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(1.3) };
+    const low = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(0.7) };
+    const boundary = (1.3 + DEFAULT_ENVIRONMENT.waterVaporPressureBar - DEFAULT_ENVIRONMENT.surfacePressureBar) *
+      DEFAULT_ENVIRONMENT.metersPerBar;
+    // Split at the achievable depth the way Cave ambient-limited exits do, so Schreiner sees
+    // zero inspired inert on both ends of the shallow part.
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(30), durationSeconds: seconds(180), gas: airDiluent, strategy: low },
+      { id: "bottom", kind: "bottom", startDepthM: meters(30), endDepthM: meters(30), durationSeconds: seconds(5 * 60), gas: airDiluent, strategy: high },
+      { id: "exit-deep", kind: "exit", startDepthM: meters(30), endDepthM: meters(boundary), durationSeconds: seconds(120), gas: airDiluent, strategy: high },
+      { id: "exit-shallow", kind: "exit", startDepthM: meters(boundary), endDepthM: meters(0), durationSeconds: seconds(60), gas: airDiluent, strategy: high },
+    ];
+    const result = calculateEventDivePlan(ambient(), events);
+    expect(result.ok ? [] : result.errors.map((item) => `${item.code}:${item.message}`)).toEqual([]);
+    if (!result.ok) return;
+    const shallowExit = result.value.segments.find((segment) => segment.kind === "exit" && segment.endDepthM === 0);
+    expect(shallowExit?.setpointBar).toBeCloseTo(surfaceMax, 9);
+    expect(shallowExit?.setpointBar).not.toBe(0.7);
+    const deepExit = result.value.segments.find((segment) => segment.kind === "exit" && segment.endDepthM === boundary);
+    expect(deepExit?.setpointBar).toBe(1.3);
+    expect(result.value.diagnostics.map((item) => item.code)).not.toContain("EXPOSURE_SETPOINT_NOT_ACHIEVABLE");
+  });
 });
 
 describe("recheck regressions", () => {
