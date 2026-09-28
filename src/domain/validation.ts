@@ -1,3 +1,4 @@
+import { STOP_GRID_PRESETS } from "./defaults";
 import type {
   BarAbsolute,
   CalculationResult,
@@ -11,6 +12,49 @@ import type {
   PlannerSettings,
 } from "./types";
 import { depthToAmbientPressure, formatBound, formatMessageDepth, meters, roundDepthDeeper } from "./units";
+
+/**
+ * Oxygen-at-20 ft stop policy (`oxygen-at-20ft-stop-v1`).
+ *
+ * On the 10 ft stop grid, pure oxygen at the displayed 20 ft stop (exactly two
+ * stop increments) is accepted for deco-switch validation and stop/event
+ * breathability when the applicable ceiling is at least 1.60 bar. Default
+ * seawater PPO₂ there is about 1.61 bar; custom ambient settings may differ.
+ * This exception is named and versioned; it does not clamp, rewrite, or sanitize
+ * PPO₂, depth, or limit values elsewhere.
+ */
+export const OXYGEN_AT_20FT_STOP_POLICY = {
+  id: "oxygen-at-20ft-stop-v1",
+  version: "1.0.0",
+  stopGridId: "10ft",
+  stopFeet: 20,
+  oxygenFraction: 1,
+} as const;
+
+/** Info diagnostic naming `oxygen-at-20ft-stop-v1` when that policy accepts a gas/depth pair. */
+export function oxygenAtTwentyFootStopInfo(
+  gas: Gas,
+  depthM: Meters,
+  ppo2: number,
+  limit: number,
+  field?: string,
+  cylinderId?: string,
+): Diagnostic {
+  return {
+    code: "OXYGEN_AT_20FT_STOP_POLICY",
+    severity: "info",
+    message:
+      `${gas.name} at the 20 ft stop is accepted under ${OXYGEN_AT_20FT_STOP_POLICY.id} ` +
+      `(${OXYGEN_AT_20FT_STOP_POLICY.version}): PPO₂ is ${ppo2.toFixed(3)} bar, ` +
+      `over the ${limit.toFixed(2)} bar limit.`,
+    ...(field ? { field } : {}),
+    depthM,
+    actual: ppo2,
+    limit,
+    gasId: gas.id,
+    ...(cylinderId ? { cylinderId } : {}),
+  };
+}
 
 const error = (code: string, message: string, field?: string): Diagnostic => ({
   code,
@@ -99,10 +143,12 @@ export function validatePlannerSettings(settings: PlannerSettings): readonly Dia
   }
   if (
     Number.isFinite(settings.stopIncrementM) && settings.stopIncrementM > 0 &&
-    Number.isFinite(settings.lastStopDepthM) &&
-    Math.abs(settings.lastStopDepthM % settings.stopIncrementM) > 1e-9
+    Number.isFinite(settings.lastStopDepthM)
   ) {
-    diagnostics.push(error("LAST_STOP_GRID", "Last stop depth must align with the stop increment.", "lastStopDepthM"));
+    const steps = settings.lastStopDepthM / settings.stopIncrementM;
+    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+      diagnostics.push(error("LAST_STOP_GRID", "Last stop depth must align with the stop increment.", "lastStopDepthM"));
+    }
   }
   if (
     !Number.isFinite(settings.minimumPPO2) ||
@@ -198,6 +244,55 @@ export function isAboveMaximumPPO2(ppo2: number, maximumPPO2: number): boolean {
   return ppo2 > maximumPPO2 + PPO2_EPSILON;
 }
 
+/** True when the plan's stop increment is the Setup 10 ft grid preset. */
+export function isTenFootStopGrid(settings: Pick<PlannerSettings, "stopIncrementM">): boolean {
+  return Math.abs(settings.stopIncrementM - STOP_GRID_PRESETS["10ft"].stopIncrementM) <= 1e-9;
+}
+
+/** Depth of the displayed 20 ft stop on the active 10 ft grid (two increments). */
+export function twentyFootStopDepthM(settings: Pick<PlannerSettings, "stopIncrementM">): number {
+  return 2 * settings.stopIncrementM;
+}
+
+/**
+ * True when `oxygen-at-20ft-stop-v1` applies: pure oxygen at the 20 ft stop on the
+ * 10 ft grid. Callers must not use this to rewrite PPO₂ or depth values.
+ */
+export function isOxygenAtTwentyFootStop(
+  gas: Pick<Gas, "oxygen" | "helium">,
+  depthM: number,
+  settings: Pick<PlannerSettings, "stopIncrementM">,
+): boolean {
+  if (!isTenFootStopGrid(settings)) return false;
+  if (Math.abs(gas.oxygen - OXYGEN_AT_20FT_STOP_POLICY.oxygenFraction) > 1e-9) return false;
+  if (Math.abs(gas.helium) > 1e-9) return false;
+  return Math.abs(depthM - twentyFootStopDepthM(settings)) <= 1e-9;
+}
+
+/**
+ * Max-PPO₂ breach for deco-switch and stop breathability, honoring
+ * `oxygen-at-20ft-stop-v1`. The exception applies only when the applicable
+ * ceiling is at least the nominal 1.60 bar deco limit; a tighter cylinder or
+ * bottom limit still rejects. The raw PPO₂ comparison (`isAboveMaximumPPO2`)
+ * is otherwise unchanged.
+ */
+export function isUnbreathablyHighPPO2(
+  gas: Pick<Gas, "oxygen" | "helium">,
+  depthM: number,
+  ppo2: number,
+  maximumPPO2: number,
+  settings: Pick<PlannerSettings, "stopIncrementM">,
+): boolean {
+  // Waive only the known ~1.61 vs 1.60 seawater miss on the 20 ft stop — never a tighter ceiling.
+  if (
+    isOxygenAtTwentyFootStop(gas, depthM, settings) &&
+    maximumPPO2 + PPO2_EPSILON >= 1.6
+  ) {
+    return false;
+  }
+  return isAboveMaximumPPO2(ppo2, maximumPPO2);
+}
+
 /** The lowest of the plan limit, the assigned cylinder limit, and a gas-only per-gas limit. */
 export function maximumPPO2ForGas(gas: Gas, input: DivePlanInput, planLimit: number): number {
   return Math.min(
@@ -210,7 +305,8 @@ export function maximumPPO2ForGas(gas: Gas, input: DivePlanInput, planLimit: num
 export function isGasBreathable(gas: Gas, depthM: number, input: DivePlanInput): boolean {
   const ppo2 = gasPPO2(gas, depthM, input);
   const maximum = maximumPPO2ForGas(gas, input, input.settings.maximumDecoPPO2);
-  return !isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) && !isAboveMaximumPPO2(ppo2, maximum);
+  return !isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) &&
+    !isUnbreathablyHighPPO2(gas, depthM, ppo2, maximum, input.settings);
 }
 
 /** The planner's open-circuit switch rule: breathable, and no deeper than the gas switch depth. */
@@ -467,7 +563,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
         environment.metersPerBar > 0
       ) {
         const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-        if (isAboveMaximumPPO2(ppo2, gas.maximumPPO2)) {
+        if (isUnbreathablyHighPPO2(gas, gas.switchDepthM, ppo2, gas.maximumPPO2, input.settings)) {
           errors.push({
             ...error(
               "GAS_PPO2_LIMIT_EXCEEDED",
@@ -479,13 +575,18 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
             limit: gas.maximumPPO2,
             gasId: gas.id,
           });
+        } else if (
+          isOxygenAtTwentyFootStop(gas, gas.switchDepthM, input.settings) &&
+          isAboveMaximumPPO2(ppo2, gas.maximumPPO2)
+        ) {
+          warnings.push(oxygenAtTwentyFootStopInfo(gas, gas.switchDepthM, ppo2, gas.maximumPPO2, `gases.${index}.switchDepthM`));
         }
       }
     } else if (!sameGas(gas, cylinder.gas)) {
       errors.push(error("CYLINDER_GAS_MISMATCH", `${gas.name} does not match the assigned cylinder gas snapshot.`, `gases.${index}.cylinderId`));
     } else if (gas.switchDepthM !== undefined && environment.surfacePressureBar > 0 && environment.metersPerBar > 0) {
       const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-      if (isAboveMaximumPPO2(ppo2, cylinder.maximumPPO2)) {
+      if (isUnbreathablyHighPPO2(gas, gas.switchDepthM, ppo2, cylinder.maximumPPO2, input.settings)) {
         errors.push({
           ...error(
             "CYLINDER_PPO2_LIMIT_EXCEEDED",
@@ -498,6 +599,18 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
           gasId: gas.id,
           cylinderId: cylinder.id,
         });
+      } else if (
+        isOxygenAtTwentyFootStop(gas, gas.switchDepthM, input.settings) &&
+        isAboveMaximumPPO2(ppo2, cylinder.maximumPPO2)
+      ) {
+        warnings.push(oxygenAtTwentyFootStopInfo(
+          gas,
+          gas.switchDepthM,
+          ppo2,
+          cylinder.maximumPPO2,
+          `gases.${index}.switchDepthM`,
+          cylinder.id,
+        ));
       }
     }
   });
@@ -619,7 +732,13 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
     input.decoGases.forEach((gas, index) => {
       if (gas.switchDepthM === undefined) return;
       const ppo2 = gasPPO2AtDepth(gas, gas.switchDepthM, input);
-      const aboveMaximum = isAboveMaximumPPO2(ppo2, input.settings.maximumDecoPPO2);
+      const aboveMaximum = isUnbreathablyHighPPO2(
+        gas,
+        gas.switchDepthM,
+        ppo2,
+        input.settings.maximumDecoPPO2,
+        input.settings,
+      );
       if (isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) || aboveMaximum) {
         const at = `at its ${formatMessageDepth(gas.switchDepthM)} switch depth`;
         errors.push({
@@ -635,6 +754,26 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
           limit: aboveMaximum ? input.settings.maximumDecoPPO2 : input.settings.minimumPPO2,
           gasId: gas.id,
         });
+      } else if (
+        isOxygenAtTwentyFootStop(gas, gas.switchDepthM, input.settings) &&
+        isAboveMaximumPPO2(ppo2, input.settings.maximumDecoPPO2) &&
+        // Only name the policy when the effective ceiling (plan ∩ cylinder ∩ gas) still accepts.
+        !isUnbreathablyHighPPO2(
+          gas,
+          gas.switchDepthM,
+          ppo2,
+          maximumPPO2ForGas(gas, input, input.settings.maximumDecoPPO2),
+          input.settings,
+        ) &&
+        !warnings.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY" && item.gasId === gas.id)
+      ) {
+        warnings.push(oxygenAtTwentyFootStopInfo(
+          gas,
+          gas.switchDepthM,
+          ppo2,
+          input.settings.maximumDecoPPO2,
+          `decoGases.${index}.switchDepthM`,
+        ));
       }
     });
   } else if (input.mode === "ccr" && environmentValid) {

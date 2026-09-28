@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type Dispatch, type Ref, type SetStateAction } from "react";
 import { calculateDivePlan } from "../engine/planner";
-import type { Diagnostic, GasRole, PlannerConventionId } from "../domain/types";
+import type { Diagnostic, GasRole, PlannerConventionId, StopGridId } from "../domain/types";
 import type { SavedPlansStore, TankBankStore, TankRecord } from "../storage";
 import {
   CompletionNotice,
@@ -40,7 +40,7 @@ import {
 } from "./helpers";
 import {
   isGasOnlyPlan,
-  PLAN_STOP_INCREMENT_M,
+  planStopIncrementM,
   resolvePlanInput,
   reviewGasDisplayName,
   reviewStaysOpen,
@@ -54,6 +54,7 @@ import {
   tankSourceUnavailableText,
   withGasIncluded,
   withGasPlanning,
+  withStopGrid,
   withTankSourceSelection,
   type GasDraft,
   type PlanDraft,
@@ -125,6 +126,7 @@ function GasEditor({
   showSwitchDepth = true,
   switchable = false,
   gasOnly = false,
+  stopIncrementM,
 }: {
   readonly containerRef?: Ref<HTMLElement>;
   readonly value: GasDraft;
@@ -145,6 +147,8 @@ function GasEditor({
   readonly switchable?: boolean;
   /** Gas-only planning: mix, PPO₂ ceiling, and switch depth only; no cylinder or Tank Bank source. */
   readonly gasOnly?: boolean;
+  /** Active plan stop-grid spacing for switch-depth aliasing. */
+  readonly stopIncrementM: number;
 }) {
   const sourceRef = useRef<HTMLSelectElement>(null);
   const sharedErrorId = useId();
@@ -170,11 +174,11 @@ function GasEditor({
   const displayedSwitchDepthM = value.switchDepthM
     ?? ((value.role === "deco" || value.role === "bailout") ? selected?.gas.switchDepthM : undefined)
     ?? 0;
-  // A deco or bailout switch may align shallower onto the stop grid (20 ft is the 6 m stop); the
-  // travel-to-bottom switch has a minimum PPO₂ as well as a maximum, so it is taken exactly.
+  // A deco or bailout switch may align shallower onto the stop grid (20 ft is the 6 m or 20 ft stop);
+  // the travel-to-bottom switch has a minimum PPO₂ as well as a maximum, so it is taken exactly.
   const switchDepthField = showSwitchDepth && (value.role === "bottom" || value.role === "deco" || value.role === "bailout") && <DepthField
     bound={value.role === "bottom" ? "min-ppo2" : "max-ppo2"}
-    gridM={PLAN_STOP_INCREMENT_M}
+    gridM={stopIncrementM}
     hint={value.role === "bottom" ? "Travel-to-bottom switch depth; required whenever travel gas is selected." : undefined}
     label={`Switch depth (${depthUnit(preferences.depth)})`}
     min={0}
@@ -374,6 +378,7 @@ export function PlannerEditor({
   const pendingGasRef = useRef<HTMLElement>(null);
   const set = <K extends keyof PlanDraft>(key: K, value: PlanDraft[K]) => onChange({ ...draft, [key]: value });
   const gasOnly = isGasOnlyPlan(draft, environment);
+  const stopIncrementM = planStopIncrementM(draft);
   const tanks = selectableTanks(tankBank);
   const unavailableByGas = new Map(unavailableSources.map((source) => [source.gasKey, source]));
   const selectedBy = new Map(selectedTankSources(draft, tankBank, environment).map((source) => [source.record.id, source.gases]));
@@ -455,6 +460,16 @@ export function PlannerEditor({
           ]}
           value={draft.conventionId}
         />
+        <SegmentedControl
+          hint="Stops and last-stop depth follow this spacing. 3 m is the default. On the 10 ft grid, oxygen at the 20 ft stop is accepted under an explicit policy when PPO₂ is over the 1.60 bar deco limit."
+          label="Stop grid"
+          onChange={(stopGridId: StopGridId) => onChange(withStopGrid(draft, stopGridId))}
+          options={[
+            { value: "3m", label: "3 m" },
+            { value: "10ft", label: "10 ft" },
+          ]}
+          value={draft.stopGridId}
+        />
         <NumberField label="GF Low (%)" max={100} min={1} onChange={(gfLowPercent) => set("gfLowPercent", gfLowPercent)} value={draft.gfLowPercent} />
         <NumberField label="GF High (%)" max={100} min={1} onChange={(gfHighPercent) => set("gfHighPercent", gfHighPercent)} value={draft.gfHighPercent} />
         {rateField("Bottom SAC/RMV", "bottomRmvLpm")}
@@ -477,9 +492,9 @@ export function PlannerEditor({
       title="Open-circuit gases"
     >
       <p className="bf-panel__note">{gasNote}</p>
-      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} showSwitchDepth={draft.travelGasEnabled} tanks={tanks} unavailable={unavailableByGas.get(draft.bottomGas.key)} value={draft.bottomGas} />
+      <GasEditor gasOnly={gasOnly} onChange={(bottomGas) => set("bottomGas", bottomGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} showSwitchDepth={draft.travelGasEnabled} stopIncrementM={stopIncrementM} tanks={tanks} unavailable={unavailableByGas.get(draft.bottomGas.key)} value={draft.bottomGas} />
       <ToggleField checked={draft.travelGasEnabled} hint="Required for a hypoxic bottom mix; set the bottom-gas switch depth before calculating." label="Use travel gas" onChange={(travelGasEnabled) => set("travelGasEnabled", travelGasEnabled)} />
-      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} tanks={tanks} unavailable={unavailableByGas.get(draft.travelGas.key)} value={draft.travelGas} />}
+      {draft.travelGasEnabled && <GasEditor gasOnly={gasOnly} onChange={(travelGas) => set("travelGas", travelGas)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} stopIncrementM={stopIncrementM} tanks={tanks} unavailable={unavailableByGas.get(draft.travelGas.key)} value={draft.travelGas} />}
       {draft.decoGases.map((gas, index) => <GasEditor
         gasOnly={gasOnly}
         containerRef={gas.key === pendingGasKey ? pendingGasRef : undefined}
@@ -489,6 +504,7 @@ export function PlannerEditor({
         preferences={preferences}
         reserveKind={draft.reserve.kind}
         selectedBy={selectedBy}
+        stopIncrementM={stopIncrementM}
         switchable
         tanks={tanks}
         unavailable={unavailableByGas.get(gas.key)}
@@ -502,7 +518,7 @@ export function PlannerEditor({
           <NumberField label="High setpoint (bar)" max={1.6} min={0.5} onChange={(setpointBar) => set("setpointBar", setpointBar)} step={0.05} value={draft.setpointBar} />
           <DepthField
             bound="setpoint-switch"
-            gridM={PLAN_STOP_INCREMENT_M}
+            gridM={stopIncrementM}
             label={`Switch up to high setpoint (${depthUnit(preferences.depth)})`}
             min={0}
             onChange={(next) => set("setpointActivationDepthM", next)}
@@ -511,7 +527,7 @@ export function PlannerEditor({
           />
           <DepthField
             bound="setpoint-switch"
-            gridM={PLAN_STOP_INCREMENT_M}
+            gridM={stopIncrementM}
             hint="Applied when leaving this depth on ascent, after any stop there. The plan never holds the high setpoint shallower than the loop can reach it."
             label={`Switch down to low setpoint (${depthUnit(preferences.depth)})`}
             min={0}
@@ -585,7 +601,7 @@ export function PlannerEditor({
             value={draft.diluentPreBailoutUseL === undefined ? undefined : surfaceGasInputValue(draft.diluentPreBailoutUseL, preferences.cylinderCapacity)}
           />
         </div>}
-        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} tanks={tanks} unavailable={unavailableByGas.get(draft.diluent.key)} value={draft.diluent} />
+        <GasEditor gasOnly={gasOnly} onChange={(diluent) => set("diluent", diluent)} preferences={preferences} reserveKind={draft.reserve.kind} selectedBy={selectedBy} stopIncrementM={stopIncrementM} tanks={tanks} unavailable={unavailableByGas.get(draft.diluent.key)} value={draft.diluent} />
       </Panel>
       <Panel
         actions={<ActionButton onClick={() => addGas("bailoutGases", "bailout")} quiet>Add bailout gas</ActionButton>}
@@ -600,6 +616,7 @@ export function PlannerEditor({
           preferences={preferences}
           reserveKind={draft.reserve.kind}
           selectedBy={selectedBy}
+          stopIncrementM={stopIncrementM}
           switchable
           tanks={tanks}
           unavailable={unavailableByGas.get(gas.key)}

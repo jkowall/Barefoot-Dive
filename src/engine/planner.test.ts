@@ -7,9 +7,11 @@ import {
   DEFAULT_RMV,
   EAN50,
   OXYGEN,
+  STOP_GRID_PRESETS,
 } from "../domain/defaults";
 import type { CcrDiveInput, Gas, OcDiveInput } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
+import { OXYGEN_AT_20FT_STOP_POLICY } from "../domain/validation";
 import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from "./planner";
 
 const trimix1845: Gas = {
@@ -114,6 +116,74 @@ describe("deterministic decompression scheduling", () => {
     expect(oxygenSegments.length).toBeGreaterThan(0);
     expect(eanSegments.every((segment) => segment.startDepthM <= 21 && segment.endDepthM <= 21)).toBe(true);
     expect(oxygenSegments.every((segment) => segment.startDepthM <= 6 && segment.endDepthM <= 6)).toBe(true);
+  });
+
+  it("calculates a 10 ft grid plan with oxygen switched at the 20 ft stop under oxygen-at-20ft-stop-v1", () => {
+    const grid = STOP_GRID_PRESETS["10ft"];
+    const oxygen = { ...OXYGEN, switchDepthM: grid.lastStopDepthM };
+    const ean50 = { ...EAN50, switchDepthM: meters(3 * grid.stopIncrementM) };
+    const result = calculateDivePlan(ocInput({
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas: trimix1845,
+      decoGases: [ean50, oxygen],
+      settings: {
+        ...DEFAULT_PLANNER_SETTINGS,
+        stopIncrementM: grid.stopIncrementM,
+        lastStopDepthM: grid.lastStopDepthM,
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(true);
+    expect(result.value.diagnostics.find((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")?.message)
+      .toContain(OXYGEN_AT_20FT_STOP_POLICY.id);
+    expect(result.value.diagnostics.find((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")?.message)
+      .toMatch(/PPO₂ is 1\.610 bar, over the 1\.60 bar limit/);
+    const oxygenStops = result.value.stops.filter((stop) =>
+      Math.abs(stop.depthM - grid.lastStopDepthM) <= 1e-9,
+    );
+    expect(oxygenStops.length).toBeGreaterThan(0);
+    const oxygenSegments = result.value.segments.filter((segment) => segment.gasId === OXYGEN.id);
+    expect(oxygenSegments.length).toBeGreaterThan(0);
+    expect(oxygenSegments.every((segment) =>
+      segment.startDepthM <= grid.lastStopDepthM + 1e-9 &&
+      segment.endDepthM <= grid.lastStopDepthM + 1e-9,
+    )).toBe(true);
+    // 3 m grid regression: the same profile with oxygen at 6 m still calculates unchanged in status.
+    const metric = calculateDivePlan(ocInput({
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas: trimix1845,
+      decoGases: [EAN50, OXYGEN],
+    }));
+    expect(metric.ok).toBe(true);
+    if (!metric.ok) return;
+    expect(metric.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(false);
+    expect(metric.value.stops.some((stop) => stop.depthM === 6)).toBe(true);
+  });
+
+  it("records oxygen-at-20ft-stop-v1 when the schedule breathes oxygen at 20 ft without a switch depth", () => {
+    const grid = STOP_GRID_PRESETS["10ft"];
+    const oxygen = { ...OXYGEN, switchDepthM: undefined };
+    const result = calculateDivePlan(ocInput({
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas: trimix1845,
+      decoGases: [{ ...EAN50, switchDepthM: meters(3 * grid.stopIncrementM) }, oxygen],
+      settings: {
+        ...DEFAULT_PLANNER_SETTINGS,
+        stopIncrementM: grid.stopIncrementM,
+        lastStopDepthM: grid.lastStopDepthM,
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.segments.some((segment) =>
+      segment.gasId === OXYGEN.id &&
+      Math.abs(segment.endDepthM - grid.lastStopDepthM) <= 1e-9,
+    )).toBe(true);
+    expect(result.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(true);
   });
 
   it("blocks a hypoxic OC bottom gas without a breathable travel gas", () => {
@@ -345,6 +415,56 @@ describe("deterministic decompression scheduling", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
+  });
+
+  it("accepts oxygen at the 20 ft stop on exit events under oxygen-at-20ft-stop-v1, but not against the bottom limit", () => {
+    const grid = STOP_GRID_PRESETS["10ft"];
+    const oxygen: Gas = { ...OXYGEN, id: "event-o2", switchDepthM: grid.lastStopDepthM };
+    const settings = {
+      ...DEFAULT_PLANNER_SETTINGS,
+      stopIncrementM: grid.stopIncrementM,
+      lastStopDepthM: grid.lastStopDepthM,
+    };
+    const toStop = {
+      id: "to-stop",
+      kind: "descent" as const,
+      startDepthM: meters(0),
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: AIR,
+      strategy: { kind: "open-circuit" as const, gas: AIR },
+    };
+    const exitOk = calculateEventDivePlan(ocInput({
+      depthM: grid.lastStopDepthM,
+      decoGases: [oxygen],
+      settings,
+    }), [toStop, {
+      id: "o2-stop",
+      kind: "exit",
+      startDepthM: grid.lastStopDepthM,
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: oxygen,
+      strategy: { kind: "open-circuit", gas: oxygen },
+    }]);
+    expect(exitOk.ok ? [] : exitOk.errors.map((item) => item.code)).not.toContain("EXPOSURE_GAS_UNBREATHABLE");
+
+    const bottomBad = calculateEventDivePlan(ocInput({
+      depthM: grid.lastStopDepthM,
+      decoGases: [oxygen],
+      settings,
+    }), [toStop, {
+      id: "bottom-on-o2",
+      kind: "bottom",
+      startDepthM: grid.lastStopDepthM,
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: oxygen,
+      strategy: { kind: "open-circuit", gas: oxygen },
+    }]);
+    expect(bottomBad.ok).toBe(false);
+    if (bottomBad.ok) return;
+    expect(bottomBad.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
   });
 
   it("accepts EAN28 at its printed 40 m MOD on event endpoints and rejects 40.1 m", () => {

@@ -29,7 +29,10 @@ export const CONVENTION_POLICIES: Readonly<Record<PlannerConventionId, Conventio
     validationStatus: "experimental",
     gasSwitchDurationSeconds: 0,
     setpointSwitchDurationSeconds: 0,
-    notes: ["Deterministic 3 m stop grid", "User-selected ascent rates and last stop"],
+    notes: [
+      "Stop grid selectable in Setup: 3 m (default) or 10 ft",
+      "User-selected ascent rates and last stop",
+    ],
   },
   "shearwater-petrel3-v103-compatible-v1": {
     id: "shearwater-petrel3-v103-compatible-v1",

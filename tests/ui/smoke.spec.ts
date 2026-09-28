@@ -1784,6 +1784,29 @@ test("accepts O2 at 20 ft and EAN50 at 70 ft and folds travel between stops into
   await expect(results.getByText("Time at stops", { exact: true })).toBeVisible();
 });
 
+test("exposes the 10 ft stop grid in Setup and calculates oxygen at the true 20 ft stop", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  const stopGrid = page.getByRole("radiogroup", { name: "Stop grid" });
+  await expect(stopGrid.getByRole("radio", { name: "3 m" })).toBeChecked();
+  await stopGrid.getByText("10 ft", { exact: true }).click();
+  await expect(stopGrid.getByRole("radio", { name: "10 ft" })).toBeChecked();
+  const switchDepths = page.getByRole("spinbutton", { name: "Switch depth (ft)" });
+  await expect(switchDepths.nth(1)).toHaveValue("20");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results).toBeVisible();
+  await expect(results.getByText(/oxygen-at-20ft-stop-v1/i)).toBeVisible();
+  await expect(results.getByRole("table", { name: "Runtime schedule" }).getByRole("row").filter({ hasText: "Oxygen" }).filter({ hasText: "20 ft" }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit inputs" }).click();
+  await stopGrid.getByText("3 m", { exact: true }).click();
+  await expect(stopGrid.getByRole("radio", { name: "3 m" })).toBeChecked();
+  await expect(switchDepths.nth(1)).toHaveValue("20");
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await expect(page.getByRole("heading", { name: "Cave", exact: true })).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Stop grid" }).getByRole("radio", { name: "3 m" })).toBeChecked();
+});
+
 test("keeps a plan current when a displayed switch depth is retyped", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("button", { name: "Calculate plan" }).click();

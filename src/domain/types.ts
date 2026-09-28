@@ -23,6 +23,8 @@ export type PlannerConventionId =
   | "barefoot-zhl16c-v1"
   | "multideco-zhlc-compatible-v1"
   | "shearwater-petrel3-v103-compatible-v1";
+/** Stop-grid spacing offered in Plan/Cave Setup. Default remains `3m`. */
+export type StopGridId = "3m" | "10ft";
 export type ValidationStatus = "validated" | "documented-compatible" | "experimental";
 
 export type Diagnostic = {
