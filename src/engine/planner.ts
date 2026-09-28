@@ -262,9 +262,11 @@ function ambientLimitedStrategy(
 }
 
 /**
- * Ambient-limited ascent: keep the CCR setpoint at min(high, max loop PPO₂ at depth).
- * Raises a stop that was left on the fixed low setpoint (event/cave paths) and lowers a
- * claimed high setpoint the loop cannot hold at the current depth.
+ * Ambient-limited ascent: keep a claimed high/ambient-limited CCR setpoint at
+ * min(high, max loop PPO₂ at depth). Lowers an unachievable high setpoint at the current
+ * depth. Does not promote a deliberate low-setpoint exposure up to the high setpoint
+ * (event or shallow cave paths that never switched up). Pressure-limited tracking is
+ * instantaneous: it does not charge the convention's setpoint-switch dwell.
  */
 function syncAmbientLimitedSetpoint(
   state: WorkingState,
@@ -275,6 +277,9 @@ function syncAmbientLimitedSetpoint(
   const { input } = configuration;
   if (ascent?.mode !== "low" || ascent.postSwitchDown !== "ambient-limited-high") return state;
   if (input.mode !== "ccr" || state.currentStrategy.kind !== "ccr") return state;
+  // Stay on an explicit low-setpoint exposure until leave-to-low / event logic would have
+  // switched; ambient-limited mode must not invent a high-setpoint period.
+  if (state.currentStrategy.setpointBar <= ascent.lowStrategy.setpointBar + EPSILON) return state;
   const desired = ambientLimitedStrategy(input, ascent.highSetpointBar, state.depthM);
   if (Math.abs(state.currentStrategy.setpointBar - desired.setpointBar) < EPSILON) return state;
   return appendSwitch(
@@ -283,7 +288,7 @@ function syncAmbientLimitedSetpoint(
     state.currentGas,
     desired,
     "setpoint-switch",
-    conventionFor(input.settings).setpointSwitchDurationSeconds,
+    0,
     gf,
   );
 }
@@ -515,32 +520,16 @@ function commitAscentLeg(
       }
     }
     next = hypoxicWaypoint(current, configuration, next) ?? next;
-    // Before a final shallow leg under ambient-limited mode, drop the claimed setpoint to
-    // what the loop can hold at the destination so the profile does not report an
-    // unachievable high setpoint for the whole travel.
-    if (
-      ascent?.mode === "low" &&
-      ascent.postSwitchDown === "ambient-limited-high" &&
-      input.mode === "ccr" &&
-      current.currentStrategy.kind === "ccr" &&
-      Math.abs(next - targetDepthM) < EPSILON
-    ) {
-      const desired = ambientLimitedStrategy(input, ascent.highSetpointBar, next);
-      if (desired.setpointBar < current.currentStrategy.setpointBar - EPSILON) {
-        current = appendSwitch(
-          current,
-          input,
-          current.currentGas,
-          desired,
-          "setpoint-switch",
-          conventionFor(input.settings).setpointSwitchDurationSeconds,
-          gf,
-        );
-      }
-    }
+    // Ambient-limited shallow travel keeps the held high setpoint for tissue exposure: when
+    // high exceeds ambient − water vapor the loop model already treats inspired inert as zero,
+    // matching continuous ambient-limited tracking. Do not pre-drop to the destination
+    // ambient maximum for the whole leg (that would add inspired inert on the deeper part).
+    // syncAmbientLimitedSetpoint after arrival / at stops reports the achievable PPO₂ there.
     current = trialAscent(current, input, next, gf, rateMPerMinute, kind);
     if (next > targetDepthM + EPSILON) {
       current = updateBreathingAtDepth(current, configuration, gf);
+      current = syncAmbientLimitedSetpoint(current, configuration, gf);
+    } else {
       current = syncAmbientLimitedSetpoint(current, configuration, gf);
     }
   }

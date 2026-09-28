@@ -172,10 +172,24 @@ describe("cave CCR low setpoint and switch-down", () => {
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
     expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
-    const final = result.value.base.segments.at(-1)!;
-    expect(final.endDepthM).toBe(0);
-    // Sea-level default: ambient − water vapor.
-    expect(final.setpointBar).toBeCloseTo(1 - 0.0627, 9);
+    const shallowExit = exits.find((segment) => Math.min(segment.startDepthM, segment.endDepthM) < 3.6);
+    expect(shallowExit?.setpointBar).toBeDefined();
+    expect(shallowExit!.setpointBar!).toBeCloseTo(1 - 0.0627, 9);
+  });
+
+  it("keeps exit legs on the low setpoint when the route never reaches the switch-up depth", () => {
+    const result = calculateCavePlan(caveInput(
+      { setpointActivationDepthM: meters(6), ascentSetpointMode: "ambient-limited-high" },
+      [leg("shallow", 0, 3, ids)],
+      hypoxicDiluent,
+      [bailout],
+      cylinders,
+    ));
+    expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
+    if (!result.ok) return;
+    const loop = result.value.base.segments.filter((segment) => segment.setpointBar !== undefined);
+    expect(loop.length).toBeGreaterThan(0);
+    expect(loop.every((segment) => segment.setpointBar === 0.7)).toBe(true);
   });
 });
 
