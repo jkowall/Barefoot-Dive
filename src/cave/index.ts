@@ -359,10 +359,17 @@ function baseLegEvents(
     const lowMode = usesLowSetpoint(dive);
     const ambientLimited = lowMode && usesAmbientLimitedAscentSetpoint(dive);
     if (lowMode && ambientLimited && kind === "exit") {
+      const activation = dive.setpointActivationDepthM;
+      const fromHighZone = Math.max(leg.startDepthM, leg.endDepthM) >= activation - 1e-8;
       const achievable = meters(setpointAchievableDepth(dive.setpointBar, dive.environmentSettings));
+      // Split so no explicit event claims an unachievable high setpoint at its shallow end.
       return splitLegAtDepth(leg, achievable).map((part, partIndex) => {
         const shallow = Math.min(part.startDepthM, part.endDepthM);
-        const setpointBar = ambientLimitedSetpoint(dive.setpointBar, shallow, dive.environmentSettings);
+        // Whole-leg high-zone check: a shallow split of a deep exit must not fall back to the
+        // fixed low just because that part alone is shallower than switch-up.
+        const setpointBar = fromHighZone
+          ? ambientLimitedSetpoint(dive.setpointBar, shallow, dive.environmentSettings)
+          : dive.lowSetpointBar!;
         const strategy: ExposureEvent["strategy"] = {
           kind: "ccr",
           diluent: dive.diluent,

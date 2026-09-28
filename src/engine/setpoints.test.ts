@@ -669,13 +669,31 @@ describe("CCR ambient-limited ascent setpoint (engine 0.4.0)", () => {
     const stops = value.segments.filter((segment) => segment.kind === "stop" && segment.endDepthM === 6);
     expect(stops.length).toBeGreaterThan(0);
     expect(stops.every((segment) => segment.setpointBar === 1.3)).toBe(true);
-    const final = value.segments.at(-1)!;
-    expect(final.endDepthM).toBe(0);
-    expect(final.setpointBar).toBeCloseTo(surfaceMax, 9);
-    expect(final.setpointBar).not.toBe(0.7);
+    expect(value.segments.some((segment) => segment.setpointBar === 0.7 && segment.kind === "stop")).toBe(false);
+    // Shallow travel may still report the held high setpoint; tissue loading clamps inspired
+    // inert to zero wherever high exceeds ambient − water vapor. On arrival at the surface the
+    // reported setpoint syncs to the ambient maximum.
+    const atSurface = value.segments.filter((segment) => segment.endDepthM === 0);
+    expect(atSurface.at(-1)?.setpointBar).toBeCloseTo(surfaceMax, 9);
+    expect(atSurface.some((segment) => segment.setpointBar === 0.7)).toBe(false);
   });
 
-  it("never claims the high setpoint shallower than the loop can hold it", () => {
+  it("does not promote an event ascent that starts on the low setpoint up to the high setpoint", () => {
+    const low = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(0.7) };
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(45), durationSeconds: seconds(150), gas: airDiluent, strategy: low },
+      { id: "bottom", kind: "bottom", startDepthM: meters(45), endDepthM: meters(45), durationSeconds: seconds(30 * 60), gas: airDiluent, strategy: low },
+    ];
+    const result = calculateEventDivePlan(ambient({ setpointDeactivationDepthM: meters(6) }), events);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const ascentStops = result.value.segments.filter((segment) => segment.kind === "stop");
+    expect(ascentStops.length).toBeGreaterThan(0);
+    expect(ascentStops.every((segment) => segment.setpointBar === 0.7)).toBe(true);
+    expect(result.value.diagnostics.map((item) => item.code)).not.toContain("CCR_STOP_ON_LOW_SETPOINT");
+  });
+
+  it("never claims the high setpoint on a stop shallower than the loop can hold it", () => {
     const value = plan(ambient({
       setpointDeactivationDepthM: meters(0),
       settings: { ...DEFAULT_PLANNER_SETTINGS, lastStopDepthM: meters(3) },
