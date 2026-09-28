@@ -1,15 +1,23 @@
 import type {
+  BailoutRmvMode,
   BarGauge,
+  CcrDiveInput,
   Cylinder,
   Diagnostic,
   DivePlanInput,
   GasLedgerEntry,
   Liters,
+  LitersPerMinute,
+  Meters,
   ProfileSegment,
   Seconds,
 } from "../domain/types";
 import { integratedSurfaceGas } from "../calculations";
 import { barGauge, liters, meters, seconds } from "../domain/units";
+
+/** Brand without rounding: Mode C slice durations can be fractional seconds. */
+const asSeconds = (value: number): Seconds => value as Seconds;
+const asMeters = (value: number): Meters => value as Meters;
 
 type Phase = "bottom" | "deco";
 
@@ -52,8 +60,9 @@ function findCylinder(
 }
 
 /**
- * Bailout ledgers charge only stops at the deco rate. Other ledgers charge stops and every
- * segment that starts at or after the deco boundary.
+ * Open-circuit and legacy CCR-bailout phase. Bailout without an opt-in mode charges only
+ * stops at the deco rate. Other ledgers charge stops and every segment that starts at or
+ * after the deco boundary.
  */
 function phaseFor(segment: ProfileSegment, bailout: boolean, decoFromRuntimeSeconds: number): Phase {
   const isDeco = bailout
@@ -65,6 +74,26 @@ function phaseFor(segment: ProfileSegment, bailout: boolean, decoFromRuntimeSeco
 /** Open-circuit plans that opted in to the first-stop boundary; never bailout or CCR ledgers. */
 function usesFirstStopBoundary(input: DivePlanInput, bailout: boolean): boolean {
   return !bailout && input.mode === "oc" && input.decoRmvFrom === "first-stop";
+}
+
+function bailoutRmvMode(input: DivePlanInput, bailout: boolean): BailoutRmvMode | undefined {
+  return bailout && input.mode === "ccr" ? input.bailoutRmvMode : undefined;
+}
+
+/**
+ * Bailout phase for opt-in modes A/B. Mode C splits mid-segment and does not use a single phase.
+ * Legacy (absent mode) keeps stops @ deco and travel @ bailout.
+ */
+function bailoutPhaseFor(
+  segment: ProfileSegment,
+  mode: BailoutRmvMode | undefined,
+  firstStopArrivalRuntimeSeconds: number,
+): Phase {
+  if (mode === "static") return "bottom";
+  if (mode === "bottom-deco") {
+    return segment.startRuntimeSeconds >= firstStopArrivalRuntimeSeconds ? "deco" : "bottom";
+  }
+  return phaseFor(segment, true, Number.POSITIVE_INFINITY);
 }
 
 /**
@@ -90,22 +119,99 @@ function firstStopArrivalRuntime(
   return segments[index].startRuntimeSeconds;
 }
 
+function rmvForPhase(input: DivePlanInput, bailout: boolean, phase: Phase): LitersPerMinute {
+  const isDeco = phase === "deco";
+  return bailout
+    ? (isDeco ? input.rmv.bailoutDecoLpm : input.rmv.bailoutLpm)
+    : (isDeco ? input.rmv.decoLpm : input.rmv.bottomLpm);
+}
+
+function surfaceGasForLeg(
+  startDepthM: number,
+  endDepthM: number,
+  durationSeconds: number,
+  rmvLpm: LitersPerMinute,
+  input: DivePlanInput,
+): number {
+  return integratedSurfaceGas({
+    startDepthM: asMeters(startDepthM),
+    endDepthM: asMeters(endDepthM),
+    durationSeconds: asSeconds(durationSeconds),
+    rmvLpm,
+  }, input.environmentSettings.surfacePressureBar, input.environmentSettings.metersPerBar);
+}
+
 function surfaceGasForSegment(
   segment: ProfileSegment,
   input: DivePlanInput,
   bailout: boolean,
   phase: Phase,
 ): number {
-  const isDeco = phase === "deco";
-  const rmv = bailout
-    ? (isDeco ? input.rmv.bailoutDecoLpm : input.rmv.bailoutLpm)
-    : (isDeco ? input.rmv.decoLpm : input.rmv.bottomLpm);
-  return integratedSurfaceGas({
-    startDepthM: segment.startDepthM,
-    endDepthM: segment.endDepthM,
-    durationSeconds: segment.durationSeconds,
-    rmvLpm: rmv,
-  }, input.environmentSettings.surfacePressureBar, input.environmentSettings.metersPerBar);
+  return surfaceGasForLeg(
+    segment.startDepthM,
+    segment.endDepthM,
+    segment.durationSeconds,
+    rmvForPhase(input, bailout, phase),
+    input,
+  );
+}
+
+/**
+ * Depth at a fraction of a linear segment. Used when Mode C splits a travel leg at the
+ * timed RMV switch without changing the schedule.
+ */
+function depthAtFraction(segment: ProfileSegment, fraction: number): number {
+  return segment.startDepthM + (segment.endDepthM - segment.startDepthM) * fraction;
+}
+
+/**
+ * Synthetic slice of a profile segment for Mode C split charging. Crossing math and depth
+ * integrals then use the slice bounds; the emitted plan segments stay unchanged.
+ */
+function segmentSlice(
+  segment: ProfileSegment,
+  startFraction: number,
+  endFraction: number,
+): ProfileSegment {
+  const duration = segment.durationSeconds * (endFraction - startFraction);
+  return {
+    ...segment,
+    startRuntimeSeconds: asSeconds(segment.startRuntimeSeconds + segment.durationSeconds * startFraction),
+    durationSeconds: asSeconds(duration),
+    startDepthM: asMeters(depthAtFraction(segment, startFraction)),
+    endDepthM: asMeters(depthAtFraction(segment, endFraction)),
+  };
+}
+
+/**
+ * Mode C: charge `bailoutLpm` until `switchRuntime`, then `bailoutDecoLpm`. A straddling
+ * segment is split for volume only; the profile segment itself is unchanged.
+ */
+function timedBailoutRecords(
+  segment: ProfileSegment,
+  input: DivePlanInput,
+  assignment: { cylinder?: Cylinder },
+  switchRuntimeSeconds: number,
+  reservePhase: Phase,
+): readonly ConsumptionRecord[] {
+  const start = segment.startRuntimeSeconds;
+  const end = start + segment.durationSeconds;
+  const record = (slice: ProfileSegment, phase: Phase): ConsumptionRecord => ({
+    segment: slice,
+    cylinder: assignment.cylinder,
+    gasId: segment.gasId,
+    gasName: segment.gasName,
+    usedL: surfaceGasForSegment(slice, input, true, phase),
+    phase,
+    reservePhase,
+  });
+  if (end <= switchRuntimeSeconds + 1e-12) return [record(segment, "bottom")];
+  if (start >= switchRuntimeSeconds - 1e-12) return [record(segment, "deco")];
+  const firstFraction = (switchRuntimeSeconds - start) / segment.durationSeconds;
+  return [
+    record(segmentSlice(segment, 0, firstFraction), "bottom"),
+    record(segmentSlice(segment, firstFraction, 1), "deco"),
+  ];
 }
 
 function consumptionFractionAtTime(
@@ -238,10 +344,16 @@ export function calculateGasLedger(
   const ambiguous = new Set<string>();
   let bailoutStarted = !options.bailout;
   const bailout = Boolean(options.bailout);
+  const mode = bailoutRmvMode(input, bailout);
   const firstStopBoundary = usesFirstStopBoundary(input, bailout);
-  const decoFromRuntime = firstStopBoundary
+  const bailoutFirstStopBoundary = bailout && mode === "bottom-deco";
+  const firstStopArrival = (firstStopBoundary || bailoutFirstStopBoundary)
     ? firstStopArrivalRuntime(segments, options.bottomEndRuntimeSeconds)
-    : options.bottomEndRuntimeSeconds;
+    : Number.POSITIVE_INFINITY;
+  const decoFromRuntime = firstStopBoundary ? firstStopArrival : options.bottomEndRuntimeSeconds;
+  const timedSwitchRuntime = bailout && mode === "timed" && input.mode === "ccr"
+    ? (options.startRuntimeSeconds ?? 0) + (input.bailoutRmvSwitchSeconds ?? 0)
+    : undefined;
 
   for (const segment of segments) {
     if (segment.startRuntimeSeconds < (options.startRuntimeSeconds ?? 0)) continue;
@@ -253,7 +365,14 @@ export function calculateGasLedger(
     if (!assignment.cylinder) {
       (assignment.ambiguous ? ambiguous : missing).add(segment.gasId);
     }
-    const phase = phaseFor(segment, bailout, decoFromRuntime);
+    const reservePhase = phaseFor(segment, bailout, options.bottomEndRuntimeSeconds);
+    if (timedSwitchRuntime !== undefined) {
+      records.push(...timedBailoutRecords(segment, input, assignment, timedSwitchRuntime, reservePhase));
+      continue;
+    }
+    const phase = bailout
+      ? bailoutPhaseFor(segment, mode, firstStopArrival)
+      : phaseFor(segment, false, decoFromRuntime);
     records.push({
       segment,
       cylinder: assignment.cylinder,
@@ -261,7 +380,7 @@ export function calculateGasLedger(
       gasName: segment.gasName,
       usedL: surfaceGasForSegment(segment, input, bailout, phase),
       phase,
-      reservePhase: phaseFor(segment, bailout, options.bottomEndRuntimeSeconds),
+      reservePhase,
     });
   }
 
@@ -294,6 +413,41 @@ export function calculateGasLedger(
       code: "DECO_RMV_FROM_FIRST_STOP",
       severity: "info",
       message: "Gas use is charged at the bottom RMV until the first stop, or for the whole ascent on a no-stop dive, and at the deco RMV from the first stop on.",
+    });
+  }
+  if (bailout && mode === "static" && records.length > 0) {
+    diagnostics.push({
+      code: "BAILOUT_RMV_STATIC",
+      severity: "info",
+      message: "Bailout gas use is charged at the bailout SAC/RMV for the whole bailout ascent and stops.",
+    });
+  }
+  if (bailout && mode === "bottom-deco" && records.length > 0) {
+    diagnostics.push({
+      code: "BAILOUT_RMV_BOTTOM_DECO",
+      severity: "info",
+      message: "Bailout gas use is charged at the bailout SAC/RMV until the first stop, or for the whole ascent on a no-stop dive, and at the bailout deco SAC/RMV from the first stop on, including moves between stops.",
+    });
+  }
+  if (bailout && mode === "timed" && records.length > 0 && input.mode === "ccr") {
+    const minutes = (input as CcrDiveInput).bailoutRmvSwitchSeconds! / 60;
+    diagnostics.push({
+      code: "BAILOUT_RMV_TIMED",
+      severity: "info",
+      message: `Bailout gas use is charged at the bailout SAC/RMV for the first ${minutes} min after the bailout trigger, then at the bailout deco SAC/RMV.`,
+    });
+  }
+  if (
+    bailout &&
+    input.mode === "ccr" &&
+    input.problemSolvingTimeSeconds !== undefined &&
+    input.problemSolvingTimeSeconds > 0 &&
+    records.length > 0
+  ) {
+    diagnostics.push({
+      code: "BAILOUT_PROBLEM_SOLVING",
+      severity: "info",
+      message: `Bailout includes ${input.problemSolvingTimeSeconds / 60} min of problem-solving at the trigger depth, charged at the bailout SAC/RMV before ascent.`,
     });
   }
   if (gasOnly && records.length > 0) {

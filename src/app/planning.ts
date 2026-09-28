@@ -64,6 +64,15 @@ export type PlanDraft = {
   /** Dil-out only: diver-entered diluent use before bailout, in surface litres. */
   readonly diluentPreBailoutUseL?: number;
   readonly bailoutTriggerMinutes?: number;
+  /**
+   * Open-water CCR only: bailout RMV phase. `"legacy"` omits `bailoutRmvMode` so the plan
+   * keeps travel @ bailout SAC and stops @ bailout deco SAC.
+   */
+  readonly bailoutRmvMode: "legacy" | "static" | "bottom-deco" | "timed";
+  /** Mode `"timed"`: minutes of bailout SAC after the trigger before bailout deco SAC. */
+  readonly bailoutRmvSwitchMinutes: number;
+  /** Minutes held at trigger depth after the OC switch, charged at bailout SAC. Default 0. */
+  readonly problemSolvingTimeMinutes: number;
   readonly gfLowPercent: number;
   readonly gfHighPercent: number;
   readonly conventionId: PlannerConventionId;
@@ -295,6 +304,9 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   lowSetpointBar: 0.7,
   setpointDeactivationDepthM: 6,
   diluentBailout: false,
+  bailoutRmvMode: "legacy",
+  bailoutRmvSwitchMinutes: 5,
+  problemSolvingTimeMinutes: 0,
   gfLowPercent: 30,
   gfHighPercent: 70,
   conventionId: "barefoot-zhl16c-v1",
@@ -765,6 +777,18 @@ export function resolvePlanInput(
       ...(draft.bailoutTriggerMinutes === undefined
         ? {}
         : { bailoutTriggerSecondsAtDepth: seconds(draft.bailoutTriggerMinutes * 60) }),
+      // Cave keeps the engine 0.3.0 bailout ledger until the new modes have cave review.
+      ...(environment === "open-water" && draft.bailoutRmvMode !== "legacy"
+        ? {
+            bailoutRmvMode: draft.bailoutRmvMode,
+            ...(draft.bailoutRmvMode === "timed"
+              ? { bailoutRmvSwitchSeconds: seconds(draft.bailoutRmvSwitchMinutes * 60) }
+              : {}),
+          }
+        : {}),
+      ...(environment === "open-water" && draft.problemSolvingTimeMinutes > 0
+        ? { problemSolvingTimeSeconds: seconds(draft.problemSolvingTimeMinutes * 60) }
+        : {}),
     },
   };
 }

@@ -56,7 +56,7 @@ import {
   ZHL16C_MODEL_VERSION,
 } from "./zhl16c";
 
-export const ENGINE_VERSION = "barefoot-dive-engine-0.3.0";
+export const ENGINE_VERSION = "barefoot-dive-engine-0.4.0";
 const MAX_ASCENT_ITERATIONS = 10_000;
 const MAX_DECOMPRESSION_SECONDS = 48 * 60 * 60;
 const EPSILON = 1e-8;
@@ -1124,6 +1124,20 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
     conventionFor(input.settings).gasSwitchDurationSeconds,
     input.settings.gfLow,
   );
+  // Opt-in problem-solving hold at trigger depth: tissues and bailout gas advance before ascent.
+  if (
+    input.problemSolvingTimeSeconds !== undefined &&
+    input.problemSolvingTimeSeconds > 0
+  ) {
+    triggerState = appendExposure(
+      triggerState,
+      input,
+      "bailout",
+      input.depthM,
+      input.problemSolvingTimeSeconds,
+      input.settings.gfLow,
+    );
+  }
   const bailoutAscent = scheduleAscent(triggerState, {
     input,
     availableOcGases: bailoutGases,

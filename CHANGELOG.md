@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Calculation engine `barefoot-dive-engine-0.4.0`. Plans without the new CCR bailout fields keep the engine 0.3.0 bailout ledger and schedule; opted-in modes and problem-solving time change bailout gas use and, when problem-solving is set, the bailout schedule. Saved revisions stamped with an older engine version still show the older-engine notice.
+
+- CCR Plan Setup (open water) can choose a bailout SAC/RMV mode: Travel/stops (the previous rule), Static (one bailout SAC for the whole bailout), Bottom/deco (bailout SAC until the first stop, then bailout deco SAC including moves between stops), or Timed (bailout SAC for the first entered minutes after the trigger, then bailout deco SAC). Problem-solving time at the trigger depth, default 0, holds open-circuit bailout before ascent at the bailout SAC and advances tissues and gas. Rates stay user-entered; no training preset is hard-coded. Cave rejects the new fields until turn limits have review with them. Provisional policy pending scientific review — not a MultiDeco, Shearwater, ISO, or dive-computer parity claim.
 - The Cave penetration timeline now reads as a distance strip with ruled totals, numbered pins, and a route-events list instead of a nested slab of floating scenario badges. Setup and Review behavior is unchanged: segments still focus leg editors, and scenario markers still select triggers or Review results.
 
 ## [0.7.0] - 2026-09-27

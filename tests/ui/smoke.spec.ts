@@ -17,7 +17,7 @@ test("persists the safety acknowledgement and exposes every primary workspace", 
   await expect(versions.getByText("App", { exact: true })).toBeVisible();
   await expect(versions.getByText("0.7.0", { exact: true })).toBeVisible();
   await expect(versions.getByText("Calculation engine", { exact: true })).toBeVisible();
-  await expect(versions.getByText("barefoot-dive-engine-0.3.0", { exact: true })).toBeVisible();
+  await expect(versions.getByText("barefoot-dive-engine-0.4.0", { exact: true })).toBeVisible();
   const projectLinks = footer.getByRole("navigation", { name: "Project links" });
   for (const [label, href] of [
     ["GitHub", "https://github.com/jkowall/Barefoot-Dive"],
@@ -82,7 +82,7 @@ test("keeps the safety-gated workspace and Settings controls accessible", async 
   await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(settings.getByRole("button", { name: "Done" })).toBeFocused();
   await expect(settings.getByRole("radiogroup", { name: "Depth and distance" })).toBeVisible();
-  await expect(settings.getByText("App 0.7.0 · Calculation engine barefoot-dive-engine-0.3.0")).toBeVisible();
+  await expect(settings.getByText("App 0.7.0 · Calculation engine barefoot-dive-engine-0.4.0")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();
 
@@ -421,6 +421,35 @@ test("requires the pre-bailout diluent use and bails out onto the diluent when d
   await expect(results).toBeVisible();
   await expect(results.getByText(/No open-circuit gas is breathed on this plan/)).toBeVisible();
   await expect(results.getByText(/diluent, bailout use only after 5\.0 ft³ used before bailout/)).toBeVisible();
+});
+
+test("exposes CCR bailout SAC/RMV modes and problem-solving time on open-water Plan Setup", async ({ page }) => {
+  await page.getByRole("button", { name: /understand and accept/i }).click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  const mode = page.getByRole("radiogroup", { name: "Bailout SAC/RMV mode" });
+  await expect(mode.getByText("Travel / stops", { exact: true })).toBeVisible();
+  await expect(mode.getByText("Static", { exact: true })).toBeVisible();
+  await expect(mode.getByText("Bottom / deco", { exact: true })).toBeVisible();
+  await expect(mode.getByText("Timed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "Problem-solving time (min)" })).toHaveValue("0");
+  await expect(page.getByRole("spinbutton", { name: "Bailout SAC/RMV for first (min)" })).toHaveCount(0);
+
+  await mode.getByText("Timed", { exact: true }).click();
+  const switchMinutes = page.getByRole("spinbutton", { name: "Bailout SAC/RMV for first (min)" });
+  await expect(switchMinutes).toHaveValue("5");
+  await switchMinutes.fill("3");
+  await page.getByRole("spinbutton", { name: "Problem-solving time (min)" }).fill("2");
+  await page.getByRole("button", { name: "Calculate plan" }).click();
+  const results = page.getByRole("region", { name: "Calculated plan" });
+  await expect(results).toBeVisible();
+  const bailoutNotes = results.locator("section.bf-warnings", { has: page.getByRole("heading", { name: "Bailout diagnostics", exact: true }) });
+  await expect(bailoutNotes.getByText(/Bailout gas use is charged at the bailout SAC\/RMV for the first 3 min/)).toBeVisible();
+  await expect(bailoutNotes.getByText(/2 min of problem-solving at the trigger depth/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Cave", exact: true }).first().click();
+  await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
+  await expect(page.getByRole("radiogroup", { name: "Bailout SAC/RMV mode" })).toHaveCount(0);
+  await expect(page.getByRole("spinbutton", { name: "Problem-solving time (min)" })).toHaveCount(0);
 });
 
 test("plans gas volumes only and asks for a volume-based reserve", async ({ page }) => {

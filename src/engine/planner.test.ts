@@ -469,6 +469,46 @@ describe("deterministic decompression scheduling", () => {
     expect(triggerBottom?.tissuesAfter).toEqual(normalTenMinuteBottom?.tissuesAfter);
   });
 
+  it("holds problem-solving time at the bailout trigger depth before ascent", () => {
+    const diluent: Gas = { ...trimix1845, id: "diluent", role: "diluent" };
+    const bailout: Gas = { ...trimix1845, id: "bailout", role: "bailout" };
+    const base: CcrDiveInput = {
+      mode: "ccr",
+      environment: "open-water",
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(20 * 60),
+      diluent,
+      setpointBar: barAbsolute(1.3),
+      setpointActivationDepthM: meters(6),
+      bailoutGases: [bailout, { ...EAN50, id: "bo50", role: "bailout" }, { ...OXYGEN, id: "bo2", role: "bailout" }],
+      bailoutTriggerSecondsAtDepth: seconds(10 * 60),
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const without = calculateDivePlan(base);
+    const withHold = calculateDivePlan({ ...base, problemSolvingTimeSeconds: seconds(120) });
+    expect(without.ok && withHold.ok).toBe(true);
+    if (!without.ok || !withHold.ok) return;
+    const hold = withHold.value.bailoutPlan?.segments.find((segment) =>
+      segment.kind === "bailout" &&
+      segment.durationSeconds === 120 &&
+      segment.startDepthM === 45 &&
+      segment.endDepthM === 45,
+    );
+    expect(hold).toBeDefined();
+    expect(hold?.gasId).toBe(bailout.id);
+    expect(withHold.value.bailoutPlan?.diagnostics.some((item) => item.code === "BAILOUT_PROBLEM_SOLVING")).toBe(true);
+    // Zero problem-solving matches the absent-field schedule.
+    const zero = calculateDivePlan({ ...base, problemSolvingTimeSeconds: seconds(0) });
+    expect(zero.ok).toBe(true);
+    if (!zero.ok) return;
+    expect(zero.value.bailoutPlan?.segments).toEqual(without.value.bailoutPlan?.segments);
+    expect(zero.value.bailoutPlan?.gasLedger).toEqual(without.value.bailoutPlan?.gasLedger);
+  });
+
   it("rejects CCR diluent that is hypoxic during open-circuit activation legs", () => {
     const hypoxicDiluent: Gas = {
       ...trimix1845,
