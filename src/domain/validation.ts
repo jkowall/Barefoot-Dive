@@ -269,7 +269,10 @@ export function isOxygenAtTwentyFootStop(
 
 /**
  * Max-PPO₂ breach for deco-switch and stop breathability, honoring
- * `oxygen-at-20ft-stop-v1`. The raw PPO₂ comparison (`isAboveMaximumPPO2`) is unchanged.
+ * `oxygen-at-20ft-stop-v1`. The exception applies only when the applicable
+ * ceiling is at least the nominal 1.60 bar deco limit; a tighter cylinder or
+ * bottom limit still rejects. The raw PPO₂ comparison (`isAboveMaximumPPO2`)
+ * is otherwise unchanged.
  */
 export function isUnbreathablyHighPPO2(
   gas: Pick<Gas, "oxygen" | "helium">,
@@ -278,7 +281,13 @@ export function isUnbreathablyHighPPO2(
   maximumPPO2: number,
   settings: Pick<PlannerSettings, "stopIncrementM">,
 ): boolean {
-  if (isOxygenAtTwentyFootStop(gas, depthM, settings)) return false;
+  // Waive only the known ~1.61 vs 1.60 seawater miss on the 20 ft stop — never a tighter ceiling.
+  if (
+    isOxygenAtTwentyFootStop(gas, depthM, settings) &&
+    maximumPPO2 + PPO2_EPSILON >= 1.6
+  ) {
+    return false;
+  }
   return isAboveMaximumPPO2(ppo2, maximumPPO2);
 }
 
@@ -746,6 +755,14 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
       } else if (
         isOxygenAtTwentyFootStop(gas, gas.switchDepthM, input.settings) &&
         isAboveMaximumPPO2(ppo2, input.settings.maximumDecoPPO2) &&
+        // Only name the policy when the effective ceiling (plan ∩ cylinder ∩ gas) still accepts.
+        !isUnbreathablyHighPPO2(
+          gas,
+          gas.switchDepthM,
+          ppo2,
+          maximumPPO2ForGas(gas, input, input.settings.maximumDecoPPO2),
+          input.settings,
+        ) &&
         !warnings.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY" && item.gasId === gas.id)
       ) {
         warnings.push(oxygenAtTwentyFootStopInfo(

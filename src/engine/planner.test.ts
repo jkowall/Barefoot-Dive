@@ -392,6 +392,56 @@ describe("deterministic decompression scheduling", () => {
     expect(result.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
   });
 
+  it("accepts oxygen at the 20 ft stop on exit events under oxygen-at-20ft-stop-v1, but not against the bottom limit", () => {
+    const grid = STOP_GRID_PRESETS["10ft"];
+    const oxygen: Gas = { ...OXYGEN, id: "event-o2", switchDepthM: grid.lastStopDepthM };
+    const settings = {
+      ...DEFAULT_PLANNER_SETTINGS,
+      stopIncrementM: grid.stopIncrementM,
+      lastStopDepthM: grid.lastStopDepthM,
+    };
+    const toStop = {
+      id: "to-stop",
+      kind: "descent" as const,
+      startDepthM: meters(0),
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: AIR,
+      strategy: { kind: "open-circuit" as const, gas: AIR },
+    };
+    const exitOk = calculateEventDivePlan(ocInput({
+      depthM: grid.lastStopDepthM,
+      decoGases: [oxygen],
+      settings,
+    }), [toStop, {
+      id: "o2-stop",
+      kind: "exit",
+      startDepthM: grid.lastStopDepthM,
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: oxygen,
+      strategy: { kind: "open-circuit", gas: oxygen },
+    }]);
+    expect(exitOk.ok ? [] : exitOk.errors.map((item) => item.code)).not.toContain("EXPOSURE_GAS_UNBREATHABLE");
+
+    const bottomBad = calculateEventDivePlan(ocInput({
+      depthM: grid.lastStopDepthM,
+      decoGases: [oxygen],
+      settings,
+    }), [toStop, {
+      id: "bottom-on-o2",
+      kind: "bottom",
+      startDepthM: grid.lastStopDepthM,
+      endDepthM: grid.lastStopDepthM,
+      durationSeconds: seconds(60),
+      gas: oxygen,
+      strategy: { kind: "open-circuit", gas: oxygen },
+    }]);
+    expect(bottomBad.ok).toBe(false);
+    if (bottomBad.ok) return;
+    expect(bottomBad.errors.some((item) => item.code === "EXPOSURE_GAS_UNBREATHABLE")).toBe(true);
+  });
+
   it("accepts EAN28 at its printed 40 m MOD on event endpoints and rejects 40.1 m", () => {
     // FO₂ 0.28 at 1.4 bar prints 40 m; endpoint PPO₂ at 40 m is 1.4000000000000001 bar.
     // No switchDepthM: this exercises the event endpoint check, not the switch-depth path.

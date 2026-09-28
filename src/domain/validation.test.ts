@@ -321,6 +321,34 @@ describe("limit diagnostics state the value and the limit", () => {
     expect(find(result, "OXYGEN_AT_20FT_STOP_POLICY")?.cylinderId).toBe("o2");
   });
 
+  it("still rejects oxygen at the 20 ft stop when the cylinder ceiling is tighter than 1.60 bar", () => {
+    const settings = {
+      ...DEFAULT_PLANNER_SETTINGS,
+      stopIncrementM: STOP_GRID_PRESETS["10ft"].stopIncrementM,
+      lastStopDepthM: STOP_GRID_PRESETS["10ft"].lastStopDepthM,
+    };
+    const oxygen = { ...OXYGEN, switchDepthM: settings.lastStopDepthM, cylinderId: "o2" };
+    const cylinder: Cylinder = {
+      id: "o2",
+      name: "O₂ stage",
+      waterVolumeL: liters(7),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: oxygen,
+      maximumPPO2: barAbsolute(1.4),
+      revision: 1,
+    };
+    const result = validateDiveInput({ ...input(), settings, decoGases: [oxygen], cylinders: [cylinder] });
+    expect(codes(result)).toContain("CYLINDER_PPO2_LIMIT_EXCEEDED");
+    expect(find(result, "OXYGEN_AT_20FT_STOP_POLICY")).toBeUndefined();
+    expect(isGasBreathable(oxygen, settings.lastStopDepthM, {
+      ...input(),
+      settings,
+      decoGases: [oxygen],
+      cylinders: [cylinder],
+    })).toBe(false);
+  });
+
   it("accepts EAN28 at its printed 40 m MOD for 1.4 bar on cylinder, deco, and gas-only paths", () => {
     // Typed MOD: FO₂ 0.28 at 1.4 bar prints 40 m; PPO₂ at 40 m is 1.4000000000000001 bar.
     const ean28 = {

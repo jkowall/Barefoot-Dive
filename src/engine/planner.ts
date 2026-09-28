@@ -30,7 +30,6 @@ import {
   effectiveSwitchDownDepth,
   setpointAchievableDepth,
   gasPPO2,
-  isAboveMaximumPPO2,
   isBelowMinimumPPO2,
   isSwitchEligible,
   isUnbreathablyHighPPO2,
