@@ -297,17 +297,30 @@ export type CcrDiveInput = BaseDiveInput & {
   readonly setpointActivationDepthM: Meters;
   /**
    * Low setpoint breathed on the loop from the surface to the switch-up depth, and
-   * after leaving the switch-down depth on ascent. Absent means the legacy convention:
-   * open-circuit diluent above the switch-up depth in both directions.
+   * after leaving the switch-down depth on ascent when ascentSetpointMode is absent
+   * (the 0.4.0/0.6.0 leave-the-depth → fixed low rule). Absent means the legacy
+   * convention: open-circuit diluent above the switch-up depth in both directions.
    */
   readonly lowSetpointBar?: BarAbsolute;
   /**
-   * Switch-down depth on ascent, used only with lowSetpointBar. The high setpoint is
-   * held at any depth at or below it, including a stop there; the switch happens when
-   * leaving it. Absent means the switch-up depth. The open-water planner switches no shallower than
-   * the depth where the high setpoint is achievable; cave plans reject a shallower value.
+   * Switch-down depth on ascent, used only with lowSetpointBar. Without
+   * ascentSetpointMode, the high setpoint is held at any depth at or below it,
+   * including a stop there, and the loop switches to the fixed low setpoint when
+   * leaving it. Absent means the switch-up depth. Under that leave-to-low rule the
+   * open-water planner switches no shallower than the depth where the high setpoint
+   * is achievable; cave plans reject a shallower value. With
+   * ascentSetpointMode "ambient-limited-high", the switch-down depth no longer
+   * drops the loop to the fixed low setpoint (see that field).
    */
   readonly setpointDeactivationDepthM?: Meters;
+  /**
+   * After the high setpoint is active on ascent: hold
+   * min(high setpoint, max loop PPO₂ at the current depth) instead of switching to
+   * the fixed low setpoint when leaving the switch-down depth. Absent means the
+   * 0.4.0/0.6.0 leave-the-depth → low setpoint schedule. New plans set this field;
+   * stored plans without it keep the older schedule when recalculated.
+   */
+  readonly ascentSetpointMode?: "ambient-limited-high";
   readonly bailoutGases: readonly Gas[];
   /** Dil-out: the diluent and its cylinder join the open-circuit bailout gas set. */
   readonly diluentBailout?: boolean;

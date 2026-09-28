@@ -148,6 +148,34 @@ describe("cave CCR low setpoint and switch-down", () => {
       expect(suggested.stops.length).toBeGreaterThan(0);
       expect(suggested.stops.every((segment) => segment.setpointBar === 1.3)).toBe(true);
     });
+
+    it("ambient-limited exit legs hold the high setpoint at a shallow entrance instead of the fixed low", () => {
+      const { warnings, stops } = lowStopWarnings(
+        { setpointDeactivationDepthM: meters(9), ascentSetpointMode: "ambient-limited-high" },
+        5,
+      );
+      expect(warnings).toEqual([]);
+      expect(stops.length).toBeGreaterThan(0);
+      expect(stops.every((segment) => segment.endDepthM === 5 && segment.setpointBar === 1.3)).toBe(true);
+    });
+  });
+
+  it("allows a shallow switch-down under ambient-limited ascent mode and ambient-limits the exit", () => {
+    const result = calculateCavePlan(caveInput(
+      { setpointDeactivationDepthM: meters(3), ascentSetpointMode: "ambient-limited-high" },
+      [leg("surface-entry", 0, 30, ids)],
+      hypoxicDiluent,
+      [bailout],
+      cylinders,
+    ));
+    expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
+    if (!result.ok) return;
+    const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
+    expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
+    const final = result.value.base.segments.at(-1)!;
+    expect(final.endDepthM).toBe(0);
+    // Sea-level default: ambient − water vapor.
+    expect(final.setpointBar).toBeCloseTo(1 - 0.0627, 9);
   });
 });
 

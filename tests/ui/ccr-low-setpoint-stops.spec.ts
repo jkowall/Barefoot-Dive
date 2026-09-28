@@ -4,19 +4,19 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("warns in Review when a CCR decompression stop runs on the low setpoint", async ({ page }) => {
+test("new CCR plans hold ambient-limited high on shallow stops instead of warning about the low setpoint", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
   await page.getByRole("button", { name: "Calculate plan" }).click();
   const results = page.getByRole("region", { name: "Calculated plan" });
   await expect(results).toBeVisible();
-  // The default switch-down at the 20 ft last stop holds the high setpoint at every stop.
+  // Defaults hold the high setpoint at the last stop; no low-setpoint stop warning.
   await expect(results.getByText(/runs on the 0\.70 bar low setpoint/)).toHaveCount(0);
 
   await page.getByRole("button", { name: "Edit inputs" }).click();
-  await page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" }).fill("30");
+  await page.getByRole("spinbutton", { name: "Switch-down depth (ft)" }).fill("30");
   await page.getByRole("button", { name: "Review plan" }).click();
-  await expect(results.getByText(
-    /^The 20 ft stop runs on the 0\.70 bar low setpoint for \d+ min, because the loop switches down when leaving 30 ft\. On the low setpoint the loop carries more inert gas, so decompression can take longer than on the 1\.30 bar high setpoint\. Set the switch-down depth to 20 ft to hold the high setpoint at that stop\.$/,
-  )).toBeVisible();
+  // Engine 0.4.0 ambient-limited ascent: a deeper switch-down no longer drops shallow
+  // stops onto the fixed low setpoint, so the 0.6.0 warning does not appear.
+  await expect(results.getByText(/runs on the 0\.70 bar low setpoint/)).toHaveCount(0);
 });

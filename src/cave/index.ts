@@ -6,11 +6,13 @@ import { integratedSurfaceGas } from "../calculations";
 import { calculateEventDivePlan, type ExposureEvent } from "../engine/planner";
 import { barGauge, depthToAmbientPressure, formatMessageDepth, liters, meters, seconds } from "../domain/units";
 import {
+  ambientLimitedSetpoint,
   effectiveBailoutGases,
   ocBottomSwitchDepth,
   resolveAssignedCylinder,
   setpointAchievableDepth,
   switchDownDepth,
+  usesAmbientLimitedAscentSetpoint,
   usesLowSetpoint,
   compareGasPreference,
 } from "../domain/validation";
@@ -179,8 +181,15 @@ function validate(input: CavePlanInput): Diagnostic[] {
     finite(request.targetDistanceM, "SCENARIO_TARGET_INVALID", "Scenario target distance must be finite and nonnegative.", "targetDistanceM");
   }
   const dive = input.dive;
-  if (dive.mode === "ccr" && usesLowSetpoint(dive) && Number.isFinite(dive.setpointBar)) {
-    // Route legs are explicit events, so the high setpoint must be achievable wherever it is held.
+  // Leave-to-low only: route legs are explicit events, so the high setpoint must be
+  // achievable wherever it is held. Ambient-limited ascent mode holds
+  // min(high, max loop PPO₂ at depth) on shallow exit legs instead.
+  if (
+    dive.mode === "ccr" &&
+    usesLowSetpoint(dive) &&
+    !usesAmbientLimitedAscentSetpoint(dive) &&
+    Number.isFinite(dive.setpointBar)
+  ) {
     const achievableDepth = setpointAchievableDepth(dive.setpointBar, dive.environmentSettings);
     if (switchDownDepth(dive) < achievableDepth - 1e-9) {
       // The achievable depth is a minimum, so it is printed rounded up.
@@ -342,10 +351,26 @@ function baseLegEvents(
 ): readonly ExposureEvent[] {
   const dive = input.dive;
   if (dive.mode === "ccr") {
-    // Low-setpoint mode: switch up at the activation depth on the way in and hold the
-    // high setpoint until leaving the switch-down depth on exit legs. Legacy mode keeps
-    // open-circuit diluent above the activation depth in both directions.
+    // Low-setpoint mode: switch up at the activation depth on the way in. Leave-to-low
+    // holds the high setpoint until leaving the switch-down depth on exit legs, then the
+    // fixed low setpoint. Ambient-limited exit legs hold min(high, max loop PPO₂ at the
+    // shallow end of each part) instead of the fixed low. Legacy mode keeps open-circuit
+    // diluent above the activation depth in both directions.
     const lowMode = usesLowSetpoint(dive);
+    const ambientLimited = lowMode && usesAmbientLimitedAscentSetpoint(dive);
+    if (lowMode && ambientLimited && kind === "exit") {
+      const achievable = meters(setpointAchievableDepth(dive.setpointBar, dive.environmentSettings));
+      return splitLegAtDepth(leg, achievable).map((part, partIndex) => {
+        const shallow = Math.min(part.startDepthM, part.endDepthM);
+        const setpointBar = ambientLimitedSetpoint(dive.setpointBar, shallow, dive.environmentSettings);
+        const strategy: ExposureEvent["strategy"] = {
+          kind: "ccr",
+          diluent: dive.diluent,
+          setpointBar,
+        };
+        return event(`${kind}-${index + 1}-${partIndex + 1}-${leg.id}`, kind, part, dive.diluent, strategy);
+      });
+    }
     const boundary = lowMode && kind === "exit" ? switchDownDepth(dive) : dive.setpointActivationDepthM;
     const shallowStrategy: ExposureEvent["strategy"] = lowMode
       ? { kind: "ccr", diluent: dive.diluent, setpointBar: dive.lowSetpointBar! }

@@ -644,6 +644,50 @@ describe("open-circuit stops that cannot clear on their gas", () => {
   });
 });
 
+describe("CCR ambient-limited ascent setpoint (engine 0.4.0)", () => {
+  const ambient = (overrides: Partial<CcrDiveInput> = {}) =>
+    lowCcr({ ascentSetpointMode: "ambient-limited-high", ...overrides });
+  const surfaceMax = DEFAULT_ENVIRONMENT.surfacePressureBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
+
+  it("pin: deep switch-down no longer lengthens deco via low-setpoint stops; leave-to-low without the field keeps the old schedule", () => {
+    const legacy = plan(lowCcr({ setpointDeactivationDepthM: meters(9) }));
+    const next = plan(ambient({ setpointDeactivationDepthM: meters(9) }));
+    expect(legacy.diagnostics.map((item) => item.code)).toContain("CCR_STOP_ON_LOW_SETPOINT");
+    expect(legacy.segments.filter((segment) => segment.kind === "stop" && segment.endDepthM === 6)
+      .every((segment) => segment.setpointBar === 0.7)).toBe(true);
+    expect(next.diagnostics.map((item) => item.code)).not.toContain("CCR_STOP_ON_LOW_SETPOINT");
+    expect(next.segments.filter((segment) => segment.kind === "stop" && segment.endDepthM === 6)
+      .every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    expect(next.summary.ttsSeconds).toBeLessThan(legacy.summary.ttsSeconds);
+    expect(next.summary.ttsSeconds).toBe(plan(ambient()).summary.ttsSeconds);
+  });
+
+  it("holds an ambient-limited high setpoint to the surface when switch-down is 0, not the fixed low", () => {
+    const value = plan(ambient({ setpointDeactivationDepthM: meters(0) }));
+    expect(value.diagnostics.map((item) => item.code)).not.toContain("CCR_SWITCH_DOWN_DEEPENED");
+    expect(value.diagnostics.map((item) => item.code)).not.toContain("CCR_STOP_ON_LOW_SETPOINT");
+    const stops = value.segments.filter((segment) => segment.kind === "stop" && segment.endDepthM === 6);
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    const final = value.segments.at(-1)!;
+    expect(final.endDepthM).toBe(0);
+    expect(final.setpointBar).toBeCloseTo(surfaceMax, 9);
+    expect(final.setpointBar).not.toBe(0.7);
+  });
+
+  it("never claims the high setpoint shallower than the loop can hold it", () => {
+    const value = plan(ambient({
+      setpointDeactivationDepthM: meters(0),
+      settings: { ...DEFAULT_PLANNER_SETTINGS, lastStopDepthM: meters(3) },
+    }));
+    const shallowStops = value.segments.filter((segment) => segment.kind === "stop" && segment.endDepthM === 3);
+    expect(shallowStops.length).toBeGreaterThan(0);
+    const maxAt3 = 1 + 3 / DEFAULT_ENVIRONMENT.metersPerBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
+    expect(shallowStops.every((segment) => segment.setpointBar !== undefined && segment.setpointBar <= maxAt3 + 1e-9)).toBe(true);
+    expect(shallowStops.every((segment) => segment.setpointBar !== 0.7)).toBe(true);
+  });
+});
+
 describe("recheck regressions", () => {
   it("does not hold an explicit event setpoint shallower than the loop can reach it", () => {
     const input = lowCcr({ depthM: meters(30), setpointBar: barAbsolute(1.0), setpointDeactivationDepthM: meters(0) });

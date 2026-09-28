@@ -11,7 +11,7 @@ import type {
   Meters,
   PlannerSettings,
 } from "./types";
-import { depthToAmbientPressure, formatBound, formatMessageDepth, meters, roundDepthDeeper } from "./units";
+import { barAbsolute, depthToAmbientPressure, formatBound, formatMessageDepth, meters, roundDepthDeeper } from "./units";
 
 /**
  * Oxygen-at-20 ft stop policy (`oxygen-at-20ft-stop-v1`).
@@ -339,6 +339,14 @@ export function usesLowSetpoint(input: CcrDiveInput): input is CcrDiveInput & { 
   return input.lowSetpointBar !== undefined;
 }
 
+/**
+ * True when ascent holds min(high setpoint, max loop PPO₂ at depth) after the high setpoint
+ * is active, instead of switching to the fixed low setpoint at the switch-down depth.
+ */
+export function usesAmbientLimitedAscentSetpoint(input: CcrDiveInput): boolean {
+  return input.ascentSetpointMode === "ambient-limited-high";
+}
+
 /** Ascent switch-down depth in low-setpoint mode: the entered value, else the switch-up depth. */
 export function switchDownDepth(input: CcrDiveInput): Meters {
   return input.setpointDeactivationDepthM ?? input.setpointActivationDepthM;
@@ -352,12 +360,33 @@ export function setpointAchievableDepth(setpointBar: number, environment: Enviro
   );
 }
 
+/** Maximum PPO₂ the loop can achieve at depth: ambient − water vapor. */
+export function maxLoopPPO2AtDepth(depthM: number, environment: EnvironmentSettings): number {
+  return Math.max(
+    0,
+    depthToAmbientPressure(meters(depthM), environment.surfacePressureBar, environment.metersPerBar) -
+      environment.waterVaporPressureBar,
+  );
+}
+
+/** min(high setpoint, max loop PPO₂ at depth). */
+export function ambientLimitedSetpoint(
+  highSetpointBar: number,
+  depthM: number,
+  environment: EnvironmentSettings,
+): BarAbsolute {
+  return barAbsolute(Math.min(highSetpointBar, maxLoopPPO2AtDepth(depthM, environment)));
+}
+
 /**
- * Switch-down depth the open-water planner applies. The loop cannot hold the high setpoint
- * shallower than its achievable depth, and modeling it there as oxygen at ambient pressure
- * would credit off-gassing the loop cannot deliver, so the switch happens no shallower than that.
+ * Switch-down depth the open-water planner applies under the leave-the-depth → low setpoint
+ * rule. The loop cannot hold the high setpoint shallower than its achievable depth, and
+ * modeling it there as oxygen at ambient pressure would credit off-gassing the loop cannot
+ * deliver, so the switch happens no shallower than that. Ambient-limited ascent mode does
+ * not deepen: it holds the ambient-limited high setpoint instead of dropping to the fixed low.
  */
 export function effectiveSwitchDownDepth(input: CcrDiveInput): Meters {
+  if (usesAmbientLimitedAscentSetpoint(input)) return switchDownDepth(input);
   return meters(Math.max(switchDownDepth(input), setpointAchievableDepth(input.setpointBar, input.environmentSettings)));
 }
 
@@ -840,6 +869,22 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
       "setpointDeactivationDepthM",
     ));
   }
+  const ascentMode = input.ascentSetpointMode;
+  if (ascentMode !== undefined) {
+    if (ascentMode !== "ambient-limited-high") {
+      errors.push(error(
+        "CCR_ASCENT_SETPOINT_MODE_INVALID",
+        "CCR ascent setpoint mode must be \"ambient-limited-high\" or absent.",
+        "ascentSetpointMode",
+      ));
+    } else if (!lowMode) {
+      errors.push(error(
+        "CCR_ASCENT_SETPOINT_MODE_REQUIRES_LOW_SETPOINT",
+        "Ambient-limited ascent setpoint mode needs a low setpoint for the descent.",
+        "ascentSetpointMode",
+      ));
+    }
+  }
   if (lowMode) validateLowSetpoint(input, highValid && activationValid, errors, warnings);
 
   // Rich diluent: the loop cannot run below the diluent's own PPO₂ after a flush or ADV add.
@@ -1031,8 +1076,11 @@ function validateLowSetpoint(
     });
   }
 
-  // The loop cannot hold the high setpoint shallower than its achievable depth. The planner
-  // switches down no shallower than that, instead of modeling the loop as oxygen at ambient.
+  // Leave-to-low only: the loop cannot hold the high setpoint shallower than its achievable
+  // depth, so the planner switches to the fixed low setpoint no shallower than that.
+  // Ambient-limited ascent mode keeps the entered switch-down depth and holds
+  // min(high, max loop PPO₂ at depth) instead.
+  if (usesAmbientLimitedAscentSetpoint(input)) return;
   const achievableDepth = setpointAchievableDepth(input.setpointBar, environment);
   if (switchDown < achievableDepth - 1e-9) {
     // The achievable depth is a minimum, so it is printed rounded up.
