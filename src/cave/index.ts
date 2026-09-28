@@ -362,17 +362,27 @@ function baseLegEvents(
       // high/ambient-limited regime. Per-leg checks would drop a shallow final exit back to low.
       const routeReachedHigh = input.route.some((routeLeg) =>
         Math.max(routeLeg.startDepthM, routeLeg.endDepthM) >= dive.setpointActivationDepthM - 1e-8);
-      // Hold the high setpoint for the whole exit when the route reached the high zone.
-      // Tissue loading clamps inspired inert wherever high exceeds ambient − water vapor, matching
-      // continuous ambient-limited tracking; do not assign the shallow-end ambient maximum to the
-      // whole moving leg. Event validation allows this unachievable reported high only in this mode.
-      const setpointBar = routeReachedHigh ? dive.setpointBar : dive.lowSetpointBar!;
-      const strategy: ExposureEvent["strategy"] = {
-        kind: "ccr",
-        diluent: dive.diluent,
-        setpointBar,
-      };
-      return [event(`${kind}-${index + 1}-1-${leg.id}`, kind, leg, dive.diluent, strategy)];
+      if (!routeReachedHigh) {
+        const strategy: ExposureEvent["strategy"] = {
+          kind: "ccr",
+          diluent: dive.diluent,
+          setpointBar: dive.lowSetpointBar!,
+        };
+        return [event(`${kind}-${index + 1}-1-${leg.id}`, kind, leg, dive.diluent, strategy)];
+      }
+      // Split at the high setpoint's achievable depth so Schreiner sees zero inspired inert on
+      // the shallow part (both endpoints clamp). An unsplit deep→surface leg would linearly
+      // ramp inspired inert through the shallow region and overstate loading. Keep the high
+      // setpoint on both parts; event validation allows that reported high in this mode.
+      const achievable = meters(setpointAchievableDepth(dive.setpointBar, dive.environmentSettings));
+      return splitLegAtDepth(leg, achievable).map((part, partIndex) => {
+        const strategy: ExposureEvent["strategy"] = {
+          kind: "ccr",
+          diluent: dive.diluent,
+          setpointBar: dive.setpointBar,
+        };
+        return event(`${kind}-${index + 1}-${partIndex + 1}-${leg.id}`, kind, part, dive.diluent, strategy);
+      });
     }
     const boundary = lowMode && kind === "exit" ? switchDownDepth(dive) : dive.setpointActivationDepthM;
     const shallowStrategy: ExposureEvent["strategy"] = lowMode

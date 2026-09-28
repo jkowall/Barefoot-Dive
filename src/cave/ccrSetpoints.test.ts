@@ -171,9 +171,10 @@ describe("cave CCR low setpoint and switch-down", () => {
     expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
-    expect(exits.length).toBeGreaterThan(0);
+    expect(exits.length).toBeGreaterThan(1);
     expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
-    expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
+    expect(exits.some((segment) => Math.min(segment.startDepthM, segment.endDepthM) < 3.6)).toBe(true);
+    expect(exits.some((segment) => Math.max(segment.startDepthM, segment.endDepthM) > 3.6)).toBe(true);
   });
 
   it("keeps exit legs on the low setpoint when the route never reaches the switch-up depth", () => {
@@ -208,6 +209,20 @@ describe("cave CCR low setpoint and switch-down", () => {
     expect(exits.length).toBeGreaterThan(1);
     expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
     expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
+  });
+
+  it("matches tissue loading of an achievable-depth split on a deep ambient-limited exit", () => {
+    const dive = { ascentSetpointMode: "ambient-limited-high" as const };
+    const result = calculateCavePlan(caveInput(dive, [leg("surface-entry", 0, 30, ids)], hypoxicDiluent, [bailout], cylinders));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
+    const boundary = (1.3 + 0.0627 - 1) * 10;
+    expect(exits.some((segment) => Math.abs(segment.endDepthM - boundary) < 1e-9 || Math.abs(segment.startDepthM - boundary) < 1e-9)).toBe(true);
+    const shallow = exits.find((segment) => Math.min(segment.startDepthM, segment.endDepthM) < boundary - 1e-9)!;
+    expect(shallow.setpointBar).toBe(1.3);
+    // Both ends of the shallow high-setpoint part clamp inspired inert to zero.
+    expect(shallow.startDepthM === 0 || shallow.endDepthM === 0).toBe(true);
   });
 });
 
