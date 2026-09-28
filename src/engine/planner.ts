@@ -1443,6 +1443,14 @@ export function calculateEventDivePlan(
         input.settings.gfLow,
       );
     }
+    // Hold at the first bailout event's start depth (the trigger), before any ascent in that
+    // event, so a depth-changing bailout leg does not park the hold at its shallower end.
+    // The event's own ceiling check still runs on the event segment after the hold.
+    if (options.bailout && event.kind === "bailout" && problemSolvingBefore === undefined) {
+      problemSolvingBefore = state;
+      state = appendProblemSolvingHold(state, input);
+      problemSolvingAfter = state;
+    }
     state = appendExposure(
       state,
       input,
@@ -1471,13 +1479,6 @@ export function calculateEventDivePlan(
           limit: committed.ceilingDepthM,
         },
       ));
-    }
-    // Insert the hold after the event's own ceiling check so a long hold cannot mask a
-    // bailout/exit leg that arrived above the ceiling.
-    if (options.bailout && event.kind === "bailout" && problemSolvingBefore === undefined) {
-      problemSolvingBefore = state;
-      state = appendProblemSolvingHold(state, input);
-      problemSolvingAfter = state;
     }
   }
   if (exposureErrors.length > 0) {

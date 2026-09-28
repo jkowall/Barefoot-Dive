@@ -597,6 +597,39 @@ describe("deterministic decompression scheduling", () => {
     expect(holdWithExit!.startRuntimeSeconds).toBeLessThan(
       withExit.value.segments.find((segment) => segment.kind === "exit")!.startRuntimeSeconds,
     );
+
+    // A depth-changing first bailout event holds at its start depth, before the ascent.
+    const ascendingBailout = calculateEventDivePlan(input, [
+      events[0]!,
+      events[1]!,
+      {
+        id: "bailout-ascent",
+        kind: "bailout",
+        startDepthM: meters(30),
+        endDepthM: meters(18),
+        durationSeconds: seconds(80),
+        gas: bailout,
+        strategy: { kind: "open-circuit", gas: bailout },
+      },
+    ], { bailout: true, ascentGases: [bailout] });
+    if (!ascendingBailout.ok) {
+      throw new Error(ascendingBailout.errors.map((item) => `${item.code}: ${item.message}`).join("; "));
+    }
+    const holdBeforeAscent = ascendingBailout.value.segments.find((segment) =>
+      segment.kind === "bailout" &&
+      segment.durationSeconds === 90 &&
+      segment.startDepthM === 30 &&
+      segment.endDepthM === 30,
+    );
+    const travel = ascendingBailout.value.segments.find((segment) =>
+      segment.kind === "bailout" &&
+      segment.durationSeconds === 80 &&
+      segment.startDepthM === 30 &&
+      segment.endDepthM === 18,
+    );
+    expect(holdBeforeAscent).toBeDefined();
+    expect(travel).toBeDefined();
+    expect(holdBeforeAscent!.startRuntimeSeconds).toBeLessThan(travel!.startRuntimeSeconds);
   });
 
   it("does not let problem-solving mask an event bailout leg that arrives above the ceiling", () => {
