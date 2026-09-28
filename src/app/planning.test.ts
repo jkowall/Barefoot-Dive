@@ -7,8 +7,10 @@ import { createInitialCaveWorkspaceSession } from "./caveWorkspace";
 import type { StorageResult, TankRecord } from "../storage";
 import { switchDepthToCanonical } from "./helpers";
 import { calculateDivePlan } from "../engine/planner";
+import { STOP_GRID_PRESETS } from "../domain/defaults";
 import {
   DEFAULT_PLAN_DRAFT,
+  planStopIncrementM,
   resolvePlanInput,
   selectableTanks,
   selectedTankSources,
@@ -22,6 +24,7 @@ import {
   reviewStaysOpen,
   withGasIncluded,
   withGasPlanning,
+  withStopGrid,
   withTankSourceSelection,
   type GasDraft,
   type PlanDraft,
@@ -39,6 +42,46 @@ function calculable(resolved: ResolvedPlanInput): DivePlanInput {
   if (!resolved.ok) throw new Error(resolved.diagnostics.map((item) => item.message).join(" "));
   return resolved.input;
 }
+
+describe("stop grid selection", () => {
+  it("defaults to the 3 m grid and leaves existing plan resolution unchanged", () => {
+    expect(DEFAULT_PLAN_DRAFT.stopGridId).toBe("3m");
+    expect(planStopIncrementM(DEFAULT_PLAN_DRAFT)).toBe(STOP_GRID_PRESETS["3m"].stopIncrementM);
+    const resolved = calculable(resolvePlanInput(DEFAULT_PLAN_DRAFT, []));
+    expect(resolved.settings.stopIncrementM).toBe(STOP_GRID_PRESETS["3m"].stopIncrementM);
+    expect(resolved.settings.lastStopDepthM).toBe(STOP_GRID_PRESETS["3m"].lastStopDepthM);
+    const oxygen = resolved.mode === "oc" ? resolved.decoGases.find((gas) => gas.name === "Oxygen") : undefined;
+    expect(oxygen?.switchDepthM).toBe(6);
+  });
+
+  it("switches to the 10 ft grid and remaps last-stop-aligned oxygen and CCR depths", () => {
+    const next = withStopGrid(DEFAULT_PLAN_DRAFT, "10ft");
+    expect(next.stopGridId).toBe("10ft");
+    expect(planStopIncrementM(next)).toBe(STOP_GRID_PRESETS["10ft"].stopIncrementM);
+    expect(next.decoGases.find((gas) => gas.key === "deco-o2")?.switchDepthM)
+      .toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
+    expect(next.decoGases.find((gas) => gas.key === "deco-50")?.switchDepthM).toBe(21);
+    expect(next.setpointActivationDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
+    expect(next.setpointDeactivationDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
+    const resolved = calculable(resolvePlanInput(next, []));
+    expect(resolved.settings.stopIncrementM).toBe(STOP_GRID_PRESETS["10ft"].stopIncrementM);
+    expect(resolved.settings.lastStopDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
+    const back = withStopGrid(next, "3m");
+    expect(back.decoGases.find((gas) => gas.key === "deco-o2")?.switchDepthM).toBe(6);
+    expect(back.setpointActivationDepthM).toBe(6);
+  });
+
+  it("calculates the default draft on the 10 ft grid with oxygen at 20 ft", () => {
+    const draft = withStopGrid(DEFAULT_PLAN_DRAFT, "10ft");
+    const result = calculateDivePlan(calculable(resolvePlanInput(draft, [])));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(true);
+    expect(result.value.stops.some((stop) =>
+      Math.abs(stop.depthM - STOP_GRID_PRESETS["10ft"].lastStopDepthM) <= 1e-9,
+    )).toBe(true);
+  });
+});
 
 describe("plan input resolution", () => {
   it("creates distinct immutable ad hoc cylinders for every active OC gas", () => {

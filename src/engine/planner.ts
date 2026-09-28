@@ -33,6 +33,7 @@ import {
   isAboveMaximumPPO2,
   isBelowMinimumPPO2,
   isSwitchEligible,
+  isUnbreathablyHighPPO2,
   maximumPPO2ForGas,
   ocBottomSwitchDepth,
   sameGas,
@@ -1363,15 +1364,16 @@ export function calculateEventDivePlan(
         ));
       }
     } else {
-      const endpointPPO2 = [event.startDepthM, event.endDepthM]
-        .map((depth) => gasPPO2(event.gas, depth, input));
+      const endpoints = [event.startDepthM, event.endDepthM] as const;
       const planMaximumPPO2 = event.kind === "exit" || event.kind === "bailout"
         ? input.settings.maximumDecoPPO2
         : input.settings.maximumBottomPPO2;
       const maximumPPO2 = maximumPPO2ForGas(event.gas, input, planMaximumPPO2);
-      if (endpointPPO2.some((ppo2) =>
-        isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) || isAboveMaximumPPO2(ppo2, maximumPPO2)
-      )) {
+      if (endpoints.some((depth) => {
+        const ppo2 = gasPPO2(event.gas, depth, input);
+        return isBelowMinimumPPO2(ppo2, input.settings.minimumPPO2) ||
+          isUnbreathablyHighPPO2(event.gas, depth, ppo2, maximumPPO2, input.settings);
+      })) {
         eventErrors.push(diagnostic(
           "EXPOSURE_GAS_UNBREATHABLE",
           "error",

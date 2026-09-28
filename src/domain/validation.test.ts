@@ -6,10 +6,16 @@ import {
   DEFAULT_RESERVE_POLICY,
   DEFAULT_RMV,
   OXYGEN,
+  STOP_GRID_PRESETS,
 } from "./defaults";
 import type { CcrDiveInput, Cylinder, OcDiveInput } from "./types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "./units";
-import { validateDiveInput } from "./validation";
+import {
+  isGasBreathable,
+  isOxygenAtTwentyFootStop,
+  OXYGEN_AT_20FT_STOP_POLICY,
+  validateDiveInput,
+} from "./validation";
 
 function input(): OcDiveInput {
   return {
@@ -251,23 +257,68 @@ describe("limit diagnostics state the value and the limit", () => {
     expect(codes(validateDiveInput(ccrInput({ lowSetpointBar: barAbsolute(0.93) })))).not.toContain("CCR_LOW_SETPOINT_NOT_ACHIEVABLE");
   });
 
-  it("reports oxygen at 20 ft (6.096 m) with its PPO₂ and the deco limit, and accepts the 6 m stop", () => {
-    const at20ft = validateDiveInput({ ...input(), decoGases: [{ ...OXYGEN, switchDepthM: meters(6.096) }] });
+  it("reports oxygen at 20 ft on the 3 m grid with its PPO₂ and the deco limit, and accepts the 6 m stop", () => {
+    const twentyFoot = STOP_GRID_PRESETS["10ft"].lastStopDepthM;
+    const at20ft = validateDiveInput({ ...input(), decoGases: [{ ...OXYGEN, switchDepthM: twentyFoot }] });
     const diagnostic = find(at20ft, "DECO_SWITCH_UNBREATHABLE");
     expect(diagnostic?.message).toContain("1.610 bar");
     expect(diagnostic?.message).toContain("6.1 m");
     expect(diagnostic?.message).toContain("1.60 bar deco limit");
     expect(diagnostic?.actual).toBeCloseTo(1.6096, 10);
-    expect(diagnostic).toMatchObject({ limit: 1.6, depthM: 6.096, gasId: OXYGEN.id });
+    expect(diagnostic).toMatchObject({ limit: 1.6, depthM: twentyFoot, gasId: OXYGEN.id });
     expect(codes(validateDiveInput({ ...input(), decoGases: [{ ...OXYGEN, switchDepthM: meters(6) }] }))).not.toContain("DECO_SWITCH_UNBREATHABLE");
   });
 
-  it("reports the assigned cylinder's limit at the switch depth", () => {
-    const oxygen = { ...OXYGEN, switchDepthM: meters(6.096), cylinderId: "o2" };
+  it("accepts oxygen at the 20 ft stop on the 10 ft grid under oxygen-at-20ft-stop-v1 without clamping PPO₂", () => {
+    const settings = {
+      ...DEFAULT_PLANNER_SETTINGS,
+      stopIncrementM: STOP_GRID_PRESETS["10ft"].stopIncrementM,
+      lastStopDepthM: STOP_GRID_PRESETS["10ft"].lastStopDepthM,
+    };
+    const oxygen = { ...OXYGEN, switchDepthM: settings.lastStopDepthM };
+    const result = validateDiveInput({ ...input(), settings, decoGases: [oxygen] });
+    expect(codes(result)).not.toContain("DECO_SWITCH_UNBREATHABLE");
+    const policy = find(result, "OXYGEN_AT_20FT_STOP_POLICY");
+    expect(policy?.severity).toBe("info");
+    expect(policy?.message).toContain(OXYGEN_AT_20FT_STOP_POLICY.id);
+    expect(policy?.actual).toBeCloseTo(1.6096, 10);
+    expect(policy).toMatchObject({ limit: 1.6, depthM: settings.lastStopDepthM, gasId: OXYGEN.id });
+    expect(isOxygenAtTwentyFootStop(oxygen, settings.lastStopDepthM, settings)).toBe(true);
+    expect(isGasBreathable(oxygen, settings.lastStopDepthM, { ...input(), settings, decoGases: [oxygen] })).toBe(true);
+    // Still rejected on the 3 m grid at the same absolute depth.
+    expect(isOxygenAtTwentyFootStop(oxygen, settings.lastStopDepthM, DEFAULT_PLANNER_SETTINGS)).toBe(false);
+  });
+
+  it("reports the assigned cylinder's limit at the switch depth on the 3 m grid", () => {
+    const twentyFoot = STOP_GRID_PRESETS["10ft"].lastStopDepthM;
+    const oxygen = { ...OXYGEN, switchDepthM: twentyFoot, cylinderId: "o2" };
     const cylinder: Cylinder = { id: "o2", name: "O₂ stage", waterVolumeL: liters(7), workingPressureBar: barGauge(200), currentPressureBar: barGauge(200), gas: oxygen, maximumPPO2: barAbsolute(1.6), revision: 1 };
     const diagnostic = find(validateDiveInput({ ...input(), decoGases: [oxygen], cylinders: [cylinder] }), "CYLINDER_PPO2_LIMIT_EXCEEDED");
     expect(diagnostic?.message).toContain("above the assigned cylinder's 1.60 bar maximum");
-    expect(diagnostic).toMatchObject({ limit: 1.6, cylinderId: "o2", gasId: OXYGEN.id, depthM: 6.096 });
+    expect(diagnostic).toMatchObject({ limit: 1.6, cylinderId: "o2", gasId: OXYGEN.id, depthM: twentyFoot });
+  });
+
+  it("accepts a cylinder oxygen switch at the 20 ft stop on the 10 ft grid under the named policy", () => {
+    const settings = {
+      ...DEFAULT_PLANNER_SETTINGS,
+      stopIncrementM: STOP_GRID_PRESETS["10ft"].stopIncrementM,
+      lastStopDepthM: STOP_GRID_PRESETS["10ft"].lastStopDepthM,
+    };
+    const oxygen = { ...OXYGEN, switchDepthM: settings.lastStopDepthM, cylinderId: "o2" };
+    const cylinder: Cylinder = {
+      id: "o2",
+      name: "O₂ stage",
+      waterVolumeL: liters(7),
+      workingPressureBar: barGauge(200),
+      currentPressureBar: barGauge(200),
+      gas: oxygen,
+      maximumPPO2: barAbsolute(1.6),
+      revision: 1,
+    };
+    const result = validateDiveInput({ ...input(), settings, decoGases: [oxygen], cylinders: [cylinder] });
+    expect(codes(result)).not.toContain("CYLINDER_PPO2_LIMIT_EXCEEDED");
+    expect(codes(result)).not.toContain("DECO_SWITCH_UNBREATHABLE");
+    expect(find(result, "OXYGEN_AT_20FT_STOP_POLICY")?.cylinderId).toBe("o2");
   });
 
   it("accepts EAN28 at its printed 40 m MOD for 1.4 bar on cylinder, deco, and gas-only paths", () => {

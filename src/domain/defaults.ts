@@ -4,8 +4,9 @@ import type {
   PlannerSettings,
   ReservePolicy,
   RmvSettings,
+  StopGridId,
 } from "./types";
-import { barAbsolute, barGauge, fraction, litersPerMinute, meters, seconds } from "./units";
+import { barAbsolute, barGauge, feetToMeters, fraction, litersPerMinute, meters, seconds } from "./units";
 
 export const DEFAULT_ENVIRONMENT: EnvironmentSettings = {
   surfacePressureBar: barAbsolute(1),
@@ -13,14 +14,38 @@ export const DEFAULT_ENVIRONMENT: EnvironmentSettings = {
   waterVaporPressureBar: barAbsolute(0.0627),
 };
 
+/**
+ * Stop-grid presets for Plan/Cave Setup. `3m` is the default and matches every
+ * existing plan that does not set `stopIncrementM`. `10ft` uses exact foot-to-metre
+ * conversion so the displayed 20 ft stop is two increments.
+ */
+export const STOP_GRID_PRESETS: Readonly<Record<StopGridId, {
+  readonly id: StopGridId;
+  readonly stopIncrementM: ReturnType<typeof meters>;
+  readonly lastStopDepthM: ReturnType<typeof meters>;
+}>> = {
+  "3m": {
+    id: "3m",
+    stopIncrementM: meters(3),
+    lastStopDepthM: meters(6),
+  },
+  "10ft": {
+    id: "10ft",
+    stopIncrementM: feetToMeters(10),
+    lastStopDepthM: feetToMeters(20),
+  },
+};
+
+export const DEFAULT_STOP_GRID_ID: StopGridId = "3m";
+
 export const DEFAULT_PLANNER_SETTINGS: PlannerSettings = {
   gfLow: fraction(0.3),
   gfHigh: fraction(0.7),
   descentRateMPerMinute: 18,
   ascentRateMPerMinute: 9,
   decoAscentRateMPerMinute: 3,
-  stopIncrementM: meters(3),
-  lastStopDepthM: meters(6),
+  stopIncrementM: STOP_GRID_PRESETS["3m"].stopIncrementM,
+  lastStopDepthM: STOP_GRID_PRESETS["3m"].lastStopDepthM,
   stopTimeQuantumSeconds: seconds(60),
   minimumPPO2: barAbsolute(0.16),
   maximumBottomPPO2: barAbsolute(1.4),

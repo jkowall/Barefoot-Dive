@@ -3,6 +3,8 @@ import {
   DEFAULT_ENVIRONMENT,
   DEFAULT_PLANNER_SETTINGS,
   DEFAULT_RMV,
+  DEFAULT_STOP_GRID_ID,
+  STOP_GRID_PRESETS,
 } from "../domain/defaults";
 import type {
   Cylinder,
@@ -13,6 +15,7 @@ import type {
   PlannerConventionId,
   PlanningMode,
   ReservePolicy,
+  StopGridId,
 } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, litersPerMinute, meters, seconds } from "../domain/units";
 import type { StorageResult, TankRecord } from "../storage";
@@ -76,6 +79,8 @@ export type PlanDraft = {
   readonly gfLowPercent: number;
   readonly gfHighPercent: number;
   readonly conventionId: PlannerConventionId;
+  /** Stop-grid spacing: 3 m (default) or 10 ft. */
+  readonly stopGridId: StopGridId;
   readonly bottomRmvLpm: number;
   readonly decoRmvLpm: number;
   readonly bailoutRmvLpm: number;
@@ -187,8 +192,41 @@ export function isGasOnlyPlan(draft: PlanDraft, environment: DivePlanInput["envi
   return environment !== "cave" && draft.gasPlanning === "gas-only";
 }
 
-/** Stop increment the resolved plan uses; entered switch depths align to this grid. */
+/** Default stop increment (3 m); Tank Bank switch-depth entry uses this when no plan draft is in scope. */
 export const PLAN_STOP_INCREMENT_M: number = DEFAULT_PLANNER_SETTINGS.stopIncrementM;
+
+/** Stop increment for the draft's selected grid; entered switch depths align to this. */
+export function planStopIncrementM(draft: Pick<PlanDraft, "stopGridId">): number {
+  return STOP_GRID_PRESETS[draft.stopGridId].stopIncrementM;
+}
+
+/**
+ * Switch the plan's stop grid. Last-stop-aligned switch and CCR setpoint depths move with the
+ * last stop (6 m ↔ 20 ft); other depths are left unchanged. Default remains 3 m.
+ */
+export function withStopGrid(draft: PlanDraft, stopGridId: StopGridId): PlanDraft {
+  if (draft.stopGridId === stopGridId) return draft;
+  const previousLastStopM = STOP_GRID_PRESETS[draft.stopGridId].lastStopDepthM;
+  const next = STOP_GRID_PRESETS[stopGridId];
+  const remapDepth = (depthM: number): number =>
+    Math.abs(depthM - previousLastStopM) <= 1e-9 ? next.lastStopDepthM : depthM;
+  const remapGas = (gas: GasDraft): GasDraft => {
+    if (gas.switchDepthM === undefined) return gas;
+    const switchDepthM = remapDepth(gas.switchDepthM);
+    return switchDepthM === gas.switchDepthM ? gas : { ...gas, switchDepthM };
+  };
+  return {
+    ...draft,
+    stopGridId,
+    setpointActivationDepthM: remapDepth(draft.setpointActivationDepthM),
+    setpointDeactivationDepthM: remapDepth(draft.setpointDeactivationDepthM),
+    bottomGas: remapGas(draft.bottomGas),
+    travelGas: remapGas(draft.travelGas),
+    decoGases: draft.decoGases.map(remapGas),
+    diluent: remapGas(draft.diluent),
+    bailoutGases: draft.bailoutGases.map(remapGas),
+  };
+}
 
 /** One gas's Tank Bank source in a `tankSourceSignature`. */
 type TankSourceEntry = {
@@ -310,6 +348,7 @@ export const DEFAULT_PLAN_DRAFT: PlanDraft = {
   gfLowPercent: 30,
   gfHighPercent: 70,
   conventionId: "barefoot-zhl16c-v1",
+  stopGridId: DEFAULT_STOP_GRID_ID,
   bottomRmvLpm: 20,
   decoRmvLpm: 15,
   bailoutRmvLpm: 30,
@@ -729,6 +768,8 @@ export function resolvePlanInput(
       gfLow: fraction(draft.gfLowPercent / 100),
       gfHigh: fraction(draft.gfHighPercent / 100),
       conventionId: draft.conventionId,
+      stopIncrementM: STOP_GRID_PRESETS[draft.stopGridId].stopIncrementM,
+      lastStopDepthM: STOP_GRID_PRESETS[draft.stopGridId].lastStopDepthM,
     },
     environmentSettings: DEFAULT_ENVIRONMENT,
     cylinders,

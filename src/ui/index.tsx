@@ -83,9 +83,9 @@ export function PageHeader({ eyebrow, tone, title, description, actions }: { rea
   return <header className="bf-page-header"><div>{eyebrow && <p className={`bf-eyebrow${tone ? ` bf-eyebrow--${tone}` : ""}`}>{eyebrow}</p>}<h1>{title}</h1>{description && <p className="bf-page-header__description">{description}</p>}</div>{actions && <div className="bf-page-header__actions">{actions}</div>}</header>;
 }
 
-export function SegmentedControl<T extends string>({ label, value, options, onChange }: { readonly label: string; readonly value: T; readonly options: readonly { readonly value: T; readonly label: string; readonly disabled?: boolean }[]; readonly onChange?: (value: T) => void }) {
+export function SegmentedControl<T extends string>({ label, value, options, onChange, hint }: { readonly label: string; readonly value: T; readonly options: readonly { readonly value: T; readonly label: string; readonly disabled?: boolean }[]; readonly onChange?: (value: T) => void; readonly hint?: string }) {
   const id = useId();
-  return <fieldset className="bf-segmented"><legend>{label}</legend><div role="radiogroup" aria-label={label}>{options.map((option) => <label data-selected={option.value === value || undefined} key={option.value}><input checked={option.value === value} disabled={option.disabled} name={id} onChange={() => onChange?.(option.value)} type="radio" value={option.value} /><span>{option.label}</span></label>)}</div></fieldset>;
+  return <fieldset className="bf-segmented"><legend>{label}</legend><div role="radiogroup" aria-label={label}>{options.map((option) => <label data-selected={option.value === value || undefined} key={option.value}><input checked={option.value === value} disabled={option.disabled} name={id} onChange={() => onChange?.(option.value)} type="radio" value={option.value} /><span>{option.label}</span></label>)}</div>{hint && <p className="bf-field-group__hint">{hint}</p>}</fieldset>;
 }
 
 /** `errorId` identifies the error text so the control inside can reference it with `aria-describedby`. */
