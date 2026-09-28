@@ -160,7 +160,7 @@ describe("cave CCR low setpoint and switch-down", () => {
     });
   });
 
-  it("allows a shallow switch-down under ambient-limited ascent mode and ambient-limits the exit", () => {
+  it("allows a shallow switch-down under ambient-limited ascent mode and keeps exit travel on the high setpoint", () => {
     const result = calculateCavePlan(caveInput(
       { setpointDeactivationDepthM: meters(3), ascentSetpointMode: "ambient-limited-high" },
       [leg("surface-entry", 0, 30, ids)],
@@ -171,10 +171,9 @@ describe("cave CCR low setpoint and switch-down", () => {
     expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
+    expect(exits.length).toBeGreaterThan(0);
+    expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
     expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
-    const shallowExit = exits.find((segment) => Math.min(segment.startDepthM, segment.endDepthM) < 3.6);
-    expect(shallowExit?.setpointBar).toBeDefined();
-    expect(shallowExit!.setpointBar!).toBeCloseTo(1 - 0.0627, 9);
   });
 
   it("keeps exit legs on the low setpoint when the route never reaches the switch-up depth", () => {
@@ -190,6 +189,25 @@ describe("cave CCR low setpoint and switch-down", () => {
     const loop = result.value.base.segments.filter((segment) => segment.setpointBar !== undefined);
     expect(loop.length).toBeGreaterThan(0);
     expect(loop.every((segment) => segment.setpointBar === 0.7)).toBe(true);
+  });
+
+  it("keeps a shallow final exit leg ambient-limited after a deeper exit already used the high setpoint", () => {
+    const result = calculateCavePlan(caveInput(
+      { ascentSetpointMode: "ambient-limited-high" },
+      [
+        leg("entry", 0, 10, ids),
+        leg("deep", 10, 30, ids),
+      ],
+      hypoxicDiluent,
+      [bailout],
+      cylinders,
+    ));
+    expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
+    if (!result.ok) return;
+    const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
+    expect(exits.length).toBeGreaterThan(1);
+    expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
   });
 });
 

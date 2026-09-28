@@ -1483,12 +1483,19 @@ export function calculateEventDivePlan(
         input.environmentSettings.metersPerBar,
       );
       if (event.strategy.setpointBar > shallowAmbient - input.environmentSettings.waterVaporPressureBar) {
-        eventErrors.push(diagnostic(
-          "EXPOSURE_SETPOINT_NOT_ACHIEVABLE",
-          "error",
-          "CCR event setpoint is not achievable at the shallow end of the event.",
-          { field: `events.${index}.strategy.setpointBar` },
-        ));
+        const ambientLimitedHigh = input.mode === "ccr" &&
+          usesAmbientLimitedAscentSetpoint(input) &&
+          Math.abs(event.strategy.setpointBar - input.setpointBar) <= EPSILON;
+        // Ambient-limited mode may report the held high setpoint on a shallow-ending exit;
+        // tissue loading clamps inspired inert where the high exceeds ambient − water vapor.
+        if (!ambientLimitedHigh) {
+          eventErrors.push(diagnostic(
+            "EXPOSURE_SETPOINT_NOT_ACHIEVABLE",
+            "error",
+            "CCR event setpoint is not achievable at the shallow end of the event.",
+            { field: `events.${index}.strategy.setpointBar` },
+          ));
+        }
       }
     } else {
       const endpoints = [event.startDepthM, event.endDepthM] as const;
