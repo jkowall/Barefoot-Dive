@@ -463,4 +463,13 @@ describe("limit diagnostics state the value and the limit", () => {
     expect(diagnostic?.message).toContain("shallower than 3.7 m, so the plan switches to the low setpoint at 3.7 m instead of 0.0 m");
     expect(diagnostic?.depthMentions?.map((mention) => mention.rounding)).toEqual(["up", "up", "nearest"]);
   });
+
+  it("does not deepen a shallow switch-down under ambient-limited ascent mode", () => {
+    const result = validateDiveInput(ccrInput({
+      lowSetpointBar: barAbsolute(0.7),
+      setpointDeactivationDepthM: meters(0),
+      ascentSetpointMode: "ambient-limited-high",
+    }));
+    expect(result.warnings.map((item) => item.code)).not.toContain("CCR_SWITCH_DOWN_DEEPENED");
+  });
 });

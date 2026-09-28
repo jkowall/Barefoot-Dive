@@ -807,6 +807,9 @@ export function resolvePlanInput(
       setpointActivationDepthM: meters(draft.setpointActivationDepthM),
       lowSetpointBar: barAbsolute(draft.lowSetpointBar),
       setpointDeactivationDepthM: meters(draft.setpointDeactivationDepthM),
+      // New CCR plans hold min(high, max loop PPO₂ at depth) after the high setpoint is
+      // active on ascent. Stored plans without this field keep leave-the-depth → low.
+      ascentSetpointMode: "ambient-limited-high" as const,
       bailoutGases: gases.slice(1),
       ...(draft.diluentBailout
         ? {

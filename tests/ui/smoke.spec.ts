@@ -405,7 +405,7 @@ test("requires the pre-bailout diluent use and bails out onto the diluent when d
   await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
   await expect(page.getByRole("spinbutton", { name: "Low setpoint (bar)" })).toHaveValue("0.7");
   await expect(page.getByRole("spinbutton", { name: "High setpoint (bar)" })).toHaveValue("1.3");
-  await expect(page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" })).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "Switch-down depth (ft)" })).toBeVisible();
   const bailoutPanel = page.locator("section.bf-panel", { has: page.getByRole("heading", { name: "Bailout gases", exact: true }) });
   await bailoutPanel.getByRole("button", { name: "Remove" }).first().click();
   await bailoutPanel.getByRole("button", { name: "Remove" }).first().click();
@@ -1840,16 +1840,18 @@ test("reports gas density in g/L", async ({ page }) => {
 test("restates stored warning depths in feet in the Saved Plans library", async ({ page }) => {
   await page.getByRole("button", { name: /understand and accept/i }).click();
   await page.getByRole("radiogroup", { name: "Mode" }).getByText("CCR", { exact: true }).click();
-  await page.getByRole("spinbutton", { name: "Switch down to low setpoint (ft)" }).fill("0");
+  // Hypoxic diluent: flush warning names the breathable depth in metres; the library restates it in feet.
+  const diluentEditor = page.locator("article.bf-gas-editor", { has: page.getByText("diluent", { exact: true }) });
+  await diluentEditor.getByRole("spinbutton", { name: "O₂ (%)" }).fill("10");
+  await diluentEditor.getByRole("spinbutton", { name: "He (%)" }).fill("50");
   await page.getByRole("button", { name: "Calculate plan" }).click();
   await expect(page.getByRole("heading", { name: "Calculated plan" })).toBeVisible();
   await page.getByRole("button", { name: "Save snapshot" }).click();
-  await page.getByLabel("Plan name").fill("CCR switch-down plan");
+  await page.getByLabel("Plan name").fill("CCR hypoxic diluent plan");
   await page.getByRole("button", { name: "Save plan" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Snapshot saved locally" })).toBeVisible();
   await page.getByRole("button", { name: /^Saved plans/ }).first().click();
   const stored = page.getByRole("region", { name: "Stored warnings" });
-  // The stored message prints canonical metres (3.7 m, 0.0 m); the library restates them in feet.
-  await expect(stored).toContainText("shallower than 12 ft, so the plan switches to the low setpoint at 12 ft instead of 0 ft");
-  await expect(stored).not.toContainText("3.7 m");
+  await expect(stored).toContainText(/is hypoxic shallower than \d+ ft/);
+  await expect(stored).not.toContainText(/\d+\.\d+ m/);
 });

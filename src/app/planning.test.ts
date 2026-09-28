@@ -190,12 +190,13 @@ describe("plan input resolution", () => {
     expect(cylinders.gases.every((gas) => gas.maximumPPO2 === undefined)).toBe(true);
   });
 
-  it("emits the low setpoint and switch-down depth for every new CCR plan and dil-out only when enabled", () => {
+  it("emits the low setpoint, switch-down depth, and ambient-limited ascent mode for every new CCR plan and dil-out only when enabled", () => {
     const ccr = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr" }, []));
     expect(ccr.mode).toBe("ccr");
     if (ccr.mode !== "ccr") return;
     expect(ccr.lowSetpointBar).toBe(0.7);
     expect(ccr.setpointDeactivationDepthM).toBe(6);
+    expect(ccr.ascentSetpointMode).toBe("ambient-limited-high");
     expect("diluentBailout" in ccr).toBe(false);
     expect("diluentPreBailoutUseL" in ccr).toBe(false);
     const dilOut = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr", diluentBailout: true, diluentPreBailoutUseL: 150 }, []));

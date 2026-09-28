@@ -25,6 +25,7 @@ import {
   seconds,
 } from "../domain/units";
 import {
+  ambientLimitedSetpoint,
   compareGasPreference,
   effectiveBailoutGases,
   effectiveSwitchDownDepth,
@@ -40,6 +41,7 @@ import {
   oxygenAtTwentyFootStopInfo,
   sameGas,
   switchDownDepth,
+  usesAmbientLimitedAscentSetpoint,
   usesLowSetpoint,
   validateDiveInput,
   validateGas,
@@ -76,12 +78,20 @@ type WorkingState = {
 
 /**
  * CCR ascent breathing rule. Legacy: switch to open-circuit diluent on arrival at the
- * activation depth. Low: hold the high setpoint at or below the switch-down depth
- * (including a stop there) and switch to the low setpoint when leaving it.
+ * activation depth. Low / leave-to-low: hold the high setpoint at or below the switch-down
+ * depth (including a stop there) and switch to the fixed low setpoint when leaving it.
+ * Ambient-limited: after the high setpoint is active, hold
+ * min(high, max loop PPO₂ at depth) to the surface instead of dropping to the fixed low.
  */
 type CcrAscent =
   | { readonly mode: "legacy"; readonly activationDepthM: Meters }
-  | { readonly mode: "low"; readonly switchDownDepthM: Meters; readonly lowStrategy: Extract<BreathingStrategy, { kind: "ccr" }> };
+  | {
+      readonly mode: "low";
+      readonly switchDownDepthM: Meters;
+      readonly lowStrategy: Extract<BreathingStrategy, { kind: "ccr" }>;
+      readonly postSwitchDown: "fixed-low" | "ambient-limited-high";
+      readonly highSetpointBar: BarAbsolute;
+    };
 
 type AscentConfiguration = {
   readonly input: DivePlanInput;
@@ -225,17 +235,57 @@ function ccrStrategy(input: CcrDiveInput, setpointBar: BarAbsolute): Extract<Bre
 
 /**
  * `heldSetpointBar` is the setpoint actually breathed when the ascent starts. Explicit event
- * plans can hold a setpoint other than `setpointBar`, and the switch-down must also be no
- * shallower than the depth where that setpoint is achievable.
+ * plans can hold a setpoint other than `setpointBar`, and under leave-to-low the switch-down
+ * must also be no shallower than the depth where that setpoint is achievable.
  */
 function ccrAscentConfiguration(input: CcrDiveInput, heldSetpointBar?: number): CcrAscent {
   if (!usesLowSetpoint(input)) return { mode: "legacy", activationDepthM: input.setpointActivationDepthM };
-  const held = heldSetpointBar === undefined ? 0 : setpointAchievableDepth(heldSetpointBar, input.environmentSettings);
+  const ambientLimited = usesAmbientLimitedAscentSetpoint(input);
+  const held = heldSetpointBar === undefined || ambientLimited
+    ? 0
+    : setpointAchievableDepth(heldSetpointBar, input.environmentSettings);
   return {
     mode: "low",
     switchDownDepthM: meters(Math.max(effectiveSwitchDownDepth(input), held)),
     lowStrategy: ccrStrategy(input, input.lowSetpointBar),
+    postSwitchDown: ambientLimited ? "ambient-limited-high" : "fixed-low",
+    highSetpointBar: input.setpointBar,
   };
+}
+
+function ambientLimitedStrategy(
+  input: CcrDiveInput,
+  highSetpointBar: BarAbsolute,
+  depthM: Meters,
+): Extract<BreathingStrategy, { kind: "ccr" }> {
+  return ccrStrategy(input, ambientLimitedSetpoint(highSetpointBar, depthM, input.environmentSettings));
+}
+
+/**
+ * Ambient-limited ascent: keep the CCR setpoint at min(high, max loop PPO₂ at depth).
+ * Raises a stop that was left on the fixed low setpoint (event/cave paths) and lowers a
+ * claimed high setpoint the loop cannot hold at the current depth.
+ */
+function syncAmbientLimitedSetpoint(
+  state: WorkingState,
+  configuration: AscentConfiguration,
+  gf: Fraction,
+): WorkingState {
+  const ascent = configuration.ccrAscent;
+  const { input } = configuration;
+  if (ascent?.mode !== "low" || ascent.postSwitchDown !== "ambient-limited-high") return state;
+  if (input.mode !== "ccr" || state.currentStrategy.kind !== "ccr") return state;
+  const desired = ambientLimitedStrategy(input, ascent.highSetpointBar, state.depthM);
+  if (Math.abs(state.currentStrategy.setpointBar - desired.setpointBar) < EPSILON) return state;
+  return appendSwitch(
+    state,
+    input,
+    state.currentGas,
+    desired,
+    "setpoint-switch",
+    conventionFor(input.settings).setpointSwitchDurationSeconds,
+    gf,
+  );
 }
 
 function appendSwitch(
@@ -329,8 +379,9 @@ function isOnHighSetpoint(state: WorkingState, low: Extract<CcrAscent, { mode: "
 }
 
 /**
- * Low-setpoint mode: the diver leaves the switch-down depth on the low setpoint. Called
- * immediately before every ascent leg, so a stop held at that depth stays on the high setpoint.
+ * Leave-to-low mode: the diver leaves the switch-down depth on the fixed low setpoint.
+ * Called immediately before every ascent leg, so a stop held at that depth stays on the high
+ * setpoint. Ambient-limited mode does not drop to the fixed low here.
  */
 function switchDownBeforeLeaving(
   state: WorkingState,
@@ -338,7 +389,9 @@ function switchDownBeforeLeaving(
   gf: Fraction,
 ): WorkingState {
   const ascent = configuration.ccrAscent;
-  if (ascent?.mode !== "low" || ascent.switchDownDepthM <= 0) return state;
+  if (ascent?.mode !== "low" || ascent.postSwitchDown !== "fixed-low" || ascent.switchDownDepthM <= 0) {
+    return state;
+  }
   if (!isOnHighSetpoint(state, ascent) || state.depthM > ascent.switchDownDepthM + EPSILON) return state;
   return appendSwitch(
     state,
@@ -418,9 +471,11 @@ function preferredGasWaypoint(
 }
 
 /**
- * Commit one ascent leg. It is split, without a stop, at the low-setpoint switch-down
- * depth and at any hypoxic-floor waypoint, and breathing is updated at each split.
- * With neither split this is exactly one trialAscent, so legacy schedules are unchanged.
+ * Commit one ascent leg. It is split, without a stop, at the leave-to-low switch-down
+ * depth, at the depth where the held CCR setpoint becomes unachievable under
+ * ambient-limited mode, and at any hypoxic-floor waypoint, and breathing is updated at
+ * each split. With neither split this is exactly one trialAscent, so legacy schedules
+ * are unchanged.
  */
 function commitAscentLeg(
   state: WorkingState,
@@ -434,19 +489,60 @@ function commitAscentLeg(
   let current = state;
   for (let splits = 0; current.depthM > targetDepthM + EPSILON && splits < 8; splits += 1) {
     current = switchDownBeforeLeaving(current, configuration, gf);
+    current = syncAmbientLimitedSetpoint(current, configuration, gf);
     let next = targetDepthM;
     const ascent = configuration.ccrAscent;
     if (
       ascent?.mode === "low" &&
+      ascent.postSwitchDown === "fixed-low" &&
       isOnHighSetpoint(current, ascent) &&
       ascent.switchDownDepthM > next + EPSILON &&
       ascent.switchDownDepthM < current.depthM - EPSILON
     ) {
       next = ascent.switchDownDepthM;
     }
+    if (
+      ascent?.mode === "low" &&
+      ascent.postSwitchDown === "ambient-limited-high" &&
+      current.currentStrategy.kind === "ccr"
+    ) {
+      const floor = setpointAchievableDepth(
+        current.currentStrategy.setpointBar,
+        input.environmentSettings,
+      );
+      if (floor > next + EPSILON && floor < current.depthM - EPSILON) {
+        next = meters(floor);
+      }
+    }
     next = hypoxicWaypoint(current, configuration, next) ?? next;
+    // Before a final shallow leg under ambient-limited mode, drop the claimed setpoint to
+    // what the loop can hold at the destination so the profile does not report an
+    // unachievable high setpoint for the whole travel.
+    if (
+      ascent?.mode === "low" &&
+      ascent.postSwitchDown === "ambient-limited-high" &&
+      input.mode === "ccr" &&
+      current.currentStrategy.kind === "ccr" &&
+      Math.abs(next - targetDepthM) < EPSILON
+    ) {
+      const desired = ambientLimitedStrategy(input, ascent.highSetpointBar, next);
+      if (desired.setpointBar < current.currentStrategy.setpointBar - EPSILON) {
+        current = appendSwitch(
+          current,
+          input,
+          current.currentGas,
+          desired,
+          "setpoint-switch",
+          conventionFor(input.settings).setpointSwitchDurationSeconds,
+          gf,
+        );
+      }
+    }
     current = trialAscent(current, input, next, gf, rateMPerMinute, kind);
-    if (next > targetDepthM + EPSILON) current = updateBreathingAtDepth(current, configuration, gf);
+    if (next > targetDepthM + EPSILON) {
+      current = updateBreathingAtDepth(current, configuration, gf);
+      current = syncAmbientLimitedSetpoint(current, configuration, gf);
+    }
   }
   return current.depthM > targetDepthM + EPSILON
     ? trialAscent(current, input, targetDepthM, gf, rateMPerMinute, kind)
@@ -551,12 +647,13 @@ function aggregateStops(segments: readonly ProfileSegment[]): readonly DecoStop[
 }
 
 /**
- * Low-setpoint mode: reports the decompression stops this ascent breathes on the low setpoint,
- * because the loop switched down when leaving a depth deeper than the stop. An open-water plan
- * with the defaults (switch-down at the 6 m last stop) has none; a deeper switch-down depth, or
- * one moved deeper to where the high setpoint is achievable, puts the shallower stops on the low
- * setpoint, and so does a Cave route that ends shallower than the switch-down depth with
- * decompression left. The schedule is already final; this names the stops, their time, and why.
+ * Leave-to-low mode only: reports the decompression stops this ascent breathes on the low
+ * setpoint, because the loop switched down when leaving a depth deeper than the stop. An
+ * open-water plan with the defaults (switch-down at the 6 m last stop) has none; a deeper
+ * switch-down depth, or one moved deeper to where the high setpoint is achievable, puts the
+ * shallower stops on the low setpoint, and so does a Cave route that ends shallower than the
+ * switch-down depth with decompression left. Ambient-limited ascent mode never emits this
+ * warning. The schedule is already final; this names the stops, their time, and why.
  */
 function lowSetpointStopDiagnostic(
   initial: WorkingState,
@@ -565,7 +662,9 @@ function lowSetpointStopDiagnostic(
 ): Diagnostic | undefined {
   const { input } = configuration;
   const ascent = configuration.ccrAscent;
-  if (ascent?.mode !== "low" || input.mode !== "ccr") return undefined;
+  if (ascent?.mode !== "low" || ascent.postSwitchDown !== "fixed-low" || input.mode !== "ccr") {
+    return undefined;
+  }
   const lowSetpoint = ascent.lowStrategy.setpointBar;
   // Validation accepts a low setpoint equal to the high one; no stop is then on a lower setpoint.
   if (lowSetpoint >= input.setpointBar - EPSILON) return undefined;
@@ -791,6 +890,7 @@ function scheduleAscentOnce(initial: WorkingState, configuration: AscentConfigur
       input.settings.gfHigh,
     );
     state = updateBreathingAtDepth(state, configuration, currentGf);
+    state = syncAmbientLimitedSetpoint(state, configuration, currentGf);
     if (stopArrivalDepth !== state.depthM) {
       state = appendExposure(
         state,
