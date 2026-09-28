@@ -273,6 +273,19 @@ export type OcDiveInput = BaseDiveInput & {
   readonly decoRmvFrom?: "first-stop";
 };
 
+/**
+ * Opt-in CCR bailout RMV phase mode. Absent keeps the engine 0.3.0 rule: travel legs at
+ * `rmv.bailoutLpm`, stop segments only at `rmv.bailoutDecoLpm`.
+ *
+ * - `"static"`: one bailout SAC for the whole bailout ascent and stops.
+ * - `"bottom-deco"`: bailout SAC until first-stop arrival; bailout deco SAC from then on,
+ *   including moves between stops.
+ * - `"timed"`: bailout SAC for `bailoutRmvSwitchSeconds` after the bailout ledger start
+ *   (including problem-solving), then bailout deco SAC. A straddling segment is split for
+ *   charging only.
+ */
+export type BailoutRmvMode = "static" | "bottom-deco" | "timed";
+
 export type CcrDiveInput = BaseDiveInput & {
   readonly mode: "ccr";
   readonly diluent: Gas;
@@ -302,6 +315,21 @@ export type CcrDiveInput = BaseDiveInput & {
    */
   readonly diluentPreBailoutUseL?: Liters;
   readonly bailoutTriggerSecondsAtDepth?: Seconds;
+  /**
+   * Opt-in bailout RMV phase mode. Absent keeps travel @ bailout SAC and stops @ bailout
+   * deco SAC. Open water only; cave plans reject it until cave review.
+   */
+  readonly bailoutRmvMode?: BailoutRmvMode;
+  /**
+   * Mode `"timed"` only: duration of `rmv.bailoutLpm` after the bailout ledger start before
+   * switching to `rmv.bailoutDecoLpm`. Required when `bailoutRmvMode` is `"timed"`.
+   */
+  readonly bailoutRmvSwitchSeconds?: Seconds;
+  /**
+   * Hold at the bailout trigger depth after the OC gas switch and before ascent. Charged at
+   * `rmv.bailoutLpm`; tissues and gas advance for the hold. Absent or zero means no hold.
+   */
+  readonly problemSolvingTimeSeconds?: Seconds;
 };
 
 export type DivePlanInput = OcDiveInput | CcrDiveInput;

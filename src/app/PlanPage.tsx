@@ -529,6 +529,46 @@ export function PlannerEditor({
         {draft.bailoutTriggerMinutes !== undefined && <div className="bf-form-grid bf-form-grid--gas">
           <NumberField label="Bailout trigger at depth (min)" min={0} max={draft.bottomTimeMinutes} onChange={(bailoutTriggerMinutes) => set("bailoutTriggerMinutes", bailoutTriggerMinutes)} value={draft.bailoutTriggerMinutes} />
         </div>}
+        {environment !== "cave" && <>
+          <SegmentedControl
+            label="Bailout SAC/RMV mode"
+            onChange={(bailoutRmvMode) => set("bailoutRmvMode", bailoutRmvMode)}
+            options={[
+              { value: "legacy", label: "Travel / stops" },
+              { value: "static", label: "Static" },
+              { value: "bottom-deco", label: "Bottom / deco" },
+              { value: "timed", label: "Timed" },
+            ]}
+            value={draft.bailoutRmvMode}
+          />
+          <p className="bf-panel__note">
+            {draft.bailoutRmvMode === "legacy"
+              ? "Travel legs use the bailout SAC/RMV; only stops use the bailout deco SAC/RMV (the engine 0.3.0 rule)."
+              : draft.bailoutRmvMode === "static"
+                ? "The whole bailout ascent and stops use the bailout SAC/RMV."
+                : draft.bailoutRmvMode === "bottom-deco"
+                  ? "Bailout SAC/RMV until the first stop; bailout deco SAC/RMV from the first stop on, including moves between stops."
+                  : "Bailout SAC/RMV for the first minutes after the trigger (including problem-solving), then bailout deco SAC/RMV."}
+          </p>
+          {draft.bailoutRmvMode === "timed" && <div className="bf-form-grid bf-form-grid--gas">
+            <NumberField
+              hint="Counted from the bailout trigger, including problem-solving time."
+              label="Bailout SAC/RMV for first (min)"
+              min={0.1}
+              onChange={(bailoutRmvSwitchMinutes) => set("bailoutRmvSwitchMinutes", bailoutRmvSwitchMinutes)}
+              step={0.5}
+              value={draft.bailoutRmvSwitchMinutes}
+            />
+          </div>}
+          <NumberField
+            hint="Hold at the trigger depth after switching to open-circuit bailout, charged at the bailout SAC/RMV before ascent. Enter 0 for none."
+            label="Problem-solving time (min)"
+            min={0}
+            onChange={(problemSolvingTimeMinutes) => set("problemSolvingTimeMinutes", problemSolvingTimeMinutes)}
+            step={0.5}
+            value={draft.problemSolvingTimeMinutes}
+          />
+        </>}
         <ToggleField
           checked={draft.diluentBailout}
           hint="The diluent is used when it is the richest breathable gas or the only one eligible; a dedicated bailout with the same mix is used first."

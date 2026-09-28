@@ -410,7 +410,7 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
     if (input.mode !== "oc") {
       errors.push(error(
         "DECO_RMV_BOUNDARY_OC_ONLY",
-        "The deco RMV boundary applies to open-circuit plans only. CCR bailout charges only stops at the bailout deco RMV.",
+        "The deco RMV boundary applies to open-circuit plans only. CCR bailout charges only stops at the bailout deco RMV unless a bailout RMV mode is set.",
         "decoRmvFrom",
       ));
     } else if (decoRmvFrom !== "first-stop") {
@@ -421,6 +421,17 @@ export function validateDiveInput(input: DivePlanInput): CalculationResult<DiveP
         "Cave turn limits keep the end-of-bottom-time deco RMV boundary until the first-stop boundary has cave review.",
         "decoRmvFrom",
       ));
+    }
+  }
+  if (input.mode !== "ccr") {
+    for (const field of ["bailoutRmvMode", "bailoutRmvSwitchSeconds", "problemSolvingTimeSeconds"] as const) {
+      if ((input as Record<string, unknown>)[field] !== undefined) {
+        errors.push(error(
+          "BAILOUT_RMV_POLICY_CCR_ONLY",
+          "Bailout RMV modes and problem-solving time apply to CCR plans only.",
+          field,
+        ));
+      }
     }
   }
   const gasIds = new Set<string>();
@@ -720,6 +731,80 @@ function validateCcr(input: CcrDiveInput, errors: Diagnostic[], warnings: Diagno
       input.bailoutTriggerSecondsAtDepth > input.bottomTimeSeconds)
   ) {
     errors.push(error("CCR_BAILOUT_TRIGGER_INVALID", "Bailout trigger must fall within the at-depth time.", "bailoutTriggerSecondsAtDepth"));
+  }
+  validateBailoutRmvPolicy(input, errors);
+}
+
+const BAILOUT_RMV_MODES = new Set(["static", "bottom-deco", "timed"]);
+
+/**
+ * Opt-in CCR bailout RMV modes and problem-solving hold. Absent fields keep the engine 0.3.0
+ * ledger (travel at bailout SAC, stops at bailout deco SAC, no hold). Cave rejects them until
+ * turn limits have review with the new charging rules.
+ */
+function validateBailoutRmvPolicy(input: CcrDiveInput, errors: Diagnostic[]): void {
+  const mode = (input as { readonly bailoutRmvMode?: unknown }).bailoutRmvMode;
+  const switchSeconds = (input as { readonly bailoutRmvSwitchSeconds?: unknown }).bailoutRmvSwitchSeconds;
+  const problemSolving = (input as { readonly problemSolvingTimeSeconds?: unknown }).problemSolvingTimeSeconds;
+
+  if (mode !== undefined) {
+    if (!BAILOUT_RMV_MODES.has(mode as string)) {
+      errors.push(error(
+        "BAILOUT_RMV_MODE_INVALID",
+        "The bailout RMV mode must be \"static\", \"bottom-deco\", \"timed\", or absent.",
+        "bailoutRmvMode",
+      ));
+    } else if (input.environment === "cave") {
+      errors.push(error(
+        "BAILOUT_RMV_MODE_CAVE_UNSUPPORTED",
+        "Cave turn limits keep the engine 0.3.0 bailout RMV phases until the new modes have cave review.",
+        "bailoutRmvMode",
+      ));
+    }
+  }
+
+  if (switchSeconds !== undefined) {
+    if (typeof switchSeconds !== "number" || !Number.isFinite(switchSeconds) || switchSeconds <= 0) {
+      errors.push(error(
+        "BAILOUT_RMV_SWITCH_INVALID",
+        "The timed bailout RMV switch must be finite and greater than zero.",
+        "bailoutRmvSwitchSeconds",
+      ));
+    } else if (mode !== "timed") {
+      errors.push(error(
+        "BAILOUT_RMV_SWITCH_REQUIRES_TIMED",
+        "bailoutRmvSwitchSeconds is only valid when bailoutRmvMode is \"timed\".",
+        "bailoutRmvSwitchSeconds",
+      ));
+    } else if (input.environment === "cave") {
+      errors.push(error(
+        "BAILOUT_RMV_SWITCH_CAVE_UNSUPPORTED",
+        "Cave turn limits keep the engine 0.3.0 bailout RMV phases until the new modes have cave review.",
+        "bailoutRmvSwitchSeconds",
+      ));
+    }
+  } else if (mode === "timed") {
+    errors.push(error(
+      "BAILOUT_RMV_SWITCH_REQUIRED",
+      "Timed bailout RMV mode requires bailoutRmvSwitchSeconds.",
+      "bailoutRmvSwitchSeconds",
+    ));
+  }
+
+  if (problemSolving !== undefined) {
+    if (typeof problemSolving !== "number" || !Number.isFinite(problemSolving) || problemSolving < 0) {
+      errors.push(error(
+        "BAILOUT_PROBLEM_SOLVING_INVALID",
+        "Problem-solving time must be finite and nonnegative.",
+        "problemSolvingTimeSeconds",
+      ));
+    } else if (input.environment === "cave") {
+      errors.push(error(
+        "BAILOUT_PROBLEM_SOLVING_CAVE_UNSUPPORTED",
+        "Cave turn limits keep bailout without a problem-solving hold until that hold has cave review.",
+        "problemSolvingTimeSeconds",
+      ));
+    }
   }
 }
 

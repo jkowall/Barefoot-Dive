@@ -180,6 +180,44 @@ describe("deco RMV boundary validation", () => {
   });
 });
 
+describe("CCR bailout RMV policy validation", () => {
+  const codes = (candidate: CcrDiveInput | OcDiveInput): readonly string[] => {
+    const result = validateDiveInput(candidate);
+    return result.ok ? [] : result.errors.map((item) => item.code);
+  };
+
+  it("accepts open-water modes A/B/C and problem-solving time", () => {
+    expect(validateDiveInput(ccrInput({ bailoutRmvMode: "static" })).ok).toBe(true);
+    expect(validateDiveInput(ccrInput({ bailoutRmvMode: "bottom-deco" })).ok).toBe(true);
+    expect(validateDiveInput(ccrInput({
+      bailoutRmvMode: "timed",
+      bailoutRmvSwitchSeconds: seconds(300),
+    })).ok).toBe(true);
+    expect(validateDiveInput(ccrInput({ problemSolvingTimeSeconds: seconds(120) })).ok).toBe(true);
+    expect(validateDiveInput(ccrInput({ problemSolvingTimeSeconds: seconds(0) })).ok).toBe(true);
+  });
+
+  it("rejects invalid combinations and cave use", () => {
+    expect(codes(ccrInput({ bailoutRmvMode: "timed" }))).toContain("BAILOUT_RMV_SWITCH_REQUIRED");
+    expect(codes(ccrInput({
+      bailoutRmvMode: "static",
+      bailoutRmvSwitchSeconds: seconds(60),
+    }))).toContain("BAILOUT_RMV_SWITCH_REQUIRES_TIMED");
+    expect(codes(ccrInput({
+      bailoutRmvMode: "timed",
+      bailoutRmvSwitchSeconds: seconds(0),
+    }))).toContain("BAILOUT_RMV_SWITCH_INVALID");
+    expect(codes(ccrInput({ problemSolvingTimeSeconds: seconds(-1) })))
+      .toContain("BAILOUT_PROBLEM_SOLVING_INVALID");
+    expect(codes(ccrInput({ environment: "cave", bailoutRmvMode: "static" })))
+      .toContain("BAILOUT_RMV_MODE_CAVE_UNSUPPORTED");
+    expect(codes(ccrInput({ environment: "cave", problemSolvingTimeSeconds: seconds(60) })))
+      .toContain("BAILOUT_PROBLEM_SOLVING_CAVE_UNSUPPORTED");
+    expect(codes({ ...input(), bailoutRmvMode: "static" } as unknown as OcDiveInput))
+      .toContain("BAILOUT_RMV_POLICY_CCR_ONLY");
+  });
+});
+
 function ccrInput(overrides: Partial<CcrDiveInput> = {}): CcrDiveInput {
   return {
     mode: "ccr",

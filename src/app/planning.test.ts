@@ -163,6 +163,46 @@ describe("plan input resolution", () => {
     expect("decoRmvFrom" in calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr" }, []))).toBe(false);
   });
 
+  it("emits opt-in CCR bailout RMV modes and problem-solving time only for open-water CCR", () => {
+    const legacy = calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), mode: "ccr" }, []));
+    expect(legacy.mode).toBe("ccr");
+    if (legacy.mode !== "ccr") return;
+    expect("bailoutRmvMode" in legacy).toBe(false);
+    expect("problemSolvingTimeSeconds" in legacy).toBe(false);
+
+    const staticMode = calculable(resolvePlanInput({
+      ...structuredClone(DEFAULT_PLAN_DRAFT),
+      mode: "ccr",
+      bailoutRmvMode: "static",
+      problemSolvingTimeMinutes: 2,
+    }, []));
+    expect(staticMode).toMatchObject({
+      bailoutRmvMode: "static",
+      problemSolvingTimeSeconds: 120,
+    });
+    expect("bailoutRmvSwitchSeconds" in staticMode).toBe(false);
+
+    const timed = calculable(resolvePlanInput({
+      ...structuredClone(DEFAULT_PLAN_DRAFT),
+      mode: "ccr",
+      bailoutRmvMode: "timed",
+      bailoutRmvSwitchMinutes: 4,
+    }, []));
+    expect(timed).toMatchObject({
+      bailoutRmvMode: "timed",
+      bailoutRmvSwitchSeconds: 240,
+    });
+
+    const cave = calculable(resolvePlanInput({
+      ...structuredClone(DEFAULT_PLAN_DRAFT),
+      mode: "ccr",
+      bailoutRmvMode: "static",
+      problemSolvingTimeMinutes: 2,
+    }, [], "cave"));
+    expect("bailoutRmvMode" in cave).toBe(false);
+    expect("problemSolvingTimeSeconds" in cave).toBe(false);
+  });
+
   it("adds only the default draft's climb volume to its bottom gas", () => {
     const legacy = calculateDivePlan(calculable(resolvePlanInput({ ...structuredClone(DEFAULT_PLAN_DRAFT), bottomRmvUntilFirstStop: false }, [])));
     const current = calculateDivePlan(calculable(resolvePlanInput(DEFAULT_PLAN_DRAFT, [])));

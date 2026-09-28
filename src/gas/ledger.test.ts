@@ -631,3 +631,179 @@ describe("first-stop deco RMV boundary (opt-in)", () => {
     expect(calculateGasLedger(segments, withField, options)).toEqual(calculateGasLedger(segments, input, options));
   });
 });
+
+/**
+ * Opt-in CCR bailout RMV modes (tester item #20). Absent fields keep the engine 0.3.0
+ * travel @ bailout / stops @ bailout-deco rule pinned above.
+ */
+describe("CCR bailout RMV modes", () => {
+  const bailoutGas: Gas = { ...AIR, id: "bo", role: "bailout", cylinderId: "bo-cylinder" };
+  const baseInput = (): CcrDiveInput => ({
+    mode: "ccr",
+    environment: "open-water",
+    depthM: meters(30),
+    bottomTimeSeconds: seconds(600),
+    diluent: { ...AIR, id: "dil", role: "diluent" },
+    setpointBar: barAbsolute(1.3),
+    setpointActivationDepthM: meters(6),
+    bailoutGases: [bailoutGas],
+    cylinders: [{
+      id: "bo-cylinder",
+      name: "Bailout 11 L",
+      waterVolumeL: liters(11.1),
+      workingPressureBar: barGauge(207),
+      currentPressureBar: barGauge(200),
+      gas: bailoutGas,
+      maximumPPO2: barAbsolute(1.6),
+      role: "bailout",
+      revision: 1,
+    }],
+    settings: DEFAULT_PLANNER_SETTINGS,
+    environmentSettings: DEFAULT_ENVIRONMENT,
+    rmv: DEFAULT_RMV,
+    reservePolicy: DEFAULT_RESERVE_POLICY,
+  });
+  const toFirstStop = leg("bailout-1", "bailout", 700, 120, 30, 12, bailoutGas);
+  const firstStop = leg("stop-12", "stop", 820, 60, 12, 12, bailoutGas);
+  const betweenStops = leg("bailout-2", "bailout", 880, 60, 12, 9, bailoutGas);
+  const segments = [toFirstStop, firstStop, betweenStops];
+  const options = { bailout: true, startRuntimeSeconds: seconds(700), bottomEndRuntimeSeconds: seconds(700) };
+
+  it("mode A static charges every bailout segment at the bailout SAC", () => {
+    const input = { ...baseInput(), bailoutRmvMode: "static" as const };
+    const [entry] = calculateGasLedger(segments, input, options).entries;
+    const expected =
+      surfaceUse(toFirstStop, DEFAULT_RMV.bailoutLpm) +
+      surfaceUse(firstStop, DEFAULT_RMV.bailoutLpm) +
+      surfaceUse(betweenStops, DEFAULT_RMV.bailoutLpm);
+    expect(entry.bottomUsedL).toBeCloseTo(expected, 10);
+    expect(entry.decoUsedL).toBe(0);
+    expect(entry.totalUsedL).toBeCloseTo(expected, 10);
+  });
+
+  it("mode B bottom-deco charges inter-stop moves at the bailout deco SAC", () => {
+    const input = { ...baseInput(), bailoutRmvMode: "bottom-deco" as const };
+    const [entry] = calculateGasLedger(segments, input, options).entries;
+    expect(entry.bottomUsedL).toBeCloseTo(surfaceUse(toFirstStop, DEFAULT_RMV.bailoutLpm), 10);
+    expect(entry.decoUsedL).toBeCloseTo(
+      surfaceUse(firstStop, DEFAULT_RMV.bailoutDecoLpm) + surfaceUse(betweenStops, DEFAULT_RMV.bailoutDecoLpm),
+      10,
+    );
+  });
+
+  it("mode C timed splits a straddling stop between bailout and bailout deco SAC", () => {
+    // 2.5 minutes of bailout SAC from runtime 700: whole 2 min climb + first 30 s of the stop;
+    // the remaining 30 s stop and the inter-stop move use deco SAC.
+    const input = {
+      ...baseInput(),
+      bailoutRmvMode: "timed" as const,
+      bailoutRmvSwitchSeconds: seconds(150),
+    };
+    const [entry] = calculateGasLedger(segments, input, options).entries;
+    const stopFirstHalf = {
+      startDepthM: meters(12),
+      endDepthM: meters(12),
+      durationSeconds: seconds(30),
+      rmvLpm: DEFAULT_RMV.bailoutLpm,
+    };
+    const stopSecondHalf = { ...stopFirstHalf, rmvLpm: DEFAULT_RMV.bailoutDecoLpm };
+    const expectedBottom =
+      surfaceUse(toFirstStop, DEFAULT_RMV.bailoutLpm) +
+      integratedSurfaceGas(stopFirstHalf, DEFAULT_ENVIRONMENT.surfacePressureBar, DEFAULT_ENVIRONMENT.metersPerBar);
+    const expectedDeco =
+      integratedSurfaceGas(stopSecondHalf, DEFAULT_ENVIRONMENT.surfacePressureBar, DEFAULT_ENVIRONMENT.metersPerBar) +
+      surfaceUse(betweenStops, DEFAULT_RMV.bailoutDecoLpm);
+    expect(entry.bottomUsedL).toBeCloseTo(expectedBottom, 10);
+    expect(entry.decoUsedL).toBeCloseTo(expectedDeco, 10);
+  });
+
+  it("charges a problem-solving hold entirely at the bailout SAC under every mode, including Mode C when the timer ends during the hold", () => {
+    const hold = leg("problem-solving", "bailout", 700, 120, 30, 30, bailoutGas);
+    const climb = leg("bailout-1", "bailout", 820, 120, 30, 12, bailoutGas);
+    const stop = leg("stop-12", "stop", 940, 60, 12, 12, bailoutGas);
+    const holdSegments = [hold, climb, stop];
+    const holdOptions = {
+      bailout: true,
+      startRuntimeSeconds: seconds(700),
+      bottomEndRuntimeSeconds: seconds(700),
+      problemSolvingHold: { startRuntimeSeconds: seconds(700), endRuntimeSeconds: seconds(820) },
+    };
+    const holdUse = surfaceUse(hold, DEFAULT_RMV.bailoutLpm);
+
+    const legacy = calculateGasLedger(holdSegments, baseInput(), holdOptions).entries[0];
+    expect(legacy.bottomUsedL).toBeCloseTo(holdUse + surfaceUse(climb, DEFAULT_RMV.bailoutLpm), 10);
+    expect(legacy.decoUsedL).toBeCloseTo(surfaceUse(stop, DEFAULT_RMV.bailoutDecoLpm), 10);
+
+    const staticMode = calculateGasLedger(
+      holdSegments,
+      { ...baseInput(), bailoutRmvMode: "static" },
+      holdOptions,
+    ).entries[0];
+    expect(staticMode.bottomUsedL).toBeCloseTo(
+      holdUse + surfaceUse(climb, DEFAULT_RMV.bailoutLpm) + surfaceUse(stop, DEFAULT_RMV.bailoutLpm),
+      10,
+    );
+
+    const bottomDeco = calculateGasLedger(
+      holdSegments,
+      { ...baseInput(), bailoutRmvMode: "bottom-deco" },
+      holdOptions,
+    ).entries[0];
+    expect(bottomDeco.bottomUsedL).toBeCloseTo(holdUse + surfaceUse(climb, DEFAULT_RMV.bailoutLpm), 10);
+    expect(bottomDeco.decoUsedL).toBeCloseTo(surfaceUse(stop, DEFAULT_RMV.bailoutDecoLpm), 10);
+
+    // Mode B at a trigger-depth first stop: hold @ bailout SAC; a switch on arrival and the
+    // stop @ deco SAC; inter-stop travel @ deco SAC.
+    const arrivalSwitch = leg("switch", "gas-switch", 700, 10, 30, 30, bailoutGas);
+    const holdAtTrigger = leg("problem-solving", "bailout", 710, 120, 30, 30, bailoutGas);
+    const stopAtTrigger = leg("stop-30", "stop", 830, 60, 30, 30, bailoutGas);
+    const betweenFromTrigger = leg("bailout-2", "bailout", 890, 60, 30, 21, bailoutGas);
+    const triggerStop = calculateGasLedger(
+      [arrivalSwitch, holdAtTrigger, stopAtTrigger, betweenFromTrigger],
+      { ...baseInput(), bailoutRmvMode: "bottom-deco" },
+      {
+        bailout: true,
+        startRuntimeSeconds: seconds(700),
+        bottomEndRuntimeSeconds: seconds(700),
+        problemSolvingHold: { startRuntimeSeconds: seconds(710), endRuntimeSeconds: seconds(830) },
+      },
+    ).entries[0];
+    expect(triggerStop.bottomUsedL).toBeCloseTo(surfaceUse(holdAtTrigger, DEFAULT_RMV.bailoutLpm), 10);
+    expect(triggerStop.decoUsedL).toBeCloseTo(
+      surfaceUse(arrivalSwitch, DEFAULT_RMV.bailoutDecoLpm) +
+        surfaceUse(stopAtTrigger, DEFAULT_RMV.bailoutDecoLpm) +
+        surfaceUse(betweenFromTrigger, DEFAULT_RMV.bailoutDecoLpm),
+      10,
+    );
+
+    // Timed window of 1 min during a 2 min hold: hold stays entirely on bailout SAC; climb is deco.
+    const timed = calculateGasLedger(
+      holdSegments,
+      { ...baseInput(), bailoutRmvMode: "timed", bailoutRmvSwitchSeconds: seconds(60) },
+      holdOptions,
+    ).entries[0];
+    expect(timed.bottomUsedL).toBeCloseTo(holdUse, 10);
+    expect(timed.decoUsedL).toBeCloseTo(
+      surfaceUse(climb, DEFAULT_RMV.bailoutDecoLpm) + surfaceUse(stop, DEFAULT_RMV.bailoutDecoLpm),
+      10,
+    );
+  });
+
+  it("rejects a timed mode without a switch duration instead of inventing a zero window", () => {
+    const input = { ...baseInput(), bailoutRmvMode: "timed" as const };
+    const result = calculateGasLedger(segments, input, options);
+    expect(result.diagnostics.some((item) => item.code === "BAILOUT_RMV_SWITCH_REQUIRED")).toBe(true);
+    const [legacy] = calculateGasLedger(segments, baseInput(), options).entries;
+    expect(result.entries[0].bottomUsedL).toBeCloseTo(legacy.bottomUsedL, 10);
+    expect(result.entries[0].decoUsedL).toBeCloseTo(legacy.decoUsedL, 10);
+  });
+
+  it("keeps legacy bailout volumes when the new fields are absent", () => {
+    const [legacy] = calculateGasLedger(segments, baseInput(), options).entries;
+    expect(legacy.bottomUsedL).toBeCloseTo(
+      surfaceUse(toFirstStop, DEFAULT_RMV.bailoutLpm) + surfaceUse(betweenStops, DEFAULT_RMV.bailoutLpm),
+      10,
+    );
+    expect(legacy.decoUsedL).toBeCloseTo(surfaceUse(firstStop, DEFAULT_RMV.bailoutDecoLpm), 10);
+  });
+});
