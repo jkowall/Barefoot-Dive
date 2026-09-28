@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.8.0] - 2026-09-28
+
 Calculation engine `barefoot-dive-engine-0.4.0`. Plans without the new CCR bailout fields keep the engine 0.3.0 bailout ledger and schedule; leave-to-low CCR inputs without `ascentSetpointMode` keep the 0.3.0 ascent schedule. Opted-in bailout modes, problem-solving time, and ambient-limited ascent change gas use or schedules as described below. Saved revisions stamped with an older engine version still show the older-engine notice.
 
 - New CCR plans hold `min(high setpoint, max loop PPO₂ at the current depth)` on ascent after the high setpoint is active, instead of dropping to the fixed low setpoint when leaving the switch-down depth. A deeper switch-down no longer lengthens decompression by parking shallow stops on 0.70 bar, and the `CCR_STOP_ON_LOW_SETPOINT` warning from 0.6.0 does not fire for this mode. With switch-down at 0 ft and a 1.30 bar high setpoint, the surface/shallow loop is ambient-limited (about 0.94 bar), not the 0.70 low setpoint. Cave exit legs use the same ambient-limited rule. Plans without `ascentSetpointMode` keep the older leave-the-depth → low setpoint semantics, including `CCR_SWITCH_DOWN_DEEPENED`, `CCR_STOP_ON_LOW_SETPOINT`, and Cave's shallow switch-down rejection. Recalculation creates a new revision. This is a schedule convention change, not a MultiDeco or Shearwater parity claim.

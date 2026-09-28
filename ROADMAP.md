@@ -1,6 +1,6 @@
 # Barefoot Dive roadmap
 
-This roadmap starts from the unreleased `main` evaluation checkout (engine `barefoot-dive-engine-0.4.0`; app package still labeled `0.7.0` until an explicit `0.8.0` release PR). It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
+This roadmap starts from the `0.8.0` evaluation build (calculation engine `barefoot-dive-engine-0.4.0`). It describes priority and dependency order, not delivery dates or a claim of field readiness. Calculation breadth does not substitute for independent validation, and no item changes the analyzer-first, qualified-diver-review boundary.
 
 Barefoot Dive remains an offline-first, client-only product. Calculations and persistence stay on the device; a backend or remote calculation service is not part of this roadmap.
 
@@ -11,9 +11,7 @@ Barefoot Dive remains an offline-first, client-only product. Calculations and pe
 - **Later candidate**: possible post-validation work, not a commitment. It requires evidence of user need and an explicit decision to start.
 - **Out of scope**: not planned and not a hidden prerequisite for any Current, Next, or Later candidate work.
 
-## Current: unreleased `main` (engine 0.4.0; app still `0.7.0`)
-
-Shipped evaluation release `0.7.0` (2026-09-27) remains the last tagged app version. `main` after that merge carries engine `0.4.0` and the Unreleased changelog items below; cut `0.8.0` only after an explicit release PR that versions the package, changelog, footer assertions, and this section.
+## Current: `0.8.0` evaluation build
 
 - Unit-safe ZH-L16C/GF engine, OC planning, CCR decompression/exposure with a low setpoint from the surface and a high setpoint below separate switch-up and switch-down depths, exact-trigger-state CCR bailout to open circuit, dil-out, travel/deco/diluent/bailout gases, and OC/CCR-bailout gas ledgers with reserve crossings.
 - Engine 0.4.0 (new plans): ambient-limited high-setpoint ascent after the high setpoint is active (`ascentSetpointMode: "ambient-limited-high"`), holding `min(high setpoint, max loop PPO₂ at depth)` instead of dropping to the fixed low setpoint when leaving switch-down. Stored plans without the field keep leave-to-low semantics, including the `CCR_STOP_ON_LOW_SETPOINT` warning. Provisional schedule convention pending scientific review — not controller or third-party parity.
