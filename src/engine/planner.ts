@@ -993,6 +993,46 @@ function diluentBailoutLedgerOption(input: DivePlanInput) {
     : {};
 }
 
+/** Opt-in problem-solving hold at the current depth after OC bailout is established. */
+function appendProblemSolvingHold(
+  state: WorkingState,
+  input: DivePlanInput,
+): WorkingState {
+  if (
+    input.mode !== "ccr" ||
+    input.problemSolvingTimeSeconds === undefined ||
+    input.problemSolvingTimeSeconds <= 0
+  ) {
+    return state;
+  }
+  return appendExposure(
+    state,
+    input,
+    "bailout",
+    state.depthM,
+    input.problemSolvingTimeSeconds,
+    input.settings.gfLow,
+  );
+}
+
+function problemSolvingLedgerOption(
+  before: WorkingState,
+  after: WorkingState,
+): {
+  readonly problemSolvingHold?: {
+    readonly startRuntimeSeconds: Seconds;
+    readonly endRuntimeSeconds: Seconds;
+  };
+} {
+  if (after.runtimeSeconds <= before.runtimeSeconds) return {};
+  return {
+    problemSolvingHold: {
+      startRuntimeSeconds: before.runtimeSeconds,
+      endRuntimeSeconds: after.runtimeSeconds,
+    },
+  };
+}
+
 function planMetadata(input: DivePlanInput) {
   const policy = conventionFor(input.settings);
   return {
@@ -1017,6 +1057,10 @@ function buildPlan(
     readonly bailout?: boolean;
     readonly startRuntimeSeconds?: Seconds;
     readonly diluentBailout?: { readonly gasId: string; readonly preBailoutUseL: number };
+    readonly problemSolvingHold?: {
+      readonly startRuntimeSeconds: Seconds;
+      readonly endRuntimeSeconds: Seconds;
+    };
   } = {},
 ): DivePlan {
   const decompressionSeconds = seconds(
@@ -1124,20 +1168,8 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
     conventionFor(input.settings).gasSwitchDurationSeconds,
     input.settings.gfLow,
   );
-  // Opt-in problem-solving hold at trigger depth: tissues and bailout gas advance before ascent.
-  if (
-    input.problemSolvingTimeSeconds !== undefined &&
-    input.problemSolvingTimeSeconds > 0
-  ) {
-    triggerState = appendExposure(
-      triggerState,
-      input,
-      "bailout",
-      input.depthM,
-      input.problemSolvingTimeSeconds,
-      input.settings.gfLow,
-    );
-  }
+  const beforeHold = triggerState;
+  triggerState = appendProblemSolvingHold(triggerState, input);
   const bailoutAscent = scheduleAscent(triggerState, {
     input,
     availableOcGases: bailoutGases,
@@ -1158,7 +1190,12 @@ function calculateCcr(input: CcrDiveInput, warnings: readonly Diagnostic[]): Div
     [...warnings, ...triggerWarnings],
     bailoutTriggerRuntime,
     "bailout",
-    { bailout: true, startRuntimeSeconds: bailoutTriggerRuntime, ...diluentBailoutLedgerOption(input) },
+    {
+      bailout: true,
+      startRuntimeSeconds: bailoutTriggerRuntime,
+      ...diluentBailoutLedgerOption(input),
+      ...problemSolvingLedgerOption(beforeHold, triggerState),
+    },
   );
   // A bailout plan that cannot be used makes the whole CCR plan unusable.
   const unusableBailout = bailoutPlan.diagnostics
@@ -1379,6 +1416,8 @@ export function calculateEventDivePlan(
   let state = initialWorkingState(input, first.gas);
   const exposureErrors: Diagnostic[] = [];
   let bailoutStartRuntime: Seconds | undefined;
+  let problemSolvingBefore: WorkingState | undefined;
+  let problemSolvingAfter: WorkingState | undefined;
   for (const [eventIndex, event] of events.entries()) {
     if (options.bailout && event.kind === "bailout" && bailoutStartRuntime === undefined) {
       bailoutStartRuntime = state.runtimeSeconds;
@@ -1433,11 +1472,17 @@ export function calculateEventDivePlan(
         },
       ));
     }
+    // Insert the hold after the event's own ceiling check so a long hold cannot mask a
+    // bailout/exit leg that arrived above the ceiling.
+    if (options.bailout && event.kind === "bailout" && problemSolvingBefore === undefined) {
+      problemSolvingBefore = state;
+      state = appendProblemSolvingHold(state, input);
+      problemSolvingAfter = state;
+    }
   }
   if (exposureErrors.length > 0) {
     return { ok: false, errors: exposureErrors, warnings: validation.warnings };
   }
-  const exposureEndRuntime = state.runtimeSeconds;
   const configuration: AscentConfiguration = state.currentStrategy.kind === "ccr"
     ? {
         input,
@@ -1447,17 +1492,22 @@ export function calculateEventDivePlan(
       }
     : { input, availableOcGases: options.ascentGases ?? [state.currentGas], segmentKind: options.bailout ? "bailout" : "ascent" };
   const ascent = scheduleAscent(state, configuration);
+  // Event-plan TTS starts after the entered events (and any mid-stream problem-solving hold),
+  // matching engine 0.3.0. Square CCR bailout TTS still starts at the trigger.
   const plan = buildPlan(
     input,
     ascent,
     validation.warnings,
-    exposureEndRuntime,
+    state.runtimeSeconds,
     options.idSuffix ?? "events",
     options.bailout
       ? {
           bailout: true,
-          startRuntimeSeconds: bailoutStartRuntime ?? exposureEndRuntime,
+          startRuntimeSeconds: bailoutStartRuntime ?? state.runtimeSeconds,
           ...diluentBailoutLedgerOption(input),
+          ...(problemSolvingBefore && problemSolvingAfter
+            ? problemSolvingLedgerOption(problemSolvingBefore, problemSolvingAfter)
+            : {}),
         }
       : {},
   );

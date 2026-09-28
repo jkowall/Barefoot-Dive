@@ -1,7 +1,6 @@
 import type {
   BailoutRmvMode,
   BarGauge,
-  CcrDiveInput,
   Cylinder,
   Diagnostic,
   DivePlanInput,
@@ -82,13 +81,16 @@ function bailoutRmvMode(input: DivePlanInput, bailout: boolean): BailoutRmvMode 
 
 /**
  * Bailout phase for opt-in modes A/B. Mode C splits mid-segment and does not use a single phase.
- * Legacy (absent mode) keeps stops @ deco and travel @ bailout.
+ * Legacy (absent mode) keeps stops @ deco and travel @ bailout. Problem-solving holds always
+ * use the bailout SAC regardless of mode.
  */
 function bailoutPhaseFor(
   segment: ProfileSegment,
   mode: BailoutRmvMode | undefined,
   firstStopArrivalRuntimeSeconds: number,
+  problemSolvingWindow: { readonly startRuntimeSeconds: number; readonly endRuntimeSeconds: number } | undefined,
 ): Phase {
+  if (isBailoutProblemSolvingHold(segment, problemSolvingWindow)) return "bottom";
   if (mode === "static") return "bottom";
   if (mode === "bottom-deco") {
     return segment.startRuntimeSeconds >= firstStopArrivalRuntimeSeconds ? "deco" : "bottom";
@@ -97,9 +99,10 @@ function bailoutPhaseFor(
 }
 
 /**
- * Runtime of arrival at the first stop: the start of the first stop, or of a switch made at
- * that depth just before it, which is part of the stop rather than the climb. There is none
- * on a no-stop ascent.
+ * Runtime of arrival at the first stop: the start of the first stop, or of a gas/setpoint
+ * switch made at that depth just before it, which is part of the stop rather than the climb.
+ * Problem-solving holds (flat `bailout` segments) are not walked into. There is none on a
+ * no-stop ascent.
  */
 function firstStopArrivalRuntime(
   segments: readonly ProfileSegment[],
@@ -115,8 +118,36 @@ function firstStopArrivalRuntime(
     index > 0 &&
     segments[index - 1].startRuntimeSeconds >= bottomEndRuntimeSeconds &&
     atStopDepth(segments[index - 1])
-  ) index -= 1;
+  ) {
+    const previous = segments[index - 1];
+    if (previous.kind === "gas-switch" || previous.kind === "setpoint-switch") {
+      index -= 1;
+      continue;
+    }
+    // Skip problem-solving holds so a preceding switch on arrival remains part of the stop.
+    if (
+      previous.kind === "bailout" &&
+      Math.abs(previous.startDepthM - previous.endDepthM) < 1e-9
+    ) {
+      index -= 1;
+      continue;
+    }
+    break;
+  }
   return segments[index].startRuntimeSeconds;
+}
+
+/** Flat open-circuit bailout hold inside the planner-supplied problem-solving window. */
+function isBailoutProblemSolvingHold(
+  segment: ProfileSegment,
+  window: { readonly startRuntimeSeconds: number; readonly endRuntimeSeconds: number } | undefined,
+): boolean {
+  if (!window) return false;
+  if (segment.kind !== "bailout") return false;
+  if (Math.abs(segment.startDepthM - segment.endDepthM) >= 1e-9) return false;
+  const start = segment.startRuntimeSeconds;
+  const end = start + segment.durationSeconds;
+  return start >= window.startRuntimeSeconds - 1e-9 && end <= window.endRuntimeSeconds + 1e-9;
 }
 
 function rmvForPhase(input: DivePlanInput, bailout: boolean, phase: Phase): LitersPerMinute {
@@ -185,7 +216,8 @@ function segmentSlice(
 
 /**
  * Mode C: charge `bailoutLpm` until `switchRuntime`, then `bailoutDecoLpm`. A straddling
- * segment is split for volume only; the profile segment itself is unchanged.
+ * travel/stop segment is split for volume only. Problem-solving holds are never split: they
+ * stay entirely on the bailout SAC while still consuming timed-window budget by wall clock.
  */
 function timedBailoutRecords(
   segment: ProfileSegment,
@@ -193,9 +225,8 @@ function timedBailoutRecords(
   assignment: { cylinder?: Cylinder },
   switchRuntimeSeconds: number,
   reservePhase: Phase,
+  problemSolvingWindow: { readonly startRuntimeSeconds: number; readonly endRuntimeSeconds: number } | undefined,
 ): readonly ConsumptionRecord[] {
-  const start = segment.startRuntimeSeconds;
-  const end = start + segment.durationSeconds;
   const record = (slice: ProfileSegment, phase: Phase): ConsumptionRecord => ({
     segment: slice,
     cylinder: assignment.cylinder,
@@ -205,6 +236,9 @@ function timedBailoutRecords(
     phase,
     reservePhase,
   });
+  if (isBailoutProblemSolvingHold(segment, problemSolvingWindow)) return [record(segment, "bottom")];
+  const start = segment.startRuntimeSeconds;
+  const end = start + segment.durationSeconds;
   if (end <= switchRuntimeSeconds + 1e-12) return [record(segment, "bottom")];
   if (start >= switchRuntimeSeconds - 1e-12) return [record(segment, "deco")];
   const firstFraction = (switchRuntimeSeconds - start) / segment.durationSeconds;
@@ -335,6 +369,14 @@ export function calculateGasLedger(
      * the trigger. Its reserve stays on the full entered volume.
      */
     readonly diluentBailout?: { readonly gasId: string; readonly preBailoutUseL: number };
+    /**
+     * Runtime window of the planner-inserted problem-solving hold. Flat bailout segments inside
+     * it are always charged at the bailout SAC.
+     */
+    readonly problemSolvingHold?: {
+      readonly startRuntimeSeconds: Seconds;
+      readonly endRuntimeSeconds: Seconds;
+    };
   },
 ): GasLedgerResult {
   const gasOnly = input.gasOnly === true;
@@ -345,15 +387,26 @@ export function calculateGasLedger(
   let bailoutStarted = !options.bailout;
   const bailout = Boolean(options.bailout);
   const mode = bailoutRmvMode(input, bailout);
+  const problemSolvingWindow = options.problemSolvingHold;
   const firstStopBoundary = usesFirstStopBoundary(input, bailout);
   const bailoutFirstStopBoundary = bailout && mode === "bottom-deco";
   const firstStopArrival = (firstStopBoundary || bailoutFirstStopBoundary)
     ? firstStopArrivalRuntime(segments, options.bottomEndRuntimeSeconds)
     : Number.POSITIVE_INFINITY;
   const decoFromRuntime = firstStopBoundary ? firstStopArrival : options.bottomEndRuntimeSeconds;
-  const timedSwitchRuntime = bailout && mode === "timed" && input.mode === "ccr"
-    ? (options.startRuntimeSeconds ?? 0) + (input.bailoutRmvSwitchSeconds ?? 0)
+  const timedSwitchSeconds = bailout && mode === "timed" && input.mode === "ccr"
+    ? input.bailoutRmvSwitchSeconds
     : undefined;
+  const timedSwitchMissing = bailout && mode === "timed" && (
+    timedSwitchSeconds === undefined ||
+    !Number.isFinite(timedSwitchSeconds) ||
+    timedSwitchSeconds <= 0
+  );
+  const timedSwitchRuntime = !timedSwitchMissing && timedSwitchSeconds !== undefined
+    ? (options.startRuntimeSeconds ?? 0) + timedSwitchSeconds
+    : undefined;
+  // Timed mode without a valid switch is a structured failure: do not invent a zero window.
+  const effectiveMode = timedSwitchMissing ? undefined : mode;
 
   for (const segment of segments) {
     if (segment.startRuntimeSeconds < (options.startRuntimeSeconds ?? 0)) continue;
@@ -367,11 +420,18 @@ export function calculateGasLedger(
     }
     const reservePhase = phaseFor(segment, bailout, options.bottomEndRuntimeSeconds);
     if (timedSwitchRuntime !== undefined) {
-      records.push(...timedBailoutRecords(segment, input, assignment, timedSwitchRuntime, reservePhase));
+      records.push(...timedBailoutRecords(
+        segment,
+        input,
+        assignment,
+        timedSwitchRuntime,
+        reservePhase,
+        problemSolvingWindow,
+      ));
       continue;
     }
     const phase = bailout
-      ? bailoutPhaseFor(segment, mode, firstStopArrival)
+      ? bailoutPhaseFor(segment, effectiveMode, firstStopArrival, problemSolvingWindow)
       : phaseFor(segment, false, decoFromRuntime);
     records.push({
       segment,
@@ -398,6 +458,14 @@ export function calculateGasLedger(
       severity: "warning",
       message: `Gas ${gasId} matches multiple cylinders; assign one explicitly.`,
       gasId,
+    });
+  }
+  if (timedSwitchMissing) {
+    diagnostics.push({
+      code: "BAILOUT_RMV_SWITCH_REQUIRED",
+      severity: "error",
+      message: "Timed bailout RMV mode requires bailoutRmvSwitchSeconds; charging uses the travel/stops rule instead of inventing a zero window.",
+      field: "bailoutRmvSwitchSeconds",
     });
   }
   if (input.mode === "ccr" && !options.bailout) {
@@ -429,8 +497,8 @@ export function calculateGasLedger(
       message: "Bailout gas use is charged at the bailout SAC/RMV until the first stop, or for the whole ascent on a no-stop dive, and at the bailout deco SAC/RMV from the first stop on, including moves between stops.",
     });
   }
-  if (bailout && mode === "timed" && records.length > 0 && input.mode === "ccr") {
-    const minutes = (input as CcrDiveInput).bailoutRmvSwitchSeconds! / 60;
+  if (bailout && mode === "timed" && records.length > 0 && input.mode === "ccr" && !timedSwitchMissing) {
+    const minutes = input.bailoutRmvSwitchSeconds! / 60;
     diagnostics.push({
       code: "BAILOUT_RMV_TIMED",
       severity: "info",

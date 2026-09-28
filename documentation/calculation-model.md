@@ -64,9 +64,9 @@ Planners differ here. MultiDeco's help assigns the bottom RMV to the descent, th
 | Legacy | absent | Travel @ bailout SAC; stops @ bailout deco SAC |
 | A Static | `"static"` | Bailout SAC for the whole bailout ascent and stops (`BAILOUT_RMV_STATIC`) |
 | B Bottom/deco | `"bottom-deco"` | Bailout SAC until first-stop arrival; bailout deco SAC from then on, **including moves between stops** (`BAILOUT_RMV_BOTTOM_DECO`). A gas switch on arrival at the first stop counts as the stop, as for OC `decoRmvFrom: "first-stop"`. |
-| C Timed | `"timed"` | Bailout SAC for `bailoutRmvSwitchSeconds` after the bailout ledger start (including problem-solving and any positive-duration gas switch), then bailout deco SAC (`BAILOUT_RMV_TIMED`). A segment that straddles the switch is split for charging only; the schedule is unchanged. |
+| C Timed | `"timed"` | Bailout SAC for `bailoutRmvSwitchSeconds` after the bailout ledger start (including problem-solving and any positive-duration gas switch), then bailout deco SAC (`BAILOUT_RMV_TIMED`). A travel or stop segment that straddles the switch is split for charging only; the schedule is unchanged. Problem-solving holds are never split: they stay entirely on the bailout SAC even when the timed window ends during the hold. |
 
-`problemSolvingTimeSeconds` (absent or zero means none) inserts a hold at the trigger depth after the OC bailout gas switch and before ascent. Tissues and bailout gas advance for that hold; it is always charged at `bailoutLpm` (`BAILOUT_PROBLEM_SOLVING`). Mode C's timed window includes the hold. This is a provisional planning convention pending scientific review; it is not a claim of training-standard or dive-computer parity.
+`problemSolvingTimeSeconds` (absent or zero means none) inserts a hold at the trigger depth after the OC bailout gas switch and before ascent (square planner and bailout event plans). Tissues and bailout gas advance for that hold; it is always charged at `bailoutLpm` (`BAILOUT_PROBLEM_SOLVING`), under every mode including Mode B when the first stop is at the trigger depth. Mode C's timed window still includes the hold in wall-clock budget. This is a provisional planning convention pending scientific review; it is not a claim of training-standard or dive-computer parity.
 
 ### Gas-only planning
 

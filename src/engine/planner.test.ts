@@ -10,7 +10,7 @@ import {
 } from "../domain/defaults";
 import type { CcrDiveInput, Gas, OcDiveInput } from "../domain/types";
 import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
-import { calculateDivePlan, calculateEventDivePlan } from "./planner";
+import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from "./planner";
 
 const trimix1845: Gas = {
   id: "tx18-45",
@@ -507,6 +507,161 @@ describe("deterministic decompression scheduling", () => {
     if (!zero.ok) return;
     expect(zero.value.bailoutPlan?.segments).toEqual(without.value.bailoutPlan?.segments);
     expect(zero.value.bailoutPlan?.gasLedger).toEqual(without.value.bailoutPlan?.gasLedger);
+  });
+
+  it("inserts problem-solving on bailout event plans before the scheduled ascent", () => {
+    const diluent: Gas = { ...AIR, id: "diluent", role: "diluent" };
+    const bailout: Gas = { ...AIR, id: "bailout", role: "bailout" };
+    const input: CcrDiveInput = {
+      mode: "ccr",
+      environment: "open-water",
+      depthM: meters(30),
+      bottomTimeSeconds: seconds(20 * 60),
+      diluent,
+      setpointBar: barAbsolute(1.3),
+      setpointActivationDepthM: meters(6),
+      lowSetpointBar: barAbsolute(0.7),
+      bailoutGases: [bailout],
+      problemSolvingTimeSeconds: seconds(90),
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const events: ExposureEvent[] = [
+      {
+        id: "descent",
+        kind: "descent",
+        startDepthM: meters(0),
+        endDepthM: meters(30),
+        durationSeconds: seconds(300),
+        gas: diluent,
+        strategy: { kind: "ccr", diluent, setpointBar: barAbsolute(0.7) },
+      },
+      {
+        id: "bottom",
+        kind: "bottom",
+        startDepthM: meters(30),
+        endDepthM: meters(30),
+        durationSeconds: seconds(600),
+        gas: diluent,
+        strategy: { kind: "ccr", diluent, setpointBar: barAbsolute(1.3) },
+      },
+      {
+        id: "bailout",
+        kind: "bailout",
+        startDepthM: meters(30),
+        endDepthM: meters(30),
+        durationSeconds: seconds(1),
+        gas: bailout,
+        strategy: { kind: "open-circuit", gas: bailout },
+      },
+    ];
+    const result = calculateEventDivePlan(input, events, { bailout: true, ascentGases: [bailout] });
+    if (!result.ok) {
+      throw new Error(result.errors.map((item) => `${item.code}: ${item.message}`).join("; "));
+    }
+    const hold = result.value.segments.find((segment) =>
+      segment.kind === "bailout" &&
+      segment.durationSeconds === 90 &&
+      segment.startDepthM === 30 &&
+      segment.endDepthM === 30,
+    );
+    expect(hold).toBeDefined();
+    expect(result.value.diagnostics.some((item) => item.code === "BAILOUT_PROBLEM_SOLVING")).toBe(true);
+
+    // A later exit event must not move the hold shallower than the bailout trigger.
+    const withExit = calculateEventDivePlan(input, [
+      ...events,
+      {
+        id: "exit",
+        kind: "exit",
+        startDepthM: meters(30),
+        endDepthM: meters(20),
+        durationSeconds: seconds(60),
+        gas: bailout,
+        strategy: { kind: "open-circuit", gas: bailout },
+      },
+    ], { bailout: true, ascentGases: [bailout] });
+    if (!withExit.ok) {
+      throw new Error(withExit.errors.map((item) => `${item.code}: ${item.message}`).join("; "));
+    }
+    const holdWithExit = withExit.value.segments.find((segment) =>
+      segment.kind === "bailout" &&
+      segment.durationSeconds === 90 &&
+      segment.startDepthM === 30 &&
+      segment.endDepthM === 30,
+    );
+    expect(holdWithExit).toBeDefined();
+    expect(holdWithExit!.startRuntimeSeconds).toBeLessThan(
+      withExit.value.segments.find((segment) => segment.kind === "exit")!.startRuntimeSeconds,
+    );
+  });
+
+  it("does not let problem-solving mask an event bailout leg that arrives above the ceiling", () => {
+    const diluent: Gas = { ...AIR, id: "diluent", role: "diluent" };
+    const bailout: Gas = { ...AIR, id: "bailout", role: "bailout" };
+    const input: CcrDiveInput = {
+      mode: "ccr",
+      environment: "open-water",
+      depthM: meters(40),
+      bottomTimeSeconds: seconds(40 * 60),
+      diluent,
+      setpointBar: barAbsolute(1.3),
+      setpointActivationDepthM: meters(6),
+      lowSetpointBar: barAbsolute(0.7),
+      bailoutGases: [bailout],
+      problemSolvingTimeSeconds: seconds(30 * 60),
+      cylinders: [],
+      settings: DEFAULT_PLANNER_SETTINGS,
+      environmentSettings: DEFAULT_ENVIRONMENT,
+      rmv: DEFAULT_RMV,
+      reservePolicy: DEFAULT_RESERVE_POLICY,
+    };
+    const strategy = { kind: "ccr" as const, diluent, setpointBar: barAbsolute(1.3) };
+    const events: ExposureEvent[] = [
+      {
+        id: "descent",
+        kind: "descent",
+        startDepthM: meters(0),
+        endDepthM: meters(40),
+        durationSeconds: seconds(120),
+        gas: diluent,
+        strategy: { kind: "ccr", diluent, setpointBar: barAbsolute(0.7) },
+      },
+      {
+        id: "bottom",
+        kind: "bottom",
+        startDepthM: meters(40),
+        endDepthM: meters(40),
+        durationSeconds: seconds(40 * 60),
+        gas: diluent,
+        strategy,
+      },
+      {
+        id: "bailout-surface",
+        kind: "bailout",
+        startDepthM: meters(40),
+        endDepthM: meters(0),
+        durationSeconds: seconds(4 * 60),
+        gas: bailout,
+        strategy: { kind: "open-circuit", gas: bailout },
+      },
+    ];
+    const withoutHold = calculateEventDivePlan(
+      { ...input, problemSolvingTimeSeconds: undefined },
+      events,
+      { bailout: true, ascentGases: [bailout] },
+    );
+    expect(withoutHold.ok).toBe(false);
+    if (withoutHold.ok) return;
+    expect(withoutHold.errors.some((item) => item.code === "EXPOSURE_CEILING_VIOLATION")).toBe(true);
+
+    const withHold = calculateEventDivePlan(input, events, { bailout: true, ascentGases: [bailout] });
+    expect(withHold.ok).toBe(false);
+    if (withHold.ok) return;
+    expect(withHold.errors.some((item) => item.code === "EXPOSURE_CEILING_VIOLATION")).toBe(true);
   });
 
   it("rejects CCR diluent that is hypoxic during open-circuit activation legs", () => {
