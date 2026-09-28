@@ -172,8 +172,17 @@ describe("cave CCR low setpoint and switch-down", () => {
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
     expect(exits.length).toBeGreaterThan(1);
-    expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
-    expect(exits.some((segment) => Math.min(segment.startDepthM, segment.endDepthM) < 3.6)).toBe(true);
+    const surfaceMax = DEFAULT_ENVIRONMENT.surfacePressureBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
+    const deepExits = exits.filter((segment) => Math.min(segment.startDepthM, segment.endDepthM) >= 3.6 - 1e-9);
+    const shallowExits = exits.filter((segment) => Math.min(segment.startDepthM, segment.endDepthM) < 3.6 - 1e-9);
+    expect(deepExits.length).toBeGreaterThan(0);
+    expect(shallowExits.length).toBeGreaterThan(0);
+    expect(deepExits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    // Shallow ends report the achievable ambient-limited setpoint, not the held high or fixed low.
+    expect(shallowExits.every((segment) =>
+      segment.setpointBar !== undefined &&
+      segment.setpointBar <= surfaceMax + 1e-9 &&
+      segment.setpointBar !== 0.7)).toBe(true);
     expect(exits.some((segment) => Math.max(segment.startDepthM, segment.endDepthM) > 3.6)).toBe(true);
   });
 
@@ -207,8 +216,13 @@ describe("cave CCR low setpoint and switch-down", () => {
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
     expect(exits.length).toBeGreaterThan(1);
-    expect(exits.every((segment) => segment.setpointBar === 1.3)).toBe(true);
+    const surfaceMax = DEFAULT_ENVIRONMENT.surfacePressureBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
+    expect(exits.some((segment) => segment.setpointBar === 1.3)).toBe(true);
     expect(exits.some((segment) => segment.setpointBar === 0.7)).toBe(false);
+    const surfaceEnding = exits.filter((segment) => segment.endDepthM === 0 || segment.startDepthM === 0);
+    expect(surfaceEnding.length).toBeGreaterThan(0);
+    expect(surfaceEnding.every((segment) =>
+      segment.setpointBar !== undefined && Math.abs(segment.setpointBar - surfaceMax) < 1e-9)).toBe(true);
   });
 
   it("matches tissue loading of an achievable-depth split on a deep ambient-limited exit", () => {
@@ -218,10 +232,12 @@ describe("cave CCR low setpoint and switch-down", () => {
     if (!result.ok) return;
     const exits = result.value.base.segments.filter((segment) => segment.kind === "exit");
     const boundary = (1.3 + 0.0627 - 1) * 10;
+    const surfaceMax = DEFAULT_ENVIRONMENT.surfacePressureBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
     expect(exits.some((segment) => Math.abs(segment.endDepthM - boundary) < 1e-9 || Math.abs(segment.startDepthM - boundary) < 1e-9)).toBe(true);
     const shallow = exits.find((segment) => Math.min(segment.startDepthM, segment.endDepthM) < boundary - 1e-9)!;
-    expect(shallow.setpointBar).toBe(1.3);
-    // Both ends of the shallow high-setpoint part clamp inspired inert to zero.
+    // Segment reports the achievable endpoint setpoint; tissues still load against the held high
+    // (zero inspired inert wherever high exceeds ambient − water vapor).
+    expect(shallow.setpointBar).toBeCloseTo(surfaceMax, 9);
     expect(shallow.startDepthM === 0 || shallow.endDepthM === 0).toBe(true);
   });
 });

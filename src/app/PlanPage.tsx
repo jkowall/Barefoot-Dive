@@ -528,7 +528,7 @@ export function PlannerEditor({
           <DepthField
             bound="setpoint-switch"
             gridM={stopIncrementM}
-            hint="Marks the end of the high-setpoint zone on ascent. New plans then hold the highest PPO₂ the loop can achieve at each shallower depth, instead of dropping to the fixed low setpoint. The plan never claims a high setpoint the loop cannot reach."
+            hint="Retained for leave-to-low plans (without ambient-limited ascent), which switch to the fixed low setpoint when leaving this depth. New plans keep ambient-limited high after the high setpoint is active and do not drop to the fixed low here; the plan never claims a high setpoint the loop cannot reach."
             label={`Switch-down depth (${depthUnit(preferences.depth)})`}
             min={0}
             onChange={(next) => set("setpointDeactivationDepthM", next)}
