@@ -1585,7 +1585,6 @@ export function calculateEventDivePlan(
         input.settings.gfLow,
       );
     }
-<<<<<<< HEAD
     // Hold at the first bailout event's start depth (the trigger), before any ascent in that
     // event, so a depth-changing bailout leg does not park the hold at its shallower end.
     // The event's own ceiling check still runs on the event segment after the hold.
@@ -1593,7 +1592,7 @@ export function calculateEventDivePlan(
       problemSolvingBefore = state;
       state = appendProblemSolvingHold(state, input);
       problemSolvingAfter = state;
-=======
+    }
     // Ambient-limited exits may store the held high setpoint for tissue clamping while the
     // shallow end cannot hold it. Record the achievable endpoint setpoint on the segment only;
     // keep working-state strategy on the held high so later events do not invent a switch up.
@@ -1610,7 +1609,6 @@ export function calculateEventDivePlan(
       if (limited < event.strategy.setpointBar - EPSILON) {
         displaySetpointBar = limited;
       }
->>>>>>> d8493a7 (Address Copilot review on ambient-limited CCR ascent)
     }
     state = appendExposure(
       state,
