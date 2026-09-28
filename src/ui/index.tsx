@@ -85,7 +85,8 @@ export function PageHeader({ eyebrow, tone, title, description, actions }: { rea
 
 export function SegmentedControl<T extends string>({ label, value, options, onChange, hint }: { readonly label: string; readonly value: T; readonly options: readonly { readonly value: T; readonly label: string; readonly disabled?: boolean }[]; readonly onChange?: (value: T) => void; readonly hint?: string }) {
   const id = useId();
-  return <fieldset className="bf-segmented"><legend>{label}</legend><div role="radiogroup" aria-label={label}>{options.map((option) => <label data-selected={option.value === value || undefined} key={option.value}><input checked={option.value === value} disabled={option.disabled} name={id} onChange={() => onChange?.(option.value)} type="radio" value={option.value} /><span>{option.label}</span></label>)}</div>{hint && <p className="bf-field-group__hint">{hint}</p>}</fieldset>;
+  const hintId = hint ? `${id}-hint` : undefined;
+  return <fieldset className="bf-segmented"><legend>{label}</legend><div aria-describedby={hintId} aria-label={label} role="radiogroup">{options.map((option) => <label data-selected={option.value === value || undefined} key={option.value}><input checked={option.value === value} disabled={option.disabled} name={id} onChange={() => onChange?.(option.value)} type="radio" value={option.value} /><span>{option.label}</span></label>)}</div>{hint && <p className="bf-field-group__hint" id={hintId}>{hint}</p>}</fieldset>;
 }
 
 /** `errorId` identifies the error text so the control inside can reference it with `aria-describedby`. */

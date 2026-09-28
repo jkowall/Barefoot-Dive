@@ -18,9 +18,10 @@ import { depthToAmbientPressure, formatBound, formatMessageDepth, meters, roundD
  *
  * On the 10 ft stop grid, pure oxygen at the displayed 20 ft stop (exactly two
  * stop increments) is accepted for deco-switch validation and stop/event
- * breathability even though true seawater PPO₂ at that depth is about 1.61 bar,
- * slightly over the 1.60 bar deco ceiling. This exception is named and versioned;
- * it does not clamp, rewrite, or sanitize PPO₂, depth, or limit values elsewhere.
+ * breathability when the applicable ceiling is at least 1.60 bar. Default
+ * seawater PPO₂ there is about 1.61 bar; custom ambient settings may differ.
+ * This exception is named and versioned; it does not clamp, rewrite, or sanitize
+ * PPO₂, depth, or limit values elsewhere.
  */
 export const OXYGEN_AT_20FT_STOP_POLICY = {
   id: "oxygen-at-20ft-stop-v1",
@@ -30,12 +31,13 @@ export const OXYGEN_AT_20FT_STOP_POLICY = {
   oxygenFraction: 1,
 } as const;
 
-function oxygenAtTwentyFootStopInfo(
+/** Info diagnostic naming `oxygen-at-20ft-stop-v1` when that policy accepts a gas/depth pair. */
+export function oxygenAtTwentyFootStopInfo(
   gas: Gas,
   depthM: Meters,
   ppo2: number,
   limit: number,
-  field: string,
+  field?: string,
   cylinderId?: string,
 ): Diagnostic {
   return {
@@ -43,9 +45,9 @@ function oxygenAtTwentyFootStopInfo(
     severity: "info",
     message:
       `${gas.name} at the 20 ft stop is accepted under ${OXYGEN_AT_20FT_STOP_POLICY.id} ` +
-      `(${OXYGEN_AT_20FT_STOP_POLICY.version}): true seawater PPO₂ is ${ppo2.toFixed(3)} bar, ` +
-      `slightly over the ${limit.toFixed(2)} bar limit.`,
-    field,
+      `(${OXYGEN_AT_20FT_STOP_POLICY.version}): PPO₂ is ${ppo2.toFixed(3)} bar, ` +
+      `over the ${limit.toFixed(2)} bar limit.`,
+    ...(field ? { field } : {}),
     depthM,
     actual: ppo2,
     limit,

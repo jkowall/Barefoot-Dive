@@ -55,7 +55,12 @@ describe("stop grid selection", () => {
   });
 
   it("switches to the 10 ft grid and remaps last-stop-aligned oxygen and CCR depths", () => {
-    const next = withStopGrid(DEFAULT_PLAN_DRAFT, "10ft");
+    const withTravel: PlanDraft = {
+      ...DEFAULT_PLAN_DRAFT,
+      travelGasEnabled: true,
+      bottomGas: { ...DEFAULT_PLAN_DRAFT.bottomGas, switchDepthM: 6 },
+    };
+    const next = withStopGrid(withTravel, "10ft");
     expect(next.stopGridId).toBe("10ft");
     expect(planStopIncrementM(next)).toBe(STOP_GRID_PRESETS["10ft"].stopIncrementM);
     expect(next.decoGases.find((gas) => gas.key === "deco-o2")?.switchDepthM)
@@ -63,12 +68,16 @@ describe("stop grid selection", () => {
     expect(next.decoGases.find((gas) => gas.key === "deco-50")?.switchDepthM).toBe(21);
     expect(next.setpointActivationDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
     expect(next.setpointDeactivationDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
+    // Travel-to-bottom and travel gas depths are exact; they must not follow the stop grid.
+    expect(next.bottomGas.switchDepthM).toBe(6);
+    expect(next.travelGas.switchDepthM).toBe(withTravel.travelGas.switchDepthM);
     const resolved = calculable(resolvePlanInput(next, []));
     expect(resolved.settings.stopIncrementM).toBe(STOP_GRID_PRESETS["10ft"].stopIncrementM);
     expect(resolved.settings.lastStopDepthM).toBe(STOP_GRID_PRESETS["10ft"].lastStopDepthM);
     const back = withStopGrid(next, "3m");
     expect(back.decoGases.find((gas) => gas.key === "deco-o2")?.switchDepthM).toBe(6);
     expect(back.setpointActivationDepthM).toBe(6);
+    expect(back.bottomGas.switchDepthM).toBe(6);
   });
 
   it("calculates the default draft on the 10 ft grid with oxygen at 20 ft", () => {

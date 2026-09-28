@@ -31,10 +31,13 @@ import {
   setpointAchievableDepth,
   gasPPO2,
   isBelowMinimumPPO2,
+  isAboveMaximumPPO2,
+  isOxygenAtTwentyFootStop,
   isSwitchEligible,
   isUnbreathablyHighPPO2,
   maximumPPO2ForGas,
   ocBottomSwitchDepth,
+  oxygenAtTwentyFootStopInfo,
   sameGas,
   switchDownDepth,
   usesLowSetpoint,
@@ -477,6 +480,38 @@ function hypoxicSegmentDiagnostics(segments: readonly ProfileSegment[], input: D
           limit: input.settings.minimumPPO2,
         },
       ));
+      break;
+    }
+  }
+  return diagnostics;
+}
+
+/**
+ * Record actual `oxygen-at-20ft-stop-v1` use on open-circuit segments, including gases
+ * without a validated switch depth that the ascent scheduler accepted at the 20 ft stop.
+ */
+function oxygenAtTwentyFootStopUseDiagnostics(
+  segments: readonly ProfileSegment[],
+  input: DivePlanInput,
+  existing: readonly Diagnostic[],
+): readonly Diagnostic[] {
+  const already = new Set(
+    existing.filter((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY").map((item) => item.gasId),
+  );
+  const gases = new Map(registeredGases(input).map((gas) => [gas.id, gas]));
+  const diagnostics: Diagnostic[] = [];
+  for (const segment of segments) {
+    if (segment.setpointBar !== undefined) continue;
+    const gas = gases.get(segment.gasId);
+    if (!gas || already.has(gas.id)) continue;
+    for (const depthM of [segment.startDepthM, segment.endDepthM]) {
+      if (!isOxygenAtTwentyFootStop(gas, depthM, input.settings)) continue;
+      const ppo2 = gasPPO2(gas, depthM, input);
+      const maximum = maximumPPO2ForGas(gas, input, input.settings.maximumDecoPPO2);
+      if (!isAboveMaximumPPO2(ppo2, maximum)) continue;
+      if (isUnbreathablyHighPPO2(gas, depthM, ppo2, maximum, input.settings)) continue;
+      already.add(gas.id);
+      diagnostics.push(oxygenAtTwentyFootStopInfo(gas, meters(depthM), ppo2, maximum));
       break;
     }
   }
@@ -1070,11 +1105,15 @@ function buildPlan(
     ...ledgerOptions,
     bottomEndRuntimeSeconds: bottomEndRuntime,
   });
-  const diagnostics = [
+  const priorDiagnostics = [
     ...warnings,
     ...ascent.diagnostics,
     ...ledger.diagnostics,
     ...hypoxicSegmentDiagnostics(ascent.state.segments, input),
+  ];
+  const diagnostics = [
+    ...priorDiagnostics,
+    ...oxygenAtTwentyFootStopUseDiagnostics(ascent.state.segments, input, priorDiagnostics),
   ];
   return {
     id: `plan-${stableHash({ input, idSuffix })}`,

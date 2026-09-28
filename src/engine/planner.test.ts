@@ -138,6 +138,8 @@ describe("deterministic decompression scheduling", () => {
     expect(result.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(true);
     expect(result.value.diagnostics.find((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")?.message)
       .toContain(OXYGEN_AT_20FT_STOP_POLICY.id);
+    expect(result.value.diagnostics.find((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")?.message)
+      .toMatch(/PPO₂ is 1\.610 bar, over the 1\.60 bar limit/);
     const oxygenStops = result.value.stops.filter((stop) =>
       Math.abs(stop.depthM - grid.lastStopDepthM) <= 1e-9,
     );
@@ -159,6 +161,29 @@ describe("deterministic decompression scheduling", () => {
     if (!metric.ok) return;
     expect(metric.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(false);
     expect(metric.value.stops.some((stop) => stop.depthM === 6)).toBe(true);
+  });
+
+  it("records oxygen-at-20ft-stop-v1 when the schedule breathes oxygen at 20 ft without a switch depth", () => {
+    const grid = STOP_GRID_PRESETS["10ft"];
+    const oxygen = { ...OXYGEN, switchDepthM: undefined };
+    const result = calculateDivePlan(ocInput({
+      depthM: meters(45),
+      bottomTimeSeconds: seconds(25 * 60),
+      bottomGas: trimix1845,
+      decoGases: [{ ...EAN50, switchDepthM: meters(3 * grid.stopIncrementM) }, oxygen],
+      settings: {
+        ...DEFAULT_PLANNER_SETTINGS,
+        stopIncrementM: grid.stopIncrementM,
+        lastStopDepthM: grid.lastStopDepthM,
+      },
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.segments.some((segment) =>
+      segment.gasId === OXYGEN.id &&
+      Math.abs(segment.endDepthM - grid.lastStopDepthM) <= 1e-9,
+    )).toBe(true);
+    expect(result.value.diagnostics.some((item) => item.code === "OXYGEN_AT_20FT_STOP_POLICY")).toBe(true);
   });
 
   it("blocks a hypoxic OC bottom gas without a breathable travel gas", () => {

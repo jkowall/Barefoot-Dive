@@ -461,7 +461,7 @@ export function PlannerEditor({
           value={draft.conventionId}
         />
         <SegmentedControl
-          hint="Stops and last-stop depth follow this spacing. 3 m is the default. On the 10 ft grid, oxygen at the 20 ft stop is accepted under an explicit policy even though true seawater PPO₂ is slightly over 1.60 bar."
+          hint="Stops and last-stop depth follow this spacing. 3 m is the default. On the 10 ft grid, oxygen at the 20 ft stop is accepted under an explicit policy when PPO₂ is over the 1.60 bar deco limit."
           label="Stop grid"
           onChange={(stopGridId: StopGridId) => onChange(withStopGrid(draft, stopGridId))}
           options={[

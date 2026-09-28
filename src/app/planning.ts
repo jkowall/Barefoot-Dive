@@ -201,8 +201,9 @@ export function planStopIncrementM(draft: Pick<PlanDraft, "stopGridId">): number
 }
 
 /**
- * Switch the plan's stop grid. Last-stop-aligned switch and CCR setpoint depths move with the
- * last stop (6 m ↔ 20 ft); other depths are left unchanged. Default remains 3 m.
+ * Switch the plan's stop grid. Last-stop-aligned deco/bailout switches and CCR setpoint depths
+ * move with the last stop (6 m ↔ 20 ft). Travel-to-bottom, bottom, and diluent switch depths are
+ * exact and never remapped onto the stop grid. Default remains 3 m.
  */
 export function withStopGrid(draft: PlanDraft, stopGridId: StopGridId): PlanDraft {
   if (draft.stopGridId === stopGridId) return draft;
@@ -210,7 +211,8 @@ export function withStopGrid(draft: PlanDraft, stopGridId: StopGridId): PlanDraf
   const next = STOP_GRID_PRESETS[stopGridId];
   const remapDepth = (depthM: number): number =>
     Math.abs(depthM - previousLastStopM) <= 1e-9 ? next.lastStopDepthM : depthM;
-  const remapGas = (gas: GasDraft): GasDraft => {
+  const remapStopAlignedGas = (gas: GasDraft): GasDraft => {
+    if (gas.role !== "deco" && gas.role !== "bailout") return gas;
     if (gas.switchDepthM === undefined) return gas;
     const switchDepthM = remapDepth(gas.switchDepthM);
     return switchDepthM === gas.switchDepthM ? gas : { ...gas, switchDepthM };
@@ -220,11 +222,8 @@ export function withStopGrid(draft: PlanDraft, stopGridId: StopGridId): PlanDraf
     stopGridId,
     setpointActivationDepthM: remapDepth(draft.setpointActivationDepthM),
     setpointDeactivationDepthM: remapDepth(draft.setpointDeactivationDepthM),
-    bottomGas: remapGas(draft.bottomGas),
-    travelGas: remapGas(draft.travelGas),
-    decoGases: draft.decoGases.map(remapGas),
-    diluent: remapGas(draft.diluent),
-    bailoutGases: draft.bailoutGases.map(remapGas),
+    decoGases: draft.decoGases.map(remapStopAlignedGas),
+    bailoutGases: draft.bailoutGases.map(remapStopAlignedGas),
   };
 }
 

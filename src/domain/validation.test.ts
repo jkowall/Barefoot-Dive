@@ -281,6 +281,8 @@ describe("limit diagnostics state the value and the limit", () => {
     const policy = find(result, "OXYGEN_AT_20FT_STOP_POLICY");
     expect(policy?.severity).toBe("info");
     expect(policy?.message).toContain(OXYGEN_AT_20FT_STOP_POLICY.id);
+    expect(policy?.message).toMatch(/PPO₂ is 1\.610 bar, over the 1\.60 bar limit/);
+    expect(policy?.message).not.toMatch(/true seawater|slightly over/);
     expect(policy?.actual).toBeCloseTo(1.6096, 10);
     expect(policy).toMatchObject({ limit: 1.6, depthM: settings.lastStopDepthM, gasId: OXYGEN.id });
     expect(isOxygenAtTwentyFootStop(oxygen, settings.lastStopDepthM, settings)).toBe(true);
