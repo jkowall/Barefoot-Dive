@@ -8,6 +8,11 @@ export type ChartSegmentInput = {
   readonly breathingLabel: string;
   readonly planMode: string;
   readonly setpoint?: number;
+  /**
+   * CCR: the loop PPO₂ (bar) at a runtime inside this segment, from the planner's held setpoint.
+   * Absent on open circuit and on loop segments saved before plans recorded the held setpoint.
+   */
+  readonly loopPPO2At?: (runtimeSeconds: number) => number | undefined;
   readonly endpointCeiling?: number;
 };
 

@@ -1,6 +1,6 @@
 # Profile exposure traces — contracts
 
-**Status:** reviewed on 2026-09-30, outcome **REVISE** (see [Review record](#review-record)); **not** an implementation authorization. Implementation stays blocked until this note is amended as the record requires and the CCR loop-PPO₂ decision (checklist item 2) is made and re-reviewed.\
+**Status:** reviewed on 2026-09-30, outcome **REVISE** (see [Review record](#review-record)); **not** an implementation authorization. The CCR loop-PPO₂ decision (checklist item 2) was made the same day: the planner emits the held setpoint (see [Item 2 decision](#item-2-decision)). Implementation stays blocked until this note is amended as the record requires and the reviewer rechecks it.\
 **Source brief:** [`briefs/profile-exposure-traces.md`](briefs/profile-exposure-traces.md) (ROADMAP Later item 5).  
 **Method id (proposed):** `barefoot-profile-traces-v1`.
 
@@ -241,4 +241,8 @@ Further changes to this note:
 - **§4 Trace identity:** also stamp `conventionVersion`, `coefficientHash`, and `assumptionsHash`, which distinguish revisions with the same engine string.
 - **§5 Failure model:** add `TRACE_LEDGER_MISMATCH`, `CYLINDER_EXHAUSTED`, and a "loop PPO₂ unavailable on ambient-limited leg" code, plus the rule that a rebuilt pressure series that does not reproduce the stored `reserveCrossing` is discarded, not shown.
 
-Next: amend this note, decide item 2, and have the same reviewer recheck the amended sections. The shipped scrub readout already shows the segment's `setpointBar` as "Setpoint", so on ambient-limited legs it can differ from the loop PPO₂ in the way item 2 describes; the item 2 decision should cover that readout too.
+Next: amend this note and have the same reviewer recheck the amended sections. The shipped scrub readout showed the segment's `setpointBar` as "Setpoint", so on ambient-limited legs it could differ from the loop PPO₂ in the way item 2 describes; the item 2 decision below covers that readout too.
+
+### Item 2 decision
+
+**2026-09-30, Jonah: the planner emits the held setpoint.** Every CCR segment carries `heldSetpointBar`, the setpoint its tissue exposure breathed before the depth limit (the new setpoint on an instantaneous switch). The loop PPO₂ at depth d on a segment is `ambientLimitedSetpoint(heldSetpointBar, d, environment)`, and `calculation-model.md` records the contract and where `setpointBar` differs. A segment saved without the field has no loop PPO₂: traces and the readout say it is unavailable and never reconstruct it from `setpointBar`. The field changes no calculated value, so the engine version is unchanged. The shipped readout now shows "Loop PPO₂" from this rule. The §1 CCR rewrite, the item 2 row, and the §5 "unavailable" code still need amending to this contract before the recheck.

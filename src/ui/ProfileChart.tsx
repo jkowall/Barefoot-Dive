@@ -57,6 +57,12 @@ function breathingState(segment: ChartSegmentInput): string {
   return "Open circuit";
 }
 
+/** CCR readout: the loop PPO₂ at the inspected point, or why a saved plan cannot show it. */
+function loopPPO2Text(segment: ChartSegmentInput, runtime: number): string {
+  const value = segment.loopPPO2At?.(runtime);
+  return value === undefined ? "Not recorded; recalculate to show" : `${value.toFixed(2)} bar`;
+}
+
 function boundedRuntimeTicks(ticks: readonly number[], maximum: number): readonly number[] {
   if (maximum <= 0) return [0];
   return [...new Set([
@@ -172,7 +178,7 @@ export function ProfileChart({
         `plan ${selectedSegment.planMode}`,
         breathingState(selectedSegment),
         selectedSegment.breathingLabel,
-        ...(selectedSegment.setpoint === undefined ? [] : [`setpoint ${selectedSegment.setpoint.toFixed(2)} bar`]),
+        ...(selectedSegment.setpoint === undefined ? [] : [`loop PPO₂ ${loopPPO2Text(selectedSegment, selectedRuntime).toLowerCase()}`]),
         ...(endpointCeilingText === undefined ? [] : [
           hasEndpointCeiling
             ? `decompression ceiling at segment end ${endpointCeilingText}`
@@ -226,7 +232,7 @@ export function ProfileChart({
       <span><small>Plan mode</small><strong>{selectedSegment.planMode}</strong></span>
       <span><small>Breathing</small><strong>{breathingState(selectedSegment)}</strong></span>
       <span className="bf-profile__readout-gas"><small>Active gas / loop</small><strong>{selectedSegment.breathingLabel}</strong></span>
-      {selectedSegment.setpoint !== undefined && <span><small>Setpoint</small><strong>{selectedSegment.setpoint.toFixed(2)} bar</strong></span>}
+      {selectedSegment.setpoint !== undefined && <span><small>Loop PPO₂</small><strong>{loopPPO2Text(selectedSegment, selectedRuntime)}</strong></span>}
       {endpointCeilingText !== undefined && <span><small>Ceiling at this segment’s end</small><strong>{endpointCeilingText}</strong></span>}
       {selectedMarkers.length > 0 && <span className="bf-profile__readout-event"><small>Event marker</small><strong>{selectedMarkers.map((marker) => marker.label).join(" · ")}</strong></span>}
     </div>

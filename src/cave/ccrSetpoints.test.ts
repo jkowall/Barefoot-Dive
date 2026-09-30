@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ENVIRONMENT, DEFAULT_PLANNER_SETTINGS, DEFAULT_RESERVE_POLICY, DEFAULT_RMV } from "../domain/defaults";
-import type { CcrDiveInput, Cylinder, Gas } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
+import type { CcrDiveInput, Cylinder, DivePlan, Gas } from "../domain/types";
+import { barAbsolute, barGauge, depthToAmbientPressure, fraction, liters, meters, seconds } from "../domain/units";
+import { setpointAchievableDepth } from "../domain/validation";
+import { exposeTissues, initializeTissues } from "../engine/tissues";
 import { calculateCavePlan, type CavePlanInput, type RouteLeg } from "./index";
 
 const gas = (oxygenPercent: number, heliumPercent: number, id: string, role: Gas["role"], cylinderId: string): Gas => ({
@@ -239,6 +241,38 @@ describe("cave CCR low setpoint and switch-down", () => {
     // (zero inspired inert wherever high exceeds ambient − water vapor).
     expect(shallow.setpointBar).toBeCloseTo(surfaceMax, 9);
     expect(shallow.startDepthM === 0 || shallow.endDepthM === 0).toBe(true);
+    // The held setpoint keeps the high the tissues breathed, so the loop PPO₂ at the deep end is 1.3.
+    expect(shallow.heldSetpointBar).toBe(1.3);
+  });
+
+  it("records the held setpoint the tissues breathed on base and loop-failure plans, and no loop leg crosses its achievable depth", () => {
+    const input = {
+      ...caveInput({ ascentSetpointMode: "ambient-limited-high" }, [leg("surface-entry", 0, 30, ids)], hypoxicDiluent, [bailout], cylinders),
+      scenarios: [{ kind: "ccr-loop-failure" as const, targetLegId: "surface-entry" }],
+    };
+    const result = calculateCavePlan(input);
+    expect(result.ok ? [] : result.errors.map((item) => item.code)).toEqual([]);
+    if (!result.ok) return;
+    const pressureAt = (depthM: number) =>
+      depthToAmbientPressure(meters(depthM), DEFAULT_ENVIRONMENT.surfacePressureBar, DEFAULT_ENVIRONMENT.metersPerBar);
+    const check = (value: DivePlan): number => {
+      let checked = 0;
+      value.segments.forEach((segment, index) => {
+        expect(segment.heldSetpointBar === undefined).toBe(segment.setpointBar === undefined);
+        if (segment.durationSeconds <= 0 || segment.heldSetpointBar === undefined) return;
+        const prior = index === 0 ? initializeTissues(DEFAULT_ENVIRONMENT) : value.segments[index - 1].tissuesAfter;
+        expect(exposeTissues(prior, pressureAt(segment.startDepthM), pressureAt(segment.endDepthM), segment.durationSeconds, { kind: "ccr", diluent: hypoxicDiluent, setpointBar: segment.heldSetpointBar }, DEFAULT_ENVIRONMENT))
+          .toEqual(segment.tissuesAfter);
+        const floor = setpointAchievableDepth(segment.heldSetpointBar, DEFAULT_ENVIRONMENT);
+        expect(Math.min(segment.startDepthM, segment.endDepthM) < floor - 1e-9 && Math.max(segment.startDepthM, segment.endDepthM) > floor + 1e-9).toBe(false);
+        checked += 1;
+      });
+      return checked;
+    };
+    expect(check(result.value.base)).toBeGreaterThan(3);
+    const loopFailure = result.value.scenarios.find((scenario) => scenario.kind === "ccr-loop-failure")?.plan;
+    expect(loopFailure).toBeDefined();
+    expect(check(loopFailure!)).toBeGreaterThan(0);
   });
 });
 

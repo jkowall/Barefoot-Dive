@@ -9,10 +9,10 @@ import {
   OXYGEN,
 } from "../domain/defaults";
 import type { CcrDiveInput, Cylinder, DivePlan, Gas, OcDiveInput } from "../domain/types";
-import { barAbsolute, barGauge, fraction, liters, meters, seconds } from "../domain/units";
-import { isBelowMinimumPPO2 } from "../domain/validation";
+import { barAbsolute, barGauge, depthToAmbientPressure, fraction, liters, meters, seconds } from "../domain/units";
+import { ambientLimitedSetpoint, isBelowMinimumPPO2, setpointAchievableDepth } from "../domain/validation";
 import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from "./planner";
-import { schreinerEquation } from "./tissues";
+import { exposeTissues, initializeTissues, schreinerEquation } from "./tissues";
 import { ZHL16C_N2_HALF_LIFE_MINUTES } from "./zhl16c";
 
 const mix = (oxygenPercent: number, heliumPercent: number, id: string, role: Gas["role"], extra: Partial<Gas> = {}): Gas => ({
@@ -768,5 +768,114 @@ describe("recheck regressions", () => {
     const offGridStops = bailout.stops.filter((stop) => stop.depthM % 3 !== 0);
     expect(offGridStops.map((stop) => stop.depthM)).toEqual([4]);
     expect(bailout.segments.find((segment) => segment.kind === "gas-switch" && segment.gasId === "bo-air")?.startDepthM).toBe(4);
+  });
+});
+
+describe("held setpoint on emitted segments", () => {
+  const ambient = (overrides: Partial<CcrDiveInput> = {}) =>
+    lowCcr({ ascentSetpointMode: "ambient-limited-high", ...overrides });
+  const surfaceMax = DEFAULT_ENVIRONMENT.surfacePressureBar - DEFAULT_ENVIRONMENT.waterVaporPressureBar;
+  const pressureAt = (depthM: number) =>
+    depthToAmbientPressure(meters(depthM), DEFAULT_ENVIRONMENT.surfacePressureBar, DEFAULT_ENVIRONMENT.metersPerBar);
+  const loopAt = (held: number, depthM: number) => ambientLimitedSetpoint(held, depthM, DEFAULT_ENVIRONMENT);
+
+  /**
+   * Re-exposes every timed loop segment from the previous segment's tissues on its held setpoint,
+   * and checks that no loop leg crosses the depth where its held setpoint becomes achievable, so
+   * the loop PPO₂ is min(held, ambient − water vapor) inside the leg as well as at its ends.
+   */
+  function expectTissuesFromHeldSetpoint(value: DivePlan, diluent: Gas = airDiluent): number {
+    let checked = 0;
+    value.segments.forEach((segment, index) => {
+      if (segment.durationSeconds <= 0 || segment.heldSetpointBar === undefined) return;
+      const tissues = exposeTissues(
+        index === 0 ? initializeTissues(DEFAULT_ENVIRONMENT) : value.segments[index - 1].tissuesAfter,
+        pressureAt(segment.startDepthM),
+        pressureAt(segment.endDepthM),
+        segment.durationSeconds,
+        { kind: "ccr", diluent, setpointBar: segment.heldSetpointBar },
+        DEFAULT_ENVIRONMENT,
+      );
+      expect(tissues).toEqual(segment.tissuesAfter);
+      const floor = setpointAchievableDepth(segment.heldSetpointBar, DEFAULT_ENVIRONMENT);
+      const shallow = Math.min(segment.startDepthM, segment.endDepthM);
+      const deep = Math.max(segment.startDepthM, segment.endDepthM);
+      expect(shallow < floor - 1e-9 && deep > floor + 1e-9).toBe(false);
+      checked += 1;
+    });
+    return checked;
+  }
+
+  it("records a held setpoint on exactly the loop segments, and the tissues breathed it", () => {
+    const value = plan(ambient());
+    for (const item of [value, value.bailoutPlan!]) {
+      for (const segment of item.segments) {
+        expect(segment.heldSetpointBar === undefined).toBe(segment.setpointBar === undefined);
+      }
+    }
+    expect(value.bailoutPlan!.segments.some((segment) => segment.setpointBar === undefined)).toBe(true);
+    expect(expectTissuesFromHeldSetpoint(value)).toBeGreaterThan(10);
+    expect(expectTissuesFromHeldSetpoint(value.bailoutPlan!)).toBeGreaterThan(2);
+  });
+
+  it("holds for legacy, leave-to-low, switch-down at the surface, and dil-out plans and their bailouts", () => {
+    const inputs = [
+      ccr(),
+      lowCcr(),
+      ambient({ setpointDeactivationDepthM: meters(0) }),
+      ccr({ bailoutGases: [], diluentBailout: true, diluentPreBailoutUseL: liters(60), cylinders: [cylinder(airDiluent, "dil-cyl", 3, 200, 1.6)], diluent: { ...airDiluent, cylinderId: "dil-cyl" } }),
+    ];
+    for (const input of inputs) {
+      const value = plan(input);
+      const diluent = input.diluent;
+      expect(expectTissuesFromHeldSetpoint(value, diluent)).toBeGreaterThan(2);
+      if (value.bailoutPlan) expectTissuesFromHeldSetpoint(value.bailoutPlan, diluent);
+    }
+  });
+
+  it("keeps the held high setpoint on the final ascent while the loop falls to the surface maximum", () => {
+    const value = plan(ambient());
+    const final = value.segments.filter((segment) => segment.durationSeconds > 0 && segment.endDepthM === 0).at(-1)!;
+    expect(final.kind).toBe("ascent");
+    expect(final.heldSetpointBar).toBe(1.3);
+    expect(final.setpointBar).toBe(1.3);
+    expect(loopAt(final.heldSetpointBar!, final.startDepthM)).toBeCloseTo(1.3, 9);
+    expect(loopAt(final.heldSetpointBar!, 0)).toBeCloseTo(surfaceMax, 9);
+    // The reported setpoint overstates the loop at the surface by the gap the readout used to show.
+    expect(final.setpointBar! - surfaceMax).toBeGreaterThan(0.36);
+  });
+
+  it("holds the new setpoint on an instantaneous switch and the lower one through a timed switch up", () => {
+    const instant = plan(ambient()).segments.find((segment) => segment.kind === "setpoint-switch" && segment.setpointBar === 1.3)!;
+    expect(instant.durationSeconds).toBe(0);
+    expect(instant.heldSetpointBar).toBe(1.3);
+    const timedPlan = plan(ambient({ settings: { ...DEFAULT_PLANNER_SETTINGS, conventionId: "shearwater-petrel3-v103-compatible-v1" } }));
+    const timed = timedPlan.segments.find((segment) => segment.kind === "setpoint-switch" && segment.setpointBar === 1.3)!;
+    expect(timed.durationSeconds).toBe(5);
+    expect(timed.heldSetpointBar).toBe(0.7);
+    expect(expectTissuesFromHeldSetpoint(timedPlan)).toBeGreaterThan(10);
+  });
+
+  it("holds the high setpoint on an ambient-limited exit whose reported setpoint is the shallow end", () => {
+    const high = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(1.3) };
+    const low = { kind: "ccr" as const, diluent: airDiluent, setpointBar: barAbsolute(0.7) };
+    const boundary = (1.3 + DEFAULT_ENVIRONMENT.waterVaporPressureBar - DEFAULT_ENVIRONMENT.surfacePressureBar) *
+      DEFAULT_ENVIRONMENT.metersPerBar;
+    const events: ExposureEvent[] = [
+      { id: "descent", kind: "descent", startDepthM: meters(0), endDepthM: meters(30), durationSeconds: seconds(180), gas: airDiluent, strategy: low },
+      { id: "bottom", kind: "bottom", startDepthM: meters(30), endDepthM: meters(30), durationSeconds: seconds(5 * 60), gas: airDiluent, strategy: high },
+      { id: "exit-deep", kind: "exit", startDepthM: meters(30), endDepthM: meters(boundary), durationSeconds: seconds(120), gas: airDiluent, strategy: high },
+      { id: "exit-shallow", kind: "exit", startDepthM: meters(boundary), endDepthM: meters(0), durationSeconds: seconds(60), gas: airDiluent, strategy: high },
+    ];
+    const result = calculateEventDivePlan(ambient(), events);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const shallowExit = result.value.segments.find((segment) => segment.kind === "exit" && segment.endDepthM === 0)!;
+    expect(shallowExit.setpointBar).toBeCloseTo(surfaceMax, 9);
+    expect(shallowExit.heldSetpointBar).toBe(1.3);
+    // The reported setpoint understates the loop everywhere but the surface; the held one does not.
+    expect(loopAt(shallowExit.heldSetpointBar!, boundary)).toBeCloseTo(1.3, 9);
+    expect(loopAt(shallowExit.heldSetpointBar!, 0)).toBeCloseTo(surfaceMax, 9);
+    expect(expectTissuesFromHeldSetpoint(result.value)).toBeGreaterThan(3);
   });
 });

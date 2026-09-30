@@ -183,6 +183,9 @@ function appendExposure(
   const reportedStrategy = strategy.kind === "ccr" && displaySetpointBar !== undefined
     ? { ...strategy, setpointBar: displaySetpointBar }
     : strategy;
+  // The held setpoint is the one the tissues breathed; an instantaneous switch exposes nothing,
+  // so it holds the new setpoint.
+  const heldStrategy = durationSeconds > 0 ? exposureStrategy : strategy;
   const segment: ProfileSegment = {
     id: `segment-${state.segments.length + 1}`,
     kind,
@@ -193,6 +196,7 @@ function appendExposure(
     gasId: gas.id,
     gasName: strategyLabel(reportedStrategy, gas),
     ...(reportedStrategy.kind === "ccr" ? { setpointBar: reportedStrategy.setpointBar } : {}),
+    ...(reportedStrategy.kind === "ccr" && heldStrategy.kind === "ccr" ? { heldSetpointBar: heldStrategy.setpointBar } : {}),
     gf,
     ceilingDepthM: ceiling.depthM,
     tissuesAfter: tissues,

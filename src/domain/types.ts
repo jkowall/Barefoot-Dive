@@ -160,6 +160,19 @@ export type ProfileSegment = {
   readonly gasId: string;
   readonly gasName: string;
   readonly setpointBar?: BarAbsolute;
+  /**
+   * CCR only: the setpoint the loop holds on this segment before the depth limit, as the tissue
+   * model breathed it. The loop PPO₂ at depth d on the segment is
+   * `ambientLimitedSetpoint(heldSetpointBar, d, environment)`, min(held, ambient − water vapor),
+   * except with a pure-oxygen diluent, which the model breathes as oxygen at ambient pressure
+   * whatever the setpoint. Planner and Cave legs never cross the depth where the held setpoint
+   * becomes achievable; an explicit event plan from another caller could.
+   * It differs from `setpointBar` on ambient-limited Cave exits, where `setpointBar` reports the
+   * shallow end, and on a timed switch to a higher setpoint, which is modeled on the lower one for
+   * the switch time. An instantaneous switch holds the new setpoint. Absent on segments calculated
+   * before plans recorded it.
+   */
+  readonly heldSetpointBar?: BarAbsolute;
   readonly gf: Fraction;
   readonly ceilingDepthM: Meters;
   readonly tissuesAfter: TissueState;
