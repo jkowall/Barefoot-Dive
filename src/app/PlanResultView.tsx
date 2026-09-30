@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { DivePlan, EnvironmentSettings, GasLedgerEntry } from "../domain/types";
+import type { DivePlan, DivePlanInput, GasLedgerEntry } from "../domain/types";
 import {
   GasLedger,
   Panel,
@@ -47,7 +47,7 @@ function warningsFor(plan: DivePlan, preferences: UnitPreferences): readonly War
 function profileSegments(
   plan: DivePlan,
   preferences: UnitPreferences,
-  environment: EnvironmentSettings | undefined,
+  input: DivePlanInput | undefined,
 ): readonly ChartSegmentInput[] {
   return plan.segments.map((segment) => ({
     id: segment.id,
@@ -60,8 +60,8 @@ function profileSegments(
     breathingLabel: segment.gasName,
     planMode: plan.mode === "oc" ? "Open circuit" : "CCR",
     ...(segment.setpointBar === undefined ? {} : { setpoint: segment.setpointBar }),
-    ...(environment === undefined || segment.heldSetpointBar === undefined ? {} : {
-      loopPPO2At: (runtimeSeconds: number) => loopPPO2AtRuntime(segment, runtimeSeconds, environment),
+    ...(input === undefined || segment.heldSetpointBar === undefined ? {} : {
+      loopPPO2At: (runtimeSeconds: number) => loopPPO2AtRuntime(segment, runtimeSeconds, input),
     }),
   }));
 }
@@ -167,10 +167,10 @@ function ReviewGasIncludes({
   </ul>;
 }
 
-function ScheduleAndLedger({ plan, preferences, environment, title, compact = false }: {
+function ScheduleAndLedger({ plan, preferences, input, title, compact = false }: {
   readonly plan: DivePlan;
   readonly preferences: UnitPreferences;
-  readonly environment: EnvironmentSettings | undefined;
+  readonly input: DivePlanInput | undefined;
   readonly title: string;
   readonly compact?: boolean;
 }) {
@@ -193,7 +193,7 @@ function ScheduleAndLedger({ plan, preferences, environment, title, compact = fa
       <ProfileChart
         key={`${plan.id}-${preferences.depth}`}
         reserveCrossings={profileReserveCrossings(plan, preferences)}
-        segments={profileSegments(plan, preferences, environment)}
+        segments={profileSegments(plan, preferences, input)}
         title={`${title} profile timeline`}
         unit={depthUnit(preferences.depth)}
       />
@@ -220,7 +220,7 @@ function ScheduleAndLedger({ plan, preferences, environment, title, compact = fa
 
 export function PlanResultView({
   plan,
-  environmentSettings,
+  calculatedInput,
   preferences,
   stale = false,
   onSave,
@@ -233,8 +233,8 @@ export function PlanResultView({
   attentionDiagnostics,
 }: {
   readonly plan?: DivePlan;
-  /** The environment the plan was calculated with; the profile needs it for the CCR loop PPO₂. */
-  readonly environmentSettings: EnvironmentSettings | undefined;
+  /** The input the plan was calculated with; the profile needs its environment and diluent for the CCR loop PPO₂. */
+  readonly calculatedInput: DivePlanInput | undefined;
   readonly preferences: UnitPreferences;
   readonly stale?: boolean;
   readonly onSave?: () => void;
@@ -293,7 +293,7 @@ export function PlanResultView({
         </div>
       </Panel>
       <WarningList items={warningsFor(plan, preferences)} title="Plan diagnostics" />
-      <ScheduleAndLedger compact={compact} environment={environmentSettings} plan={plan} preferences={preferences} title="Primary" />
+      <ScheduleAndLedger compact={compact} input={calculatedInput} plan={plan} preferences={preferences} title="Primary" />
       {plan.bailoutPlan && <>
         <Panel eyebrow="Exact trigger tissue state" title="CCR bailout plan">
           <div className="bf-metric-grid">
@@ -308,7 +308,7 @@ export function PlanResultView({
           </div>
         </Panel>
         <WarningList items={warningsFor(plan.bailoutPlan, preferences)} title="Bailout diagnostics" />
-        <ScheduleAndLedger compact={compact} environment={environmentSettings} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
+        <ScheduleAndLedger compact={compact} input={calculatedInput} plan={plan.bailoutPlan} preferences={preferences} title="Bailout" />
       </>}
     </>}
   </section>;

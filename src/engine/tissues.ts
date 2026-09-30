@@ -103,6 +103,20 @@ function inertInspiredPressure(
   ];
 }
 
+/**
+ * Loop PPO₂ the tissue model breathes on a CCR strategy at an ambient pressure: dry ambient
+ * pressure less the inspired inert pressure. That is min(setpoint, ambient − water vapor), or
+ * oxygen at dry ambient pressure with a pure-oxygen diluent, whatever the setpoint.
+ */
+export function loopPPO2(
+  strategy: Extract<BreathingStrategy, { kind: "ccr" }>,
+  ambientPressureBar: BarAbsolute,
+  environment: EnvironmentSettings,
+): BarAbsolute {
+  const [nitrogen, helium] = inertInspiredPressure(strategy, ambientPressureBar, environment);
+  return barAbsolute(Math.max(0, ambientPressureBar - environment.waterVaporPressureBar) - nitrogen - helium);
+}
+
 export function exposeTissues(
   state: TissueState,
   startAmbientPressureBar: BarAbsolute,
