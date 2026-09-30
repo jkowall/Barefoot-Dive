@@ -42,18 +42,19 @@ References are to `main` at `ee16534` (0.8.0). `src/ui/ProfileChart.tsx` and `sr
    Record this in `design.md`.
 5. **A readout that never moves.**
    - Always render the Event cell, with the ledger's empty-cell placeholder (`—`) when the selection is not on an event.
-   - Keep the set of cells fixed for a plan: Setpoint for CCR only, Ceiling always.
+   - Keep the set of cells fixed for a plan: Loop PPO₂ for CCR only, Ceiling always.
    - Drop the Breathing cell for open-circuit plans only. CCR plans keep it, because it separates loop from open-circuit bailout.
    - On phones, lay the cells out in two columns.
    - Scrubbing must never change the readout's height.
 6. **Ceiling note.** Replace the paragraph with one sentence: "Amber marker: the model's ceiling at the end of the inspected segment, a checkpoint rather than a continuous line."
-7. **Unchanged.** What the chart draws from the plan: segments, event markers, the ceiling checkpoint, scrubbing, and `aria-valuetext`. The Setpoint cell keeps its value source and label. The 2026-09-30 review of `documentation/profile-exposure-traces.md` found that a segment's `setpointBar` can differ from the loop PPO₂ on ambient-limited CCR legs; that decision belongs to the traces work, so do not relabel or recompute the cell here. Add no animation.
+7. **Unchanged.** What the chart draws from the plan: segments, event markers, the ceiling checkpoint, scrubbing, and `aria-valuetext`. The Loop PPO₂ cell keeps its label and value source: the segment's `loopPPO2At` from the held setpoint, or "Not recorded; recalculate to show" for a saved plan without it (see `documentation/calculation-model.md`). Add no animation.
 
 ## Out of scope
 
 - Continuous traces (PPO₂, GF, tissues, cylinder pressure, CNS). They are covered by `profile-exposure-traces.md` and its contract review.
 - The CCR bailout comparison (`ccr-bailout-comparison.md`) and anything in `src/app/PlanResultView.tsx`.
 - `src/styles/layout.css` (the Cave timeline), and any change under `src/engine`, `src/gas`, `src/domain`, `src/calculations`, `src/cave`, or `src/storage`.
+- The "Active gas / loop" text, which is the engine's `gasName`. On an ambient-limited Cave exit it names the shallow end's reported setpoint ("CCR 1.14") while the Loop PPO₂ cell rises to the held 1.30 bar along the leg. Changing that label is engine output work.
 
 ## Owned paths
 

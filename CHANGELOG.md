@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The CCR profile readout shows the loop PPO₂ at the inspected depth instead of the setpoint. Near the surface on an ambient-limited ascent the loop cannot hold the high setpoint: at 5 ft on the default CCR draft it now reads 1.09 bar, where it showed "Setpoint 1.30 bar", and on ambient-limited Cave exits it no longer understates the loop on the deeper part of the leg. Plans now record each loop segment's held setpoint; the calculation and the engine version are unchanged. Saved plans calculated before this change show "Not recorded" until recalculated.
+
 ## [0.8.0] - 2026-09-28
 
 Calculation engine `barefoot-dive-engine-0.4.0`. Plans without the new CCR bailout fields keep the engine 0.3.0 bailout ledger and schedule; leave-to-low CCR inputs without `ascentSetpointMode` keep the 0.3.0 ascent schedule. Opted-in bailout modes, problem-solving time, and ambient-limited ascent change gas use or schedules as described below. Saved revisions stamped with an older engine version still show the older-engine notice.

@@ -868,6 +868,7 @@ export default function PlanPage({
         ? <CompletionNotice containerRef={completionRef} description={completion.description} key={completion.revision} label={completion.label} />
         : undefined}
       onSave={calculatedIsCurrent ? () => setSaveOpen(true) : undefined}
+      calculatedInput={calculatedIsCurrent ? session.calculated?.input : undefined}
       onToggleReviewGas={toggleReviewGas}
       plan={calculatedIsCurrent ? session.calculated?.plan : undefined}
       preferences={preferences}

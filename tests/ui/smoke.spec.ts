@@ -391,13 +391,13 @@ test("exposes distinct CCR primary and bailout profile scrubbers", async ({ page
   await primary.focus();
   let setpointText = await primary.getAttribute("aria-valuetext") ?? "";
   // The loop is closed on the low setpoint from the surface, then switches up.
-  expect(setpointText).toContain("setpoint 0.70 bar");
-  for (let index = 0; index < 12 && !setpointText.includes("setpoint 1.30 bar"); index += 1) {
+  expect(setpointText).toContain("loop PPO₂ 0.70 bar");
+  for (let index = 0; index < 12 && !setpointText.includes("loop PPO₂ 1.30 bar"); index += 1) {
     await page.keyboard.press("ArrowRight");
     setpointText = await primary.getAttribute("aria-valuetext") ?? "";
   }
   expect(setpointText).toContain("plan CCR");
-  expect(setpointText).toContain("setpoint 1.30 bar");
+  expect(setpointText).toContain("loop PPO₂ 1.30 bar");
   await expect(bailout).toHaveAttribute("aria-valuetext", /plan CCR/i);
 });
 test("requires the pre-bailout diluent use and bails out onto the diluent when dil-out is the only bailout gas", async ({ page }) => {

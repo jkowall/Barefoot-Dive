@@ -258,6 +258,22 @@ describe("Tank Bank record quarantine", () => {
 });
 
 describe("SavedPlansStore", () => {
+  it("keeps a segment's held setpoint and still reads segments saved without one", () => {
+    const storage = new MemoryStorage(); const store = new SavedPlansStore(sequentialOptions(storage));
+    const segment = { id: "segment-1", kind: "ascent", startRuntimeSeconds: 0, durationSeconds: 60, startDepthM: 3.6, endDepthM: 0, gasId: "dil", gasName: "CCR 1.30 / Air", setpointBar: 1.3, gf: 0.7, ceilingDepthM: 0, tissuesAfter: { compartments: [] } };
+    const current = { ...plan, mode: "ccr", segments: [{ ...segment, heldSetpointBar: 1.3 }] } as unknown as DivePlan;
+    const older = { ...plan, mode: "ccr", segments: [segment] } as unknown as DivePlan;
+    const saved = store.create({ title: "Current CCR", normalizedInputSnapshot: input, calculatedPlan: current });
+    const legacy = store.create({ title: "Older CCR", normalizedInputSnapshot: input, calculatedPlan: older });
+    expect(saved.ok && legacy.ok).toBe(true);
+    if (!saved.ok || !legacy.ok) return;
+    const reread = new SavedPlansStore(sequentialOptions(storage));
+    const readCurrent = reread.get(saved.value.id);
+    const readOlder = reread.get(legacy.value.id);
+    expect(readCurrent.ok && readCurrent.value?.calculatedPlan.segments[0].heldSetpointBar).toBe(1.3);
+    expect(readOlder.ok && readOlder.value?.calculatedPlan.segments[0]).toEqual(segment);
+    expect(readOlder.ok && "heldSetpointBar" in readOlder.value!.calculatedPlan.segments[0]).toBe(false);
+  });
   it("stores immutable snapshots and creates a new revision on recalculate", () => {
     const store = new SavedPlansStore(options(new MemoryStorage()));
     const created = store.create({ title: "Deep plan", normalizedInputSnapshot: input, calculatedPlan: plan });

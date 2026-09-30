@@ -778,8 +778,8 @@ export default function CavePage({
         </div> : <p>No failure scenarios selected.</p>}
         {caveScenarioKinds(draft.mode).filter((kind) => enabledScenarios.includes(kind) && !scenarioApplicabilities[kind].applicable).map((kind) => <p className="bf-scenario-editor__reason" key={kind}>{scenarioLabel(kind)} is not calculated: the route has {kind === "scooter-failure" ? "no scooter leg" : "no leg that drops or recovers a stage"}.</p>)}
       </Panel>
-      <PlanResultView compact plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
-      {scenarioResult?.plan && <PlanResultView compact plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}
+      <PlanResultView compact calculatedInput={calculated.input.dive} plan={calculated.result.base} preferences={preferences} title="Base cave plan" />
+      {scenarioResult?.plan && <PlanResultView compact calculatedInput={calculated.input.dive} plan={scenarioResult.plan} preferences={preferences} title={`${scenarioLabel(scenarioResult.kind)} plan`} />}
     </section> : <Panel eyebrow={statusLabel[status]} title="Cave review unavailable">
       <p>{statusDescription[status]}</p>
     </Panel>}

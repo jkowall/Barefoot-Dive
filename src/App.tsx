@@ -194,6 +194,7 @@ function SavedPlanDetail({
       </Panel>
     </>}
     <PlanResultView
+      calculatedInput={record.normalizedInputSnapshot}
       plan={record.calculatedPlan}
       preferences={preferences}
       title={record.caveResultSnapshot ? "Stored base decompression output" : "Stored calculated output"}

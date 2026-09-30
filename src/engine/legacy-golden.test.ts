@@ -6,8 +6,13 @@ import { calculateDivePlan, calculateEventDivePlan, type ExposureEvent } from ".
 import { calculateCavePlan, type CavePlanInput } from "../cave";
 import { DEFAULT_PLAN_DRAFT, resolvePlanInput } from "../app/planning";
 
+/**
+ * Segments later gained `heldSetpointBar`, an added field that changes no calculated value.
+ * Leaving it out keeps these digests on the fields engine 0.1.0 emitted; setpoints.test.ts
+ * covers the field itself.
+ */
 function hash(value: unknown): string {
-  const text = JSON.stringify(value);
+  const text = JSON.stringify(value, (key, item: unknown) => key === "heldSetpointBar" ? undefined : item);
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193); }
   return (h >>> 0).toString(16).padStart(8, "0");
