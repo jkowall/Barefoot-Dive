@@ -60,4 +60,4 @@ Emergency Gas has a stricter flow. The user enters an explicit ascent/stop sched
 
 ## Local/offline and native flow
 
-The PWA service worker serves the built assets after installation. Capacitor shells serve the same local bundle. Tank Bank and saved plans read/write browser/WebView `localStorage`. There is no account check, network calculation, sync, analytics, subscription, signing, store submission, or deployment flow.
+The PWA service worker serves the built assets after installation. Capacitor shells serve the same local bundle. Tank Bank and saved plans read/write browser/WebView `localStorage`. There is no account check, network calculation, sync, application analytics, subscription, signing, store submission, or deployment flow. The hosted web domain's edge-injected Cloudflare Web Analytics beacon is outside the bundle and is not present in the native shells.

@@ -33,7 +33,7 @@ Focused suites are available with `npm run verify:deco`, `npm run verify:gas`, `
 
 ## Data, safety, and trust boundaries
 
-The app runs calculations locally in the browser or native WebView and stores Tank Bank and saved-plan data in `localStorage`. It has no accounts, authentication, network calculation service, analytics, subscriptions, provider credentials, or bundled secrets. Clearing browser/app storage removes local data; snapshots are not a cloud backup.
+The app runs calculations locally in the browser or native WebView and stores Tank Bank and saved-plan data in `localStorage`. It has no accounts, authentication, network calculation service, bundled analytics, subscriptions, provider credentials, or bundled secrets. The hosted web domain uses Cloudflare Web Analytics, which Cloudflare injects at the edge to count page views; it receives no plan, Tank Bank, or calculation data, and the native shells do not load it. Clearing browser/app storage removes local data; snapshots are not a cloud backup.
 
 Outputs are decision support. Analyze gases with appropriate equipment, verify assumptions and final readings, and have a qualified diver review the plan. Public web availability does not establish decompression, CNS, bailout, reserve, or cave-procedure safety or parity with a computer/planner. See [`documentation/reference-validation.md`](documentation/reference-validation.md) for the current evidence boundary.
 
