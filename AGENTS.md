@@ -31,7 +31,7 @@ All output is decision support. Passing tests does not establish decompression s
 - Vanilla mobile-first CSS: `src/index.css` imports the sectioned token, base, shell, controls, layout, results, profile, pages, and motion files in `src/styles/`
 - Versioned local persistence through `src/storage`; there is no backend
 
-There are no accounts, analytics, subscriptions, calculation services, provider credentials, or network calculation dependencies.
+There are no accounts, bundled analytics, subscriptions, calculation services, provider credentials, or network calculation dependencies. The hosted web domain uses Cloudflare Web Analytics, injected at the edge; keep its CSP allowance limited to the two `cloudflareinsights.com` hosts in `public/_headers`.
 
 ## Repository structure
 

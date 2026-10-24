@@ -38,7 +38,7 @@ The interactive profile is a display of already calculated segment, stop, switch
 
 ## Product constraints
 
-- Local-only browser/native execution; no accounts, network service, analytics, subscriptions, provider credentials, or secrets.
+- Local-only browser/native execution; no accounts, network service, bundled analytics, subscriptions, provider credentials, or secrets. The hosted web domain uses edge-injected Cloudflare Web Analytics for page views only.
 - Local persistence uses `localStorage`; it is not backup or synchronization.
 - Preserve auditable snapshots and explicit engine metadata when changing calculations.
 - Keep the decompression and gas modules deterministic, unit-safe, and independent of React UI.

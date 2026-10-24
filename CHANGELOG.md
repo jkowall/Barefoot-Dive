@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The web Content-Security-Policy now allows Cloudflare Web Analytics (`https://static.cloudflareinsights.com` for the beacon script and `https://cloudflareinsights.com` for its reports), which it previously blocked. The beacon is injected by Cloudflare on the hosted domain only and receives no plan data.
 - The CCR profile readout shows the loop PPO₂ at the inspected depth instead of the setpoint. Near the surface on an ambient-limited ascent the loop cannot hold the high setpoint: at 5 ft on the default CCR draft it now reads 1.09 bar, where it showed "Setpoint 1.30 bar", and on ambient-limited Cave exits it no longer understates the loop on the deeper part of the leg. Plans now record each loop segment's held setpoint; the calculation and the engine version are unchanged. Saved plans calculated before this change show "Not recorded" until recalculated.
 
 ## [0.8.0] - 2026-09-28

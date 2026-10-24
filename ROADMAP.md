@@ -90,7 +90,7 @@ Entry gate: current cave semantics first pass qualified review, and observed pla
 
 ## Explicitly out of scope
 
-The product boundary excludes a backend, server-side persistence, accounts or authentication, cloud sync, shared-plan collaboration, remote calculation services, analytics or tracking, subscriptions or payments, and device linking. Calculations, planning data, and persistence remain on-device. Static web hosting and native packaging do not change this boundary.
+The product boundary excludes a backend, server-side persistence, accounts or authentication, cloud sync, shared-plan collaboration, remote calculation services, analytics or tracking, subscriptions or payments, and device linking. Calculations, planning data, and persistence remain on-device. Static web hosting and native packaging do not change this boundary. The one hosting-level exception is Cloudflare Web Analytics on the web domain, which counts page views from an edge-injected beacon and receives no planning data.
 
 Changing this boundary would require replacing this roadmap through an explicit product decision plus privacy, security, data-migration, offline-conflict, and operating-cost analysis. No connected capability is authorized, planned, or required by any item here.
 
